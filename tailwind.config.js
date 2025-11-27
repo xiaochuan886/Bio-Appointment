@@ -59,13 +59,26 @@ export default {
                     DEFAULT: 'hsl(var(--card))',
                     foreground: 'hsl(var(--card-foreground))'
                 },
-                education: {
-                    blue: 'hsl(var(--education-blue))',
-                    green: 'hsl(var(--education-green))'
+                urgent: {
+                    DEFAULT: 'hsl(var(--urgent))',
+                    foreground: 'hsl(var(--urgent-foreground))'
                 },
-                success: 'hsl(var(--success))',
-                warning: 'hsl(var(--warning))',
-                info: 'hsl(var(--info))',
+                pending: {
+                    DEFAULT: 'hsl(var(--pending))',
+                    foreground: 'hsl(var(--pending-foreground))'
+                },
+                scheduled: {
+                    DEFAULT: 'hsl(var(--scheduled))',
+                    foreground: 'hsl(var(--scheduled-foreground))'
+                },
+                confirmed: {
+                    DEFAULT: 'hsl(var(--confirmed))',
+                    foreground: 'hsl(var(--confirmed-foreground))'
+                },
+                completed: {
+                    DEFAULT: 'hsl(var(--completed))',
+                    foreground: 'hsl(var(--completed-foreground))'
+                },
                 sidebar: {
                     DEFAULT: 'hsl(var(--sidebar-background))',
                     foreground: 'hsl(var(--sidebar-foreground))',
