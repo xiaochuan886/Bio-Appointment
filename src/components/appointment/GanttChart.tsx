@@ -1,5 +1,7 @@
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { format, startOfWeek, endOfWeek, eachDayOfInterval, startOfMonth, endOfMonth, isSameDay, parseISO } from 'date-fns';
+import { zhCN } from 'date-fns/locale';
 import type { ScheduleWithDetails, Nurse, Room } from '@/types/types';
 
 export type ViewMode = 'day' | 'week' | 'month';
@@ -105,6 +107,227 @@ export default function GanttChart({
     return rows;
   };
 
+  // 获取指定日期的排班数量
+  const getScheduleCountForDate = (date: Date) => {
+    const dateStr = format(date, 'yyyy-MM-dd');
+    return schedules.filter(s => s.scheduled_date === dateStr).length;
+  };
+
+  // 周视图渲染
+  if (viewMode === 'week') {
+    const currentDate = parseISO(selectedDate);
+    const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 }); // 周一开始
+    const weekEnd = endOfWeek(currentDate, { weekStartsOn: 1 });
+    const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd });
+
+    return (
+      <div className="space-y-6">
+        <div>
+          <h3 className="text-lg font-semibold mb-4">周视图 - 房间排班</h3>
+          <Card className="p-4">
+            <div className="grid grid-cols-8 gap-2">
+              {/* 表头 */}
+              <div className="font-medium text-center py-2">房间</div>
+              {weekDays.map(day => (
+                <div key={day.toISOString()} className="font-medium text-center py-2">
+                  <div className="text-sm">{format(day, 'EEE', { locale: zhCN })}</div>
+                  <div className="text-xs text-muted-foreground">{format(day, 'M/d')}</div>
+                </div>
+              ))}
+
+              {/* 房间行 */}
+              {rooms.map(room => (
+                <div key={room.id} className="contents">
+                  <div className="border-t py-3 px-2 font-medium">
+                    {room.name}
+                    <div className="text-xs text-muted-foreground">{getRoomTypeLabel(room.room_type)}</div>
+                  </div>
+                  {weekDays.map(day => {
+                    const dateStr = format(day, 'yyyy-MM-dd');
+                    const daySchedules = schedules.filter(
+                      s => s.scheduled_date === dateStr && s.room_id === room.id
+                    );
+                    const isToday = isSameDay(day, currentDate);
+
+                    return (
+                      <div
+                        key={day.toISOString()}
+                        className={`border-t py-3 px-2 text-center ${
+                          isToday ? 'bg-primary/10' : ''
+                        }`}
+                      >
+                        {daySchedules.length > 0 ? (
+                          <div className="space-y-1">
+                            <div className="text-lg font-semibold text-primary">
+                              {daySchedules.length}
+                            </div>
+                            <div className="text-xs text-muted-foreground">个排班</div>
+                          </div>
+                        ) : (
+                          <div className="text-muted-foreground">-</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+
+        <div>
+          <h3 className="text-lg font-semibold mb-4">周视图 - 护士排班</h3>
+          <Card className="p-4">
+            <div className="grid grid-cols-8 gap-2">
+              {/* 表头 */}
+              <div className="font-medium text-center py-2">护士</div>
+              {weekDays.map(day => (
+                <div key={day.toISOString()} className="font-medium text-center py-2">
+                  <div className="text-sm">{format(day, 'EEE', { locale: zhCN })}</div>
+                  <div className="text-xs text-muted-foreground">{format(day, 'M/d')}</div>
+                </div>
+              ))}
+
+              {/* 护士行 */}
+              {nurses.map(nurse => (
+                <div key={nurse.id} className="contents">
+                  <div className="border-t py-3 px-2 font-medium">{nurse.name}</div>
+                  {weekDays.map(day => {
+                    const dateStr = format(day, 'yyyy-MM-dd');
+                    const daySchedules = schedules.filter(
+                      s => s.scheduled_date === dateStr && s.nurse_id === nurse.id
+                    );
+                    const isToday = isSameDay(day, currentDate);
+
+                    return (
+                      <div
+                        key={day.toISOString()}
+                        className={`border-t py-3 px-2 text-center ${
+                          isToday ? 'bg-primary/10' : ''
+                        }`}
+                      >
+                        {daySchedules.length > 0 ? (
+                          <div className="space-y-1">
+                            <div className="text-lg font-semibold text-primary">
+                              {daySchedules.length}
+                            </div>
+                            <div className="text-xs text-muted-foreground">个排班</div>
+                          </div>
+                        ) : (
+                          <div className="text-muted-foreground">-</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  // 月视图渲染
+  if (viewMode === 'month') {
+    const currentDate = parseISO(selectedDate);
+    const monthStart = startOfMonth(currentDate);
+    const monthEnd = endOfMonth(currentDate);
+    const monthDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
+
+    // 按周分组
+    const weeks: Date[][] = [];
+    let currentWeek: Date[] = [];
+    
+    monthDays.forEach((day, index) => {
+      if (index === 0) {
+        // 第一周，填充前面的空白
+        const dayOfWeek = day.getDay();
+        const offset = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // 周一为0
+        for (let i = 0; i < offset; i++) {
+          currentWeek.push(new Date(0)); // 使用无效日期作为占位符
+        }
+      }
+      
+      currentWeek.push(day);
+      
+      if (currentWeek.length === 7) {
+        weeks.push(currentWeek);
+        currentWeek = [];
+      }
+    });
+    
+    // 最后一周，填充后面的空白
+    if (currentWeek.length > 0) {
+      while (currentWeek.length < 7) {
+        currentWeek.push(new Date(0));
+      }
+      weeks.push(currentWeek);
+    }
+
+    return (
+      <div className="space-y-6">
+        <div>
+          <h3 className="text-lg font-semibold mb-4">
+            月视图 - {format(currentDate, 'yyyy年M月', { locale: zhCN })}
+          </h3>
+          <Card className="p-4">
+            <div className="space-y-2">
+              {/* 星期表头 */}
+              <div className="grid grid-cols-7 gap-2">
+                {['周一', '周二', '周三', '周四', '周五', '周六', '周日'].map(day => (
+                  <div key={day} className="text-center font-medium py-2 text-sm">
+                    {day}
+                  </div>
+                ))}
+              </div>
+
+              {/* 日期网格 */}
+              {weeks.map((week, weekIndex) => (
+                <div key={weekIndex} className="grid grid-cols-7 gap-2">
+                  {week.map((day, dayIndex) => {
+                    const isValid = day.getTime() > 0;
+                    const isToday = isValid && isSameDay(day, currentDate);
+                    const scheduleCount = isValid ? getScheduleCountForDate(day) : 0;
+
+                    return (
+                      <div
+                        key={dayIndex}
+                        className={`border rounded-lg p-3 min-h-[80px] ${
+                          !isValid
+                            ? 'bg-muted/20'
+                            : isToday
+                            ? 'bg-primary/10 border-primary'
+                            : 'hover:bg-muted/50'
+                        }`}
+                      >
+                        {isValid && (
+                          <>
+                            <div className="text-sm font-medium mb-2">
+                              {format(day, 'd')}
+                            </div>
+                            {scheduleCount > 0 && (
+                              <div className="space-y-1">
+                                <div className="text-xs bg-primary text-primary-foreground rounded px-2 py-1 text-center">
+                                  {scheduleCount} 个排班
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  // 日视图渲染（原有逻辑）
   return (
     <div className="space-y-6">
       <div>
