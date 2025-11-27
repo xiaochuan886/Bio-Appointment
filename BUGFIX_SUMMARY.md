@@ -3,15 +3,16 @@
 ## 📋 修复概览
 
 **修复日期**：2025-11-27  
-**修复版本**：v1.1  
+**修复版本**：v1.2  
 **修复状态**：✅ 全部完成
 
-本次修复解决了Bio-Appointment智能预约调度系统中的四个关键问题：
+本次修复解决了Bio-Appointment智能预约调度系统中的五个关键问题：
 
 1. ✅ 系统配置功能无法正常工作
 2. ✅ 护士长排班时护士选择下拉框为空
 3. ✅ 排班保存时数据库外键约束错误
 4. ✅ 智能排班页面加载数据失败
+5. ✅ 修正时长输入报错（类型验证错误）
 
 ---
 
@@ -283,6 +284,87 @@ catch (error) {
 
 ---
 
+## 🐛 Bug #5: 修正时长输入报错
+
+### 问题描述
+- 护士长在排班时修改"修正时长"字段
+- 输入数字后系统报错："Expected string, received number"
+- 无法保存排班信息
+
+### 根本原因
+表单验证schema和实际输入类型不匹配：
+- Schema定义：`adjusted_duration: z.string().optional()` （期望字符串）
+- Input组件：`type="number"` （返回数字）
+- onChange处理：`parseInt(e.target.value)` （转换为数字）
+- 类型冲突导致验证失败
+
+### 修复方案
+
+#### 1. 修改Schema定义
+
+**文件**：`src/pages/head-nurse/SchedulePage.tsx`
+
+```typescript
+// 修改前
+adjusted_duration: z.string().optional()
+
+// 修改后
+adjusted_duration: z.number().optional()
+```
+
+#### 2. 修改表单初始化
+
+```typescript
+// 修改前
+adjusted_duration: estimatedDuration.toString()
+
+// 修改后
+adjusted_duration: estimatedDuration
+```
+
+#### 3. 改进Input组件
+
+```typescript
+// 修改前
+<Input 
+  type="number" 
+  {...field} 
+  onChange={(e) => field.onChange(parseInt(e.target.value))}
+/>
+
+// 修改后
+<Input 
+  type="number" 
+  value={field.value || ''}
+  onChange={(e) => {
+    const value = e.target.value;
+    field.onChange(value ? parseInt(value) : undefined);
+  }}
+/>
+```
+
+#### 4. 移除多余的类型转换
+
+```typescript
+// 修改前
+adjusted_duration: values.adjusted_duration ? parseInt(values.adjusted_duration) : undefined
+
+// 修改后
+adjusted_duration: values.adjusted_duration
+```
+
+### 验证结果
+✅ 可以正常输入修正时长  
+✅ 不再显示类型错误  
+✅ 排班数据正确保存  
+✅ 编辑排班时正确显示原值  
+✅ 代码通过lint检查
+
+### 详细文档
+参见：`BUGFIX_DURATION_INPUT.md`
+
+---
+
 ## 📊 修复影响范围
 
 ### 修复的功能
@@ -297,6 +379,7 @@ catch (error) {
 - ✅ 资源分配（护士选择、房间选择）
 - ✅ 排班保存（数据持久化）
 - ✅ 甘特图显示（可视化排班）
+- ✅ 修正时长输入（数字类型验证）
 
 #### 3. 预约管理模块
 - ✅ 预约列表查询
@@ -524,6 +607,7 @@ return Array.isArray(data) ? data : [];
 2. `BUGFIX_NURSE_SELECTION.md` - 护士选择功能修复详情
 3. `BUGFIX_FOREIGN_KEY_CONSTRAINT.md` - 外键约束修复详情
 4. `BUGFIX_SCHEDULE_PAGE_LOADING.md` - 页面加载修复详情
+5. `BUGFIX_DURATION_INPUT.md` - 修正时长输入修复详情
 
 ### 用户文档
 
@@ -545,12 +629,13 @@ return Array.isArray(data) ? data : [];
 **代码状态**：✅ 已通过lint检查  
 
 **修复总结**：
-- 修复了4个关键Bug
+- 修复了5个关键Bug
 - 创建了2个数据库迁移文件
 - 修改了3个前端组件
 - 添加了18个API函数
 - 修复了4个查询函数
-- 创建了5个详细文档
+- 修复了1个表单验证问题
+- 创建了6个详细文档
 
 **用户影响**：
 - ✅ 系统配置功能完全恢复

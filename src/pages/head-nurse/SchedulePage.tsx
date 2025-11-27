@@ -27,7 +27,7 @@ const scheduleFormSchema = z.object({
   scheduled_time_end: z.string().min(1, '请选择结束时间'),
   room_id: z.string().min(1, '请选择房间'),
   nurse_id: z.string().min(1, '请选择护士'),
-  adjusted_duration: z.string().optional(),
+  adjusted_duration: z.number().optional(),
   adjustment_reason: z.string().optional(),
 });
 
@@ -91,7 +91,7 @@ export default function HeadNurseSchedulePage() {
       scheduled_time_end: endTime,
       room_id: '',
       nurse_id: '',
-      adjusted_duration: estimatedDuration.toString(),
+      adjusted_duration: estimatedDuration,
       adjustment_reason: '',
     });
 
@@ -107,7 +107,7 @@ export default function HeadNurseSchedulePage() {
       scheduled_time_end: schedule.scheduled_time_end,
       room_id: schedule.room_id || '',
       nurse_id: schedule.nurse_id || '',
-      adjusted_duration: schedule.adjusted_duration?.toString() || '',
+      adjusted_duration: schedule.adjusted_duration || undefined,
       adjustment_reason: schedule.adjustment_reason || '',
     });
 
@@ -128,7 +128,7 @@ export default function HeadNurseSchedulePage() {
           scheduled_time_end: values.scheduled_time_end,
           room_id: values.room_id,
           nurse_id: values.nurse_id,
-          adjusted_duration: values.adjusted_duration ? parseInt(values.adjusted_duration) : undefined,
+          adjusted_duration: values.adjusted_duration,
           adjustment_reason: values.adjustment_reason,
           status: 'published',
         });
@@ -142,7 +142,7 @@ export default function HeadNurseSchedulePage() {
           scheduled_time_end: values.scheduled_time_end,
           room_id: values.room_id,
           nurse_id: values.nurse_id,
-          adjusted_duration: values.adjusted_duration ? parseInt(values.adjusted_duration) : undefined,
+          adjusted_duration: values.adjusted_duration,
           adjustment_reason: values.adjustment_reason,
         });
 
@@ -410,9 +410,12 @@ export default function HeadNurseSchedulePage() {
                         <div className="relative">
                           <Input 
                             type="number" 
-                            {...field} 
+                            value={field.value || ''}
                             className="text-lg font-medium pr-12"
-                            onChange={(e) => field.onChange(parseInt(e.target.value))}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              field.onChange(value ? parseInt(value) : undefined);
+                            }}
                           />
                           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
                             min
