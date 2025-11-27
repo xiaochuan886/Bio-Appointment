@@ -17,8 +17,8 @@ import { toast } from 'sonner';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { getAppointments, getSchedules, getResources, createSchedule, updateSchedule, updateAppointment } from '@/db/api';
-import type { AppointmentWithDetails, ScheduleWithDetails, Resource } from '@/types/types';
+import { getAppointments, getSchedules, createSchedule, updateSchedule, updateAppointment, getAvailableNurses, getAvailableRooms } from '@/db/api';
+import type { AppointmentWithDetails, ScheduleWithDetails, Nurse, Room } from '@/types/types';
 import StatusBadge from '@/components/appointment/StatusBadge';
 import GanttChart from '@/components/appointment/GanttChart';
 
@@ -37,7 +37,8 @@ export default function HeadNurseSchedulePage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [pendingAppointments, setPendingAppointments] = useState<AppointmentWithDetails[]>([]);
   const [schedules, setSchedules] = useState<ScheduleWithDetails[]>([]);
-  const [resources, setResources] = useState<Resource[]>([]);
+  const [nurses, setNurses] = useState<Nurse[]>([]);
+  const [rooms, setRooms] = useState<Room[]>([]);
   const [selectedAppointment, setSelectedAppointment] = useState<AppointmentWithDetails | null>(null);
   const [selectedSchedule, setSelectedSchedule] = useState<ScheduleWithDetails | null>(null);
   const [isScheduleDialogOpen, setIsScheduleDialogOpen] = useState(false);
@@ -55,15 +56,17 @@ export default function HeadNurseSchedulePage() {
     try {
       const dateStr = format(selectedDate, 'yyyy-MM-dd');
       
-      const [appointmentsData, schedulesData, resourcesData] = await Promise.all([
+      const [appointmentsData, schedulesData, nursesData, roomsData] = await Promise.all([
         getAppointments({ status: 'pending' }),
         getSchedules({ date: dateStr }),
-        getResources(),
+        getAvailableNurses(),
+        getAvailableRooms(),
       ]);
 
       setPendingAppointments(appointmentsData);
       setSchedules(schedulesData);
-      setResources(resourcesData);
+      setNurses(nursesData);
+      setRooms(roomsData);
     } catch (error) {
       toast.error('加载数据失败');
     }
@@ -172,9 +175,6 @@ export default function HeadNurseSchedulePage() {
   const lockedSchedules = schedules.filter(s => s.status === 'locked');
   const todaySchedules = schedules.length;
 
-  const rooms = resources.filter(r => r.type === 'room');
-  const nurses = resources.filter(r => r.type === 'nurse');
-
   return (
     <div className="container py-8">
       <div className="mb-8">
@@ -254,7 +254,8 @@ export default function HeadNurseSchedulePage() {
           <CardContent>
             <GanttChart
               schedules={schedules}
-              resources={resources}
+              nurses={nurses}
+              rooms={rooms}
               selectedDate={format(selectedDate, 'yyyy-MM-dd')}
               onScheduleClick={handleEditSchedule}
             />

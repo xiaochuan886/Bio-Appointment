@@ -2,18 +2,28 @@ import { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import StatusBadge from './StatusBadge';
-import type { ScheduleWithDetails, Resource } from '@/types/types';
+import type { ScheduleWithDetails, Nurse, Room } from '@/types/types';
 
 interface GanttChartProps {
   schedules: ScheduleWithDetails[];
-  resources: Resource[];
+  nurses: Nurse[];
+  rooms: Room[];
   selectedDate: string;
   onScheduleClick?: (schedule: ScheduleWithDetails) => void;
 }
 
-export default function GanttChart({ schedules, resources, selectedDate, onScheduleClick }: GanttChartProps) {
+export default function GanttChart({ schedules, nurses, rooms, selectedDate, onScheduleClick }: GanttChartProps) {
   const hours = Array.from({ length: 11 }, (_, i) => i + 8);
   const timeSlots = hours.flatMap(h => [`${h}:00`, `${h}:30`]);
+
+  const getRoomTypeLabel = (roomType: string) => {
+    const labels: Record<string, string> = {
+      vip: 'VIP室',
+      treatment: '治疗区',
+      consultation: '咨询室',
+    };
+    return labels[roomType] || roomType;
+  };
 
   const getSchedulePosition = (timeStart: string, timeEnd: string) => {
     const [startHour, startMinute] = timeStart.split(':').map(Number);
@@ -37,9 +47,6 @@ export default function GanttChart({ schedules, resources, selectedDate, onSched
       return schedule.nurse_id === resourceId;
     });
   };
-
-  const rooms = resources.filter(r => r.type === 'room');
-  const nurses = resources.filter(r => r.type === 'nurse');
 
   return (
     <div className="space-y-6">
@@ -65,7 +72,7 @@ export default function GanttChart({ schedules, resources, selectedDate, onSched
                   <div key={room.id} className="flex items-center border-b py-4 relative">
                     <div className="w-32 flex-shrink-0 font-medium">
                       {room.name}
-                      <div className="text-xs text-muted-foreground">{room.category}</div>
+                      <div className="text-xs text-muted-foreground">{getRoomTypeLabel(room.room_type)}</div>
                     </div>
                     <div className="flex-1 relative h-16">
                       <div className="absolute inset-0 flex">
