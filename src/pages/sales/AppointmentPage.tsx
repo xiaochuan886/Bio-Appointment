@@ -23,7 +23,7 @@ const formSchema = z.object({
   requested_date: z.date({
     required_error: '请选择预约日期',
   }),
-  requested_time_start: z.string().optional(),
+  requested_time_start: z.string().min(1, '请选择服务开始时间'),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -82,35 +82,53 @@ export default function SalesAppointmentPage() {
   const loadAvailableSlots = async (date: string) => {
     if (!selectedService) return;
 
-    const slots: string[] = [];
-    const startHour = 8;
-    const endHour = 18;
-    const duration = selectedService.base_duration;
+    try {
+      const totalPeople = 1 + companions.filter(c => c.trim() !== '').length;
+      // 根据公式计算：T_est = T_base + (N_pax - 1) × 30min
+      const estimatedDuration = selectedService.base_duration + (totalPeople - 1) * 30;
+      
+      const slots: string[] = [];
+      const startHour = 8;
+      const endHour = 18;
 
-    for (let hour = startHour; hour < endHour; hour++) {
-      for (let minute = 0; minute < 60; minute += 30) {
-        const timeStart = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:00`;
-        const endMinutes = hour * 60 + minute + duration;
-        const endHour = Math.floor(endMinutes / 60);
-        const endMinute = endMinutes % 60;
-        
-        if (endHour >= 18) break;
-        
-        const timeEnd = `${endHour.toString().padStart(2, '0')}:${endMinute.toString().padStart(2, '0')}:00`;
-        
-        try {
-          const availability = await checkResourceAvailability(date, timeStart, timeEnd);
-          if (availability.available_rooms.length > 0 && availability.available_nurses.length > 0) {
+      // 生成所有可能的时间段（每30分钟一个）
+      for (let hour = startHour; hour < endHour; hour++) {
+        for (let minute = 0; minute < 60; minute += 30) {
+          const timeStart = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:00`;
+          const endMinutes = hour * 60 + minute + estimatedDuration;
+          const endHourCalc = Math.floor(endMinutes / 60);
+          const endMinute = endMinutes % 60;
+          
+          // 确保结束时间不超过18:00
+          if (endHourCalc > 18 || (endHourCalc === 18 && endMinute > 0)) break;
+          
+          const timeEnd = `${endHourCalc.toString().padStart(2, '0')}:${endMinute.toString().padStart(2, '0')}:00`;
+          
+          // 检查资源可用性：Available(t) = (Rooms_free(t) ≥ 1) ∧ (Nurses_free(t) ≥ 1)
+          const isAvailable = await checkResourceAvailability(date, timeStart, timeEnd);
+          
+          if (isAvailable || isUrgent) {
+            // 急单模式忽略资源校验
             slots.push(timeStart);
           }
-        } catch (error) {
-          console.error('检查资源可用性失败:', error);
         }
       }
+      
+      setAvailableSlots(slots);
+    } catch (error) {
+      console.error('加载可用时间段失败:', error);
+      toast.error('加载可用时间段失败');
     }
-
-    setAvailableSlots(slots);
   };
+
+  // 当同行客户变化时，重新加载可用时间段
+  useEffect(() => {
+    const date = form.watch('requested_date');
+    if (date && selectedService) {
+      const selectedDate = format(date, 'yyyy-MM-dd');
+      loadAvailableSlots(selectedDate);
+    }
+  }, [companions.length]);
 
   const addCompanion = () => {
     setCompanions([...companions, '']);
@@ -143,8 +161,12 @@ export default function SalesAppointmentPage() {
       let timeEnd: string | undefined;
       
       if (timeStart && selectedService) {
+        // 使用动态时长计算模型：T_est = T_base + (N_pax - 1) × 30min
+        const totalPeople = 1 + validCompanions.length;
+        const estimatedDuration = selectedService.base_duration + (totalPeople - 1) * 30;
+        
         const [hour, minute] = timeStart.split(':').map(Number);
-        const endMinutes = hour * 60 + minute + selectedService.base_duration;
+        const endMinutes = hour * 60 + minute + estimatedDuration;
         const endHour = Math.floor(endMinutes / 60);
         const endMinute = endMinutes % 60;
         timeEnd = `${endHour.toString().padStart(2, '0')}:${endMinute.toString().padStart(2, '0')}:00`;
@@ -340,29 +362,41 @@ export default function SalesAppointmentPage() {
                   </Alert>
                 )}
 
-                {!isUrgent && availableSlots.length > 0 && (
+                {/* 服务开始时间选择 */}
+                {form.watch('requested_date') && selectedService && (
                   <FormField
                     control={form.control}
                     name="requested_time_start"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>期望时间段（可选）</FormLabel>
+                        <FormLabel>服务开始时间 *</FormLabel>
                         <Select onValueChange={field.onChange} value={field.value}>
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder="选择时间段" />
+                              <SelectValue placeholder="选择开始时间" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {availableSlots.map((slot) => (
-                              <SelectItem key={slot} value={slot}>
-                                {slot.substring(0, 5)}
+                            {availableSlots.length > 0 ? (
+                              availableSlots.map((slot) => (
+                                <SelectItem key={slot} value={slot}>
+                                  {slot.substring(0, 5)}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <SelectItem value="no-slots" disabled>
+                                暂无可用时间段
                               </SelectItem>
-                            ))}
+                            )}
                           </SelectContent>
                         </Select>
                         <FormDescription>
-                          灰色区域为资源已满，绿色为可用时段
+                          {isUrgent 
+                            ? '急单模式：所有时段均可选择' 
+                            : '根据填写的客户姓名与同行姓名自动计算人数，标准耗时预计 ' + 
+                              (selectedService.base_duration + (companions.filter(c => c.trim() !== '').length) * 30) + 
+                              ' 分钟。灰色区域为资源已满。'
+                          }
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
