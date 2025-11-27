@@ -143,8 +143,8 @@ export async function getAppointments(filters?: {
     .select(`
       *,
       service:services(*),
-      sales:sales_id(id, name, role),
-      doctor:doctor_id(id, name, role)
+      sales:profiles!appointments_sales_id_fkey(id, name, role),
+      doctor:profiles!appointments_doctor_id_fkey(id, name, role)
     `);
   
   if (filters?.status) {
@@ -175,8 +175,8 @@ export async function getAppointmentById(id: string): Promise<AppointmentWithDet
     .select(`
       *,
       service:services(*),
-      sales:sales_id(id, name, role),
-      doctor:doctor_id(id, name, role)
+      sales:profiles!appointments_sales_id_fkey(id, name, role),
+      doctor:profiles!appointments_doctor_id_fkey(id, name, role)
     `)
     .eq('id', id)
     .maybeSingle();
@@ -256,12 +256,12 @@ export async function getSchedules(filters?: {
       appointment:appointments(
         *,
         service:services(*),
-        sales:sales_id(id, name, role),
-        doctor:doctor_id(id, name, role)
+        sales:profiles!appointments_sales_id_fkey(id, name, role),
+        doctor:profiles!appointments_doctor_id_fkey(id, name, role)
       ),
-      room:room_id(id, name, type, category),
-      nurse:nurse_id(id, name, type),
-      created_by_profile:created_by(id, name, role)
+      room:rooms(id, name, room_type),
+      nurse:nurses(id, name, skill_level),
+      created_by_profile:profiles!schedules_created_by_fkey(id, name, role)
     `);
   
   if (filters?.date) {
@@ -291,12 +291,12 @@ export async function getScheduleById(id: string): Promise<ScheduleWithDetails |
       appointment:appointments(
         *,
         service:services(*),
-        sales:sales_id(id, name, role),
-        doctor:doctor_id(id, name, role)
+        sales:profiles!appointments_sales_id_fkey(id, name, role),
+        doctor:profiles!appointments_doctor_id_fkey(id, name, role)
       ),
-      room:room_id(id, name, type, category),
-      nurse:nurse_id(id, name, type),
-      created_by_profile:created_by(id, name, role)
+      room:rooms(id, name, room_type),
+      nurse:nurses(id, name, skill_level),
+      created_by_profile:profiles!schedules_created_by_fkey(id, name, role)
     `)
     .eq('id', id)
     .maybeSingle();

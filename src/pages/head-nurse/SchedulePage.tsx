@@ -68,7 +68,9 @@ export default function HeadNurseSchedulePage() {
       setNurses(nursesData);
       setRooms(roomsData);
     } catch (error) {
-      toast.error('加载数据失败');
+      console.error('加载数据失败:', error);
+      const errorMessage = error instanceof Error ? error.message : '未知错误';
+      toast.error(`加载数据失败: ${errorMessage}`);
     }
   };
 

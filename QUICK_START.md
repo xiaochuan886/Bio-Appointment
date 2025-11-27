@@ -20,6 +20,12 @@
 - ✅ 排班信息可以正常保存
 - ✅ 甘特图正常显示排班记录
 
+### 3. 智能排班页面
+- ✅ 页面数据正常加载
+- ✅ 待排班预约列表正常显示
+- ✅ 已有排班记录正常显示
+- ✅ 统计数据正确显示
+
 ---
 
 ## 🚀 快速开始
@@ -189,6 +195,7 @@
 - `BUGFIX_SYSTEM_CONFIG.md` - 系统配置修复详情
 - `BUGFIX_NURSE_SELECTION.md` - 护士选择修复详情
 - `BUGFIX_FOREIGN_KEY_CONSTRAINT.md` - 外键约束修复详情
+- `BUGFIX_SCHEDULE_PAGE_LOADING.md` - 页面加载修复详情
 
 ### 数据库迁移文件
 
@@ -235,6 +242,13 @@
 2. 点击"删除"按钮
 3. 确认删除
 
+### Q6: 智能排班页面显示"加载数据失败"怎么办？
+
+**A**: 这个问题已经修复。如果仍然遇到，请：
+1. 刷新页面
+2. 检查浏览器控制台的错误信息
+3. 查看`BUGFIX_SCHEDULE_PAGE_LOADING.md`文档
+
 ---
 
 ## 📞 技术支持
@@ -244,6 +258,7 @@
 - 系统配置问题 → `BUGFIX_SYSTEM_CONFIG.md`
 - 护士选择问题 → `BUGFIX_NURSE_SELECTION.md`
 - 保存失败问题 → `BUGFIX_FOREIGN_KEY_CONSTRAINT.md`
+- 页面加载问题 → `BUGFIX_SCHEDULE_PAGE_LOADING.md`
 - 完整修复报告 → `BUGFIX_SUMMARY.md`
 
 ---
