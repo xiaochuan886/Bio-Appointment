@@ -21,6 +21,9 @@ import { getAppointments, getSchedules, createSchedule, updateSchedule, updateAp
 import type { AppointmentWithDetails, ScheduleWithDetails, Nurse, Room } from '@/types/types';
 import StatusBadge from '@/components/appointment/StatusBadge';
 import GanttChart from '@/components/appointment/GanttChart';
+import ViewSwitcher, { type ViewMode } from '@/components/appointment/ViewSwitcher';
+import ResourceConflictDialog from '@/components/appointment/ResourceConflictDialog';
+import { detectResourceConflicts, type ResourceConflict } from '@/utils/scheduleUtils';
 
 const scheduleFormSchema = z.object({
   scheduled_time_start: z.string().min(1, '请选择开始时间'),
@@ -35,6 +38,7 @@ type ScheduleFormValues = z.infer<typeof scheduleFormSchema>;
 
 export default function HeadNurseSchedulePage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [viewMode, setViewMode] = useState<ViewMode>('day');
   const [pendingAppointments, setPendingAppointments] = useState<AppointmentWithDetails[]>([]);
   const [schedules, setSchedules] = useState<ScheduleWithDetails[]>([]);
   const [nurses, setNurses] = useState<Nurse[]>([]);
@@ -43,6 +47,9 @@ export default function HeadNurseSchedulePage() {
   const [selectedSchedule, setSelectedSchedule] = useState<ScheduleWithDetails | null>(null);
   const [isScheduleDialogOpen, setIsScheduleDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [resourceConflicts, setResourceConflicts] = useState<ResourceConflict[]>([]);
+  const [isConflictDialogOpen, setIsConflictDialogOpen] = useState(false);
+  const [pendingScheduleData, setPendingScheduleData] = useState<ScheduleFormValues | null>(null);
 
   const form = useForm<ScheduleFormValues>({
     resolver: zodResolver(scheduleFormSchema),
@@ -117,6 +124,33 @@ export default function HeadNurseSchedulePage() {
   const onSubmit = async (values: ScheduleFormValues) => {
     if (!selectedAppointment) return;
 
+    // 检测资源冲突
+    const conflicts = detectResourceConflicts(
+      schedules,
+      {
+        scheduled_time_start: values.scheduled_time_start,
+        scheduled_time_end: values.scheduled_time_end,
+        room_id: values.room_id,
+        nurse_id: values.nurse_id,
+      },
+      selectedSchedule?.id
+    );
+
+    // 如果有冲突，显示确认对话框
+    if (conflicts.length > 0) {
+      setResourceConflicts(conflicts);
+      setPendingScheduleData(values);
+      setIsConflictDialogOpen(true);
+      return;
+    }
+
+    // 没有冲突，直接保存
+    await saveSchedule(values);
+  };
+
+  const saveSchedule = async (values: ScheduleFormValues, forceOverride = false) => {
+    if (!selectedAppointment) return;
+
     setIsLoading(true);
     try {
       const dateStr = format(selectedDate, 'yyyy-MM-dd');
@@ -133,7 +167,7 @@ export default function HeadNurseSchedulePage() {
           status: 'published',
         });
 
-        toast.success('排班已更新');
+        toast.success(forceOverride ? '排班已强制更新（存在资源冲突）' : '排班已更新');
       } else {
         await createSchedule({
           appointment_id: selectedAppointment.id,
@@ -150,16 +184,30 @@ export default function HeadNurseSchedulePage() {
           status: 'scheduled',
         });
 
-        toast.success('排班已创建');
+        toast.success(forceOverride ? '排班已强制创建（存在资源冲突）' : '排班已创建');
       }
 
       setIsScheduleDialogOpen(false);
+      setIsConflictDialogOpen(false);
+      setPendingScheduleData(null);
       loadData();
     } catch (error: any) {
       toast.error(error.message || '操作失败');
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleConflictConfirm = () => {
+    if (pendingScheduleData) {
+      saveSchedule(pendingScheduleData, true);
+    }
+  };
+
+  const handleConflictCancel = () => {
+    setIsConflictDialogOpen(false);
+    setResourceConflicts([]);
+    setPendingScheduleData(null);
   };
 
   const handlePublishSchedule = async (scheduleId: string) => {
@@ -233,7 +281,8 @@ export default function HeadNurseSchedulePage() {
                   视图：房间维度 (08:00 - 18:00)
                 </CardDescription>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
+                <ViewSwitcher currentView={viewMode} onViewChange={setViewMode} />
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button variant="outline" size="sm">
@@ -259,6 +308,7 @@ export default function HeadNurseSchedulePage() {
               nurses={nurses}
               rooms={rooms}
               selectedDate={format(selectedDate, 'yyyy-MM-dd')}
+              viewMode={viewMode}
               onScheduleClick={handleEditSchedule}
             />
           </CardContent>
@@ -526,6 +576,14 @@ export default function HeadNurseSchedulePage() {
           </Form>
         </DialogContent>
       </Dialog>
+
+      {/* 资源冲突确认对话框 */}
+      <ResourceConflictDialog
+        open={isConflictDialogOpen}
+        conflicts={resourceConflicts}
+        onConfirm={handleConflictConfirm}
+        onCancel={handleConflictCancel}
+      />
     </div>
   );
 }

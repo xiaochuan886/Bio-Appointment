@@ -1,18 +1,26 @@
-import { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import StatusBadge from './StatusBadge';
 import type { ScheduleWithDetails, Nurse, Room } from '@/types/types';
+
+export type ViewMode = 'day' | 'week' | 'month';
 
 interface GanttChartProps {
   schedules: ScheduleWithDetails[];
   nurses: Nurse[];
   rooms: Room[];
   selectedDate: string;
+  viewMode: ViewMode;
   onScheduleClick?: (schedule: ScheduleWithDetails) => void;
 }
 
-export default function GanttChart({ schedules, nurses, rooms, selectedDate, onScheduleClick }: GanttChartProps) {
+export default function GanttChart({ 
+  schedules, 
+  nurses, 
+  rooms, 
+  selectedDate, 
+  viewMode,
+  onScheduleClick 
+}: GanttChartProps) {
   const hours = Array.from({ length: 11 }, (_, i) => i + 8);
   const timeSlots = hours.flatMap(h => [`${h}:00`, `${h}:30`]);
 
@@ -48,6 +56,55 @@ export default function GanttChart({ schedules, nurses, rooms, selectedDate, onS
     });
   };
 
+  // 检测时间段是否重叠
+  const isTimeOverlap = (start1: string, end1: string, start2: string, end2: string) => {
+    const [h1, m1] = start1.split(':').map(Number);
+    const [h2, m2] = end1.split(':').map(Number);
+    const [h3, m3] = start2.split(':').map(Number);
+    const [h4, m4] = end2.split(':').map(Number);
+
+    const start1Minutes = h1 * 60 + m1;
+    const end1Minutes = h2 * 60 + m2;
+    const start2Minutes = h3 * 60 + m3;
+    const end2Minutes = h4 * 60 + m4;
+
+    return start1Minutes < end2Minutes && start2Minutes < end1Minutes;
+  };
+
+  // 将重叠的排班分配到不同的行
+  const arrangeSchedulesInRows = (resourceSchedules: ScheduleWithDetails[]) => {
+    const rows: ScheduleWithDetails[][] = [];
+
+    resourceSchedules.forEach(schedule => {
+      let placed = false;
+
+      // 尝试将排班放入现有行
+      for (const row of rows) {
+        const hasOverlap = row.some(existingSchedule =>
+          isTimeOverlap(
+            schedule.scheduled_time_start,
+            schedule.scheduled_time_end,
+            existingSchedule.scheduled_time_start,
+            existingSchedule.scheduled_time_end
+          )
+        );
+
+        if (!hasOverlap) {
+          row.push(schedule);
+          placed = true;
+          break;
+        }
+      }
+
+      // 如果无法放入现有行，创建新行
+      if (!placed) {
+        rows.push([schedule]);
+      }
+    });
+
+    return rows;
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -68,13 +125,22 @@ export default function GanttChart({ schedules, nurses, rooms, selectedDate, onS
 
               {rooms.map(room => {
                 const roomSchedules = getSchedulesForResource(room.id, 'room');
+                const scheduleRows = arrangeSchedulesInRows(roomSchedules);
+                const rowHeight = 48; // 每行高度
+                const totalHeight = Math.max(scheduleRows.length * rowHeight, rowHeight);
+
                 return (
-                  <div key={room.id} className="flex items-center border-b py-4 relative">
+                  <div key={room.id} className="flex border-b py-4 relative">
                     <div className="w-32 flex-shrink-0 font-medium">
                       {room.name}
                       <div className="text-xs text-muted-foreground">{getRoomTypeLabel(room.room_type)}</div>
+                      {scheduleRows.length > 1 && (
+                        <div className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                          ⚠️ {scheduleRows.length}个重叠排班
+                        </div>
+                      )}
                     </div>
-                    <div className="flex-1 relative h-16">
+                    <div className="flex-1 relative" style={{ height: `${totalHeight}px` }}>
                       <div className="absolute inset-0 flex">
                         {timeSlots.map((slot, idx) => (
                           <div
@@ -83,36 +149,40 @@ export default function GanttChart({ schedules, nurses, rooms, selectedDate, onS
                           />
                         ))}
                       </div>
-                      {roomSchedules.map(schedule => {
-                        const position = getSchedulePosition(
-                          schedule.scheduled_time_start,
-                          schedule.scheduled_time_end
-                        );
-                        return (
-                          <div
-                            key={schedule.id}
-                            className="absolute top-2 h-12 rounded px-2 py-1 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden"
-                            style={{
-                              left: position.left,
-                              width: position.width,
-                              backgroundColor: schedule.appointment?.is_urgent 
-                                ? 'hsl(var(--urgent))' 
-                                : schedule.status === 'locked'
-                                ? 'hsl(var(--confirmed))'
-                                : 'hsl(var(--scheduled))',
-                              color: 'white',
-                            }}
-                            onClick={() => onScheduleClick?.(schedule)}
-                          >
-                            <div className="text-xs font-medium truncate">
-                              {schedule.appointment?.customer_name}
-                            </div>
-                            <div className="text-xs truncate opacity-90">
-                              {schedule.appointment?.service?.name}
-                            </div>
-                          </div>
-                        );
-                      })}
+                      {scheduleRows.map((row, rowIndex) => (
+                        <div key={rowIndex} className="absolute left-0 right-0" style={{ top: `${rowIndex * rowHeight}px`, height: `${rowHeight}px` }}>
+                          {row.map(schedule => {
+                            const position = getSchedulePosition(
+                              schedule.scheduled_time_start,
+                              schedule.scheduled_time_end
+                            );
+                            return (
+                              <div
+                                key={schedule.id}
+                                className="absolute top-2 h-10 rounded px-2 py-1 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden border border-white/20"
+                                style={{
+                                  left: position.left,
+                                  width: position.width,
+                                  backgroundColor: schedule.appointment?.is_urgent 
+                                    ? 'hsl(var(--urgent))' 
+                                    : schedule.status === 'locked'
+                                    ? 'hsl(var(--confirmed))'
+                                    : 'hsl(var(--scheduled))',
+                                  color: 'white',
+                                }}
+                                onClick={() => onScheduleClick?.(schedule)}
+                              >
+                                <div className="text-xs font-medium truncate">
+                                  {schedule.appointment?.customer_name}
+                                </div>
+                                <div className="text-xs truncate opacity-90">
+                                  {schedule.appointment?.service?.name}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 );
@@ -140,12 +210,21 @@ export default function GanttChart({ schedules, nurses, rooms, selectedDate, onS
 
               {nurses.map(nurse => {
                 const nurseSchedules = getSchedulesForResource(nurse.id, 'nurse');
+                const scheduleRows = arrangeSchedulesInRows(nurseSchedules);
+                const rowHeight = 48;
+                const totalHeight = Math.max(scheduleRows.length * rowHeight, rowHeight);
+
                 return (
-                  <div key={nurse.id} className="flex items-center border-b py-4 relative">
+                  <div key={nurse.id} className="flex border-b py-4 relative">
                     <div className="w-32 flex-shrink-0 font-medium">
                       {nurse.name}
+                      {scheduleRows.length > 1 && (
+                        <div className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                          ⚠️ {scheduleRows.length}个重叠排班
+                        </div>
+                      )}
                     </div>
-                    <div className="flex-1 relative h-16">
+                    <div className="flex-1 relative" style={{ height: `${totalHeight}px` }}>
                       <div className="absolute inset-0 flex">
                         {timeSlots.map((slot, idx) => (
                           <div
@@ -154,36 +233,40 @@ export default function GanttChart({ schedules, nurses, rooms, selectedDate, onS
                           />
                         ))}
                       </div>
-                      {nurseSchedules.map(schedule => {
-                        const position = getSchedulePosition(
-                          schedule.scheduled_time_start,
-                          schedule.scheduled_time_end
-                        );
-                        return (
-                          <div
-                            key={schedule.id}
-                            className="absolute top-2 h-12 rounded px-2 py-1 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden"
-                            style={{
-                              left: position.left,
-                              width: position.width,
-                              backgroundColor: schedule.appointment?.is_urgent 
-                                ? 'hsl(var(--urgent))' 
-                                : schedule.status === 'locked'
-                                ? 'hsl(var(--confirmed))'
-                                : 'hsl(var(--scheduled))',
-                              color: 'white',
-                            }}
-                            onClick={() => onScheduleClick?.(schedule)}
-                          >
-                            <div className="text-xs font-medium truncate">
-                              {schedule.appointment?.customer_name}
-                            </div>
-                            <div className="text-xs truncate opacity-90">
-                              {schedule.appointment?.service?.name}
-                            </div>
-                          </div>
-                        );
-                      })}
+                      {scheduleRows.map((row, rowIndex) => (
+                        <div key={rowIndex} className="absolute left-0 right-0" style={{ top: `${rowIndex * rowHeight}px`, height: `${rowHeight}px` }}>
+                          {row.map(schedule => {
+                            const position = getSchedulePosition(
+                              schedule.scheduled_time_start,
+                              schedule.scheduled_time_end
+                            );
+                            return (
+                              <div
+                                key={schedule.id}
+                                className="absolute top-2 h-10 rounded px-2 py-1 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden border border-white/20"
+                                style={{
+                                  left: position.left,
+                                  width: position.width,
+                                  backgroundColor: schedule.appointment?.is_urgent 
+                                    ? 'hsl(var(--urgent))' 
+                                    : schedule.status === 'locked'
+                                    ? 'hsl(var(--confirmed))'
+                                    : 'hsl(var(--scheduled))',
+                                  color: 'white',
+                                }}
+                                onClick={() => onScheduleClick?.(schedule)}
+                              >
+                                <div className="text-xs font-medium truncate">
+                                  {schedule.appointment?.customer_name}
+                                </div>
+                                <div className="text-xs truncate opacity-90">
+                                  {schedule.appointment?.service?.name}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 );
