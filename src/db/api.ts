@@ -15,6 +15,11 @@ import type {
   UpdateScheduleInput,
   UpdateTaskExecutionInput,
   ResourceAvailability,
+  Nurse,
+  Doctor,
+  Room,
+  SkillLevel,
+  RoomType,
 } from '@/types/types';
 
 // ==================== Profiles ====================
@@ -439,4 +444,169 @@ export async function checkResourceAvailability(
     available_rooms: data?.[0]?.available_rooms || [],
     available_nurses: data?.[0]?.available_nurses || [],
   };
+}
+
+// ==================== Nurses ====================
+
+export async function getNurses() {
+  const { data, error } = await supabase
+    .from('nurses')
+    .select('*')
+    .order('name', { ascending: true });
+  
+  if (error) throw error;
+  return Array.isArray(data) ? data : [];
+}
+
+export async function getAvailableNurses() {
+  const { data, error } = await supabase
+    .from('nurses')
+    .select('*')
+    .eq('is_available', true)
+    .order('name', { ascending: true });
+  
+  if (error) throw error;
+  return Array.isArray(data) ? data : [];
+}
+
+export async function createNurse(nurse: { name: string; skill_level: SkillLevel; is_available: boolean }) {
+  const { data, error } = await supabase
+    .from('nurses')
+    .insert([nurse])
+    .select()
+    .maybeSingle();
+  
+  if (error) throw error;
+  return data;
+}
+
+export async function updateNurse(id: string, nurse: Partial<Omit<Nurse, 'id' | 'created_at'>>) {
+  const { data, error } = await supabase
+    .from('nurses')
+    .update(nurse)
+    .eq('id', id)
+    .select()
+    .maybeSingle();
+  
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteNurse(id: string) {
+  const { error } = await supabase
+    .from('nurses')
+    .delete()
+    .eq('id', id);
+  
+  if (error) throw error;
+}
+
+// ==================== Doctors ====================
+
+export async function getDoctors() {
+  const { data, error } = await supabase
+    .from('doctors')
+    .select('*')
+    .order('name', { ascending: true });
+  
+  if (error) throw error;
+  return Array.isArray(data) ? data : [];
+}
+
+export async function getAvailableDoctors() {
+  const { data, error } = await supabase
+    .from('doctors')
+    .select('*')
+    .eq('is_available', true)
+    .order('name', { ascending: true });
+  
+  if (error) throw error;
+  return Array.isArray(data) ? data : [];
+}
+
+export async function createDoctor(doctor: { name: string; specialty: string; is_available: boolean }) {
+  const { data, error } = await supabase
+    .from('doctors')
+    .insert([doctor])
+    .select()
+    .maybeSingle();
+  
+  if (error) throw error;
+  return data;
+}
+
+export async function updateDoctor(id: string, doctor: Partial<Omit<Doctor, 'id' | 'created_at'>>) {
+  const { data, error } = await supabase
+    .from('doctors')
+    .update(doctor)
+    .eq('id', id)
+    .select()
+    .maybeSingle();
+  
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteDoctor(id: string) {
+  const { error } = await supabase
+    .from('doctors')
+    .delete()
+    .eq('id', id);
+  
+  if (error) throw error;
+}
+
+// ==================== Rooms ====================
+
+export async function getRooms() {
+  const { data, error } = await supabase
+    .from('rooms')
+    .select('*')
+    .order('name', { ascending: true });
+  
+  if (error) throw error;
+  return Array.isArray(data) ? data : [];
+}
+
+export async function getAvailableRooms() {
+  const { data, error } = await supabase
+    .from('rooms')
+    .select('*')
+    .eq('is_available', true)
+    .order('name', { ascending: true });
+  
+  if (error) throw error;
+  return Array.isArray(data) ? data : [];
+}
+
+export async function createRoom(room: { name: string; room_type: RoomType; is_available: boolean }) {
+  const { data, error } = await supabase
+    .from('rooms')
+    .insert([room])
+    .select()
+    .maybeSingle();
+  
+  if (error) throw error;
+  return data;
+}
+
+export async function updateRoom(id: string, room: Partial<Omit<Room, 'id' | 'created_at'>>) {
+  const { data, error } = await supabase
+    .from('rooms')
+    .update(room)
+    .eq('id', id)
+    .select()
+    .maybeSingle();
+  
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteRoom(id: string) {
+  const { error } = await supabase
+    .from('rooms')
+    .delete()
+    .eq('id', id);
+  
+  if (error) throw error;
 }

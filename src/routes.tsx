@@ -13,6 +13,9 @@ import NurseTaskPage from '@/pages/nurse/TaskPage';
 // 医生端页面
 import DoctorAppointmentPage from '@/pages/doctor/AppointmentPage';
 
+// 管理端页面
+import SystemConfigPage from '@/pages/admin/SystemConfigPage';
+
 // 公共页面
 import DashboardPage from '@/pages/DashboardPage';
 
@@ -52,6 +55,12 @@ const routes: RouteConfig[] = [
     name: '预约待办',
     path: '/doctor/appointments',
     element: <DoctorAppointmentPage />,
+    visible: true,
+  },
+  {
+    name: '系统配置',
+    path: '/admin/config',
+    element: <SystemConfigPage />,
     visible: true,
   },
   {

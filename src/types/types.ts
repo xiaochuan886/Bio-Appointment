@@ -177,3 +177,32 @@ export interface ResourceAvailability {
     name: string;
   }>;
 }
+
+// ==================== 资源管理类型 ====================
+
+export type SkillLevel = 'junior' | 'intermediate' | 'senior';
+export type RoomType = 'vip' | 'treatment' | 'consultation';
+
+export interface Nurse {
+  id: string;
+  name: string;
+  skill_level: SkillLevel;
+  is_available: boolean;
+  created_at: string;
+}
+
+export interface Doctor {
+  id: string;
+  name: string;
+  specialty: string;
+  is_available: boolean;
+  created_at: string;
+}
+
+export interface Room {
+  id: string;
+  name: string;
+  room_type: RoomType;
+  is_available: boolean;
+  created_at: string;
+}
