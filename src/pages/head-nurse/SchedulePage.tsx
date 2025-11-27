@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
-import { Calendar as CalendarIcon, Plus, AlertCircle } from 'lucide-react';
+import { Calendar as CalendarIcon, Plus, AlertCircle, Clock, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Calendar } from '@/components/ui/calendar';
@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -168,6 +169,8 @@ export default function HeadNurseSchedulePage() {
 
   const urgentAppointments = pendingAppointments.filter(a => a.is_urgent);
   const normalAppointments = pendingAppointments.filter(a => !a.is_urgent);
+  const lockedSchedules = schedules.filter(s => s.status === 'locked');
+  const todaySchedules = schedules.length;
 
   const rooms = resources.filter(r => r.type === 'room');
   const nurses = resources.filter(r => r.type === 'nurse');
@@ -176,30 +179,76 @@ export default function HeadNurseSchedulePage() {
     <div className="container py-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2">智能排班看板</h1>
-        <p className="text-muted-foreground">拖拽任务卡片到不同的房间/护士行进行排班</p>
+        <p className="text-muted-foreground">资源调度确认 (Resource Scheduling)</p>
+      </div>
+
+      {/* 统计卡片 */}
+      <div className="grid gap-4 xl:grid-cols-4 mb-6">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">今日总数</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold">{todaySchedules}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">待排班</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-pending">{pendingAppointments.length}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">急单</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-urgent">{urgentAppointments.length}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">已锁定</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-confirmed">{lockedSchedules.length}</div>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-3 mb-8">
         <Card className="xl:col-span-2">
           <CardHeader>
             <div className="flex items-center justify-between">
-              <CardTitle>排班日历</CardTitle>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline">
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {format(selectedDate, 'PPP', { locale: zhCN })}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="end">
-                  <Calendar
-                    mode="single"
-                    selected={selectedDate}
-                    onSelect={(date) => date && setSelectedDate(date)}
-                    initialFocus
-                  />
-                </PopoverContent>
-              </Popover>
+              <div>
+                <CardTitle>资源看板</CardTitle>
+                <CardDescription>
+                  视图：房间维度 (08:00 - 18:00)
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm">
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {format(selectedDate, 'PPP', { locale: zhCN })}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="end">
+                    <Calendar
+                      mode="single"
+                      selected={selectedDate}
+                      onSelect={(date) => date && setSelectedDate(date)}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -212,82 +261,74 @@ export default function HeadNurseSchedulePage() {
           </CardContent>
         </Card>
 
-        <div className="space-y-6">
-          {urgentAppointments.length > 0 && (
-            <Card className="border-urgent">
-              <CardHeader>
-                <CardTitle className="text-urgent flex items-center gap-2">
-                  <AlertCircle className="h-5 w-5" />
-                  急单预约 ({urgentAppointments.length})
-                </CardTitle>
-                <CardDescription>需要优先处理</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {urgentAppointments.map(appointment => (
-                  <Card key={appointment.id} className="p-4 hover:shadow-md transition-shadow">
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{appointment.customer_name}</span>
-                        <StatusBadge status={appointment.status} isUrgent={appointment.is_urgent} />
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        {appointment.service?.name}
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        预估时长: {appointment.estimated_duration} 分钟
-                      </div>
-                      <Button
-                        size="sm"
-                        className="w-full"
-                        onClick={() => handleCreateSchedule(appointment)}
-                      >
-                        <Plus className="h-4 w-4 mr-2" />
-                        立即排班
-                      </Button>
-                    </div>
-                  </Card>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
+        <div className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>待排班预约 ({normalAppointments.length})</CardTitle>
-              <CardDescription>等待分配资源</CardDescription>
+              <CardTitle>排班待办</CardTitle>
+              <CardDescription>
+                <div className="flex gap-4 mt-2">
+                  <span className="text-confirmed">● 已确认</span>
+                  <span className="text-pending">● 待排班</span>
+                </div>
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {normalAppointments.map(appointment => (
-                <Card key={appointment.id} className="p-4 hover:shadow-md transition-shadow">
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">{appointment.customer_name}</span>
-                      <StatusBadge status={appointment.status} />
-                    </div>
-                    <div className="text-sm text-muted-foreground">
-                      {appointment.service?.name}
-                    </div>
-                    <div className="text-sm text-muted-foreground">
-                      预估时长: {appointment.estimated_duration} 分钟
-                    </div>
-                    {appointment.requested_time_start && (
-                      <div className="text-sm text-muted-foreground">
-                        期望时间: {appointment.requested_time_start.substring(0, 5)}
+              {urgentAppointments.map(appointment => (
+                <Card key={appointment.id} className="p-4 border-l-4 border-l-urgent hover:shadow-md transition-shadow">
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="font-medium text-lg">{appointment.customer_name}</div>
+                        <div className="text-sm text-muted-foreground mt-1">
+                          {appointment.service?.name}
+                        </div>
                       </div>
-                    )}
+                      <StatusBadge status="pending" isUrgent={true} />
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Clock className="h-4 w-4" />
+                      {appointment.requested_time_start?.substring(0, 5) || '待定'} (预计{appointment.estimated_duration}m)
+                    </div>
+                    <Button
+                      size="sm"
+                      className="w-full bg-primary hover:bg-primary/90"
+                      onClick={() => handleCreateSchedule(appointment)}
+                    >
+                      分配资源
+                    </Button>
+                  </div>
+                </Card>
+              ))}
+              
+              {normalAppointments.map(appointment => (
+                <Card key={appointment.id} className="p-4 border-l-4 border-l-pending hover:shadow-md transition-shadow">
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="font-medium text-lg">{appointment.customer_name}</div>
+                        <div className="text-sm text-muted-foreground mt-1">
+                          {appointment.service?.name}
+                        </div>
+                      </div>
+                      <StatusBadge status="pending" />
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Clock className="h-4 w-4" />
+                      {appointment.requested_time_start?.substring(0, 5) || '待定'} (预计{appointment.estimated_duration}m)
+                    </div>
                     <Button
                       size="sm"
                       variant="outline"
                       className="w-full"
                       onClick={() => handleCreateSchedule(appointment)}
                     >
-                      <Plus className="h-4 w-4 mr-2" />
-                      安排排班
+                      分配资源
                     </Button>
                   </div>
                 </Card>
               ))}
-              {normalAppointments.length === 0 && (
+              
+              {pendingAppointments.length === 0 && (
                 <p className="text-center text-muted-foreground py-8">暂无待排班预约</p>
               )}
             </CardContent>
@@ -298,48 +339,58 @@ export default function HeadNurseSchedulePage() {
       <Dialog open={isScheduleDialogOpen} onOpenChange={setIsScheduleDialogOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>
-              {selectedSchedule ? '编辑排班' : '创建排班'}
+            <DialogTitle className="flex items-center gap-2 text-xl">
+              <Users className="h-5 w-5 text-primary" />
+              资源调度确认 (Resource Scheduling)
             </DialogTitle>
             <DialogDescription>
-              为 {selectedAppointment?.customer_name} 分配资源和时间
+              为 {selectedAppointment?.customer_name} 分配房间和护士资源
             </DialogDescription>
           </DialogHeader>
 
           {selectedAppointment && (
-            <div className="mb-4 p-4 bg-muted rounded-lg">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground">客户姓名：</span>
-                  <span className="font-medium">{selectedAppointment.customer_name}</span>
+            <Alert className="bg-muted border-0">
+              <AlertDescription>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">客户：</span>
+                    <span className="font-medium ml-2">{selectedAppointment.customer_name}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">服务：</span>
+                    <span className="font-medium ml-2">{selectedAppointment.service?.name}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">人数：</span>
+                    <span className="font-medium ml-2">{selectedAppointment.total_people} 人</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">标准时长：</span>
+                    <span className="font-medium ml-2">{selectedAppointment.estimated_duration} 分钟</span>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-muted-foreground">服务项目：</span>
-                  <span className="font-medium">{selectedAppointment.service?.name}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">总人数：</span>
-                  <span className="font-medium">{selectedAppointment.total_people} 人</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">标准时长：</span>
-                  <span className="font-medium">{selectedAppointment.estimated_duration} 分钟</span>
-                </div>
-              </div>
-            </div>
+              </AlertDescription>
+            </Alert>
           )}
 
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="scheduled_time_start"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>开始时间 *</FormLabel>
+                      <FormLabel>开始时间 (Start Time)</FormLabel>
                       <FormControl>
-                        <Input type="time" {...field} />
+                        <div className="relative">
+                          <Input 
+                            type="time" 
+                            {...field} 
+                            className="text-lg font-medium"
+                          />
+                          <Clock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                        </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -348,65 +399,23 @@ export default function HeadNurseSchedulePage() {
 
                 <FormField
                   control={form.control}
-                  name="scheduled_time_end"
+                  name="adjusted_duration"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>结束时间 *</FormLabel>
+                      <FormLabel>修正时长 (Duration)</FormLabel>
                       <FormControl>
-                        <Input type="time" {...field} />
+                        <div className="relative">
+                          <Input 
+                            type="number" 
+                            {...field} 
+                            className="text-lg font-medium pr-12"
+                            onChange={(e) => field.onChange(parseInt(e.target.value))}
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                            min
+                          </span>
+                        </div>
                       </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="room_id"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>房间 *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="选择房间" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {rooms.map(room => (
-                            <SelectItem key={room.id} value={room.id}>
-                              {room.name} - {room.category}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="nurse_id"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>护士 *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="选择护士" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {nurses.map(nurse => (
-                            <SelectItem key={nurse.id} value={nurse.id}>
-                              {nurse.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -415,16 +424,55 @@ export default function HeadNurseSchedulePage() {
 
               <FormField
                 control={form.control}
-                name="adjusted_duration"
+                name="room_id"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>调整后时长（分钟）</FormLabel>
-                    <FormControl>
-                      <Input type="number" placeholder="如需调整时长，请输入" {...field} />
-                    </FormControl>
-                    <FormDescription>
-                      根据客户画像和历史数据，可手动调整预估时长
+                    <FormLabel>房间分配 (Room)</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger className="h-12">
+                          <SelectValue placeholder="选择房间" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {rooms.map(room => (
+                          <SelectItem key={room.id} value={room.id}>
+                            {room.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="nurse_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>护士分配 (Nurse)</FormLabel>
+                    <FormDescription className="text-xs text-muted-foreground">
+                      双人复核机制
                     </FormDescription>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger className="h-12">
+                          <SelectValue placeholder="选择护士" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {nurses.map(nurse => (
+                          <SelectItem key={nurse.id} value={nurse.id}>
+                            <div className="flex items-center gap-2">
+                              <Users className="h-4 w-4" />
+                              {nurse.name}
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -435,25 +483,37 @@ export default function HeadNurseSchedulePage() {
                 name="adjustment_reason"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>调整原因</FormLabel>
+                    <FormLabel>调整原因（可选）</FormLabel>
                     <FormControl>
-                      <Textarea placeholder="如调整了时长，请说明原因" {...field} />
+                      <Textarea 
+                        placeholder="如调整了时长，请说明原因" 
+                        {...field} 
+                        rows={3}
+                      />
                     </FormControl>
+                    <FormDescription className="text-xs">
+                      根据客户画像和历史数据，可手动调整预估时长
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
 
-              <div className="flex gap-4">
-                <Button type="submit" className="flex-1" disabled={isLoading}>
-                  {isLoading ? '保存中...' : selectedSchedule ? '更新排班' : '创建排班'}
-                </Button>
+              <div className="flex gap-3 justify-end pt-4 border-t">
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => setIsScheduleDialogOpen(false)}
+                  className="min-w-24"
                 >
                   取消
+                </Button>
+                <Button 
+                  type="submit" 
+                  className="min-w-32 bg-primary hover:bg-primary/90" 
+                  disabled={isLoading}
+                >
+                  {isLoading ? '保存中...' : '✓ 确认排班'}
                 </Button>
               </div>
             </form>

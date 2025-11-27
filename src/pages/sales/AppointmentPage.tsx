@@ -177,6 +177,11 @@ export default function SalesAppointmentPage() {
   };
 
   const totalPeople = 1 + companions.filter(c => c.trim() !== '').length;
+  
+  // 动态计算预估时长（根据人数）
+  const estimatedDuration = selectedService 
+    ? selectedService.base_duration * (selectedService.allow_companions ? totalPeople : 1)
+    : 0;
 
   return (
     <div className="container py-8">
@@ -245,6 +250,11 @@ export default function SalesAppointmentPage() {
                   {totalPeople > 1 && (
                     <p className="text-sm text-muted-foreground mt-2">
                       总人数：{totalPeople} 人
+                      {estimatedDuration > 0 && selectedService?.allow_companions && (
+                        <span className="ml-2 text-primary font-medium">
+                          · 预计总耗时：{estimatedDuration} 分钟
+                        </span>
+                      )}
                     </p>
                   )}
                 </div>
@@ -271,7 +281,12 @@ export default function SalesAppointmentPage() {
                       </Select>
                       {selectedService && (
                         <FormDescription>
-                          标准预估时长：{selectedService.base_duration} 分钟
+                          标准预估时长：{selectedService.base_duration} 分钟/人
+                          {selectedService.allow_companions && totalPeople > 1 && (
+                            <span className="text-primary font-medium">
+                              {' '}· 当前 {totalPeople} 人，预计总耗时：{estimatedDuration} 分钟
+                            </span>
+                          )}
                           {selectedService.allow_companions && ' · 支持同行客户'}
                           {selectedService.requires_doctor && ' · 需要医生确认'}
                         </FormDescription>
