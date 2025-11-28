@@ -191,7 +191,11 @@ export default function ResourceDetailFilter({
                 提示：同类条件为"或"关系，不同类条件为"与"关系
               </p>
               <p className="text-xs text-amber-600 dark:text-amber-400">
-                💡 视图将展示筛选资源及其关联资源的完整排班，匹配项带⭐标记
+                💡 {selectedNurseIds.length > 0 && selectedRoomIds.length === 0 
+                  ? '仅筛选护士时，将显示所有房间及其完整排班' 
+                  : selectedRoomIds.length > 0 && selectedNurseIds.length === 0
+                  ? '仅筛选房间时，将显示所有护士及其完整排班'
+                  : '同时筛选护士和房间时，将显示关联资源的完整排班'}，匹配项带⭐标记
               </p>
             </div>
           )}

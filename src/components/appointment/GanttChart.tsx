@@ -94,19 +94,40 @@ export default function GanttChart({
     const relatedRoomIds = new Set<string>();
     const relatedNurseIds = new Set<string>();
 
-    // 1. 添加直接选中的资源
-    selectedRoomIds.forEach(id => relatedRoomIds.add(id));
-    selectedNurseIds.forEach(id => relatedNurseIds.add(id));
-
-    // 2. 如果选择了护士，找出这些护士使用的所有房间
-    if (selectedNurseIds.length > 0) {
+    // 1. 如果只选择了护士（没有选择房间），显示所有房间
+    if (selectedNurseIds.length > 0 && selectedRoomIds.length === 0) {
+      // 添加选中的护士
+      selectedNurseIds.forEach(id => relatedNurseIds.add(id));
+      // 添加所有房间
+      filteredRooms.forEach(room => relatedRoomIds.add(room.id));
+      // 找出在这些房间工作的所有护士（用于显示关联排班）
+      schedules
+        .filter(s => relatedRoomIds.has(s.room_id))
+        .forEach(s => relatedNurseIds.add(s.nurse_id));
+    }
+    // 2. 如果只选择了房间（没有选择护士），显示所有护士
+    else if (selectedRoomIds.length > 0 && selectedNurseIds.length === 0) {
+      // 添加选中的房间
+      selectedRoomIds.forEach(id => relatedRoomIds.add(id));
+      // 添加所有护士
+      filteredNurses.forEach(nurse => relatedNurseIds.add(nurse.id));
+      // 找出使用这些护士的所有房间（用于显示关联排班）
+      schedules
+        .filter(s => relatedNurseIds.has(s.nurse_id))
+        .forEach(s => relatedRoomIds.add(s.room_id));
+    }
+    // 3. 如果同时选择了护士和房间，只显示相关的资源
+    else {
+      // 添加直接选中的资源
+      selectedRoomIds.forEach(id => relatedRoomIds.add(id));
+      selectedNurseIds.forEach(id => relatedNurseIds.add(id));
+      
+      // 找出选中护士使用的所有房间
       schedules
         .filter(s => selectedNurseIds.includes(s.nurse_id))
         .forEach(s => relatedRoomIds.add(s.room_id));
-    }
-
-    // 3. 如果选择了房间，找出在这些房间工作的所有护士
-    if (selectedRoomIds.length > 0) {
+      
+      // 找出在选中房间工作的所有护士
       schedules
         .filter(s => selectedRoomIds.includes(s.room_id))
         .forEach(s => relatedNurseIds.add(s.nurse_id));
