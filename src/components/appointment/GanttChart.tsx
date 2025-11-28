@@ -17,6 +17,8 @@ interface GanttChartProps {
   selectedDate: string;
   viewMode: ViewMode;
   resourceFilters?: ResourceFilterType[];
+  selectedNurseId?: string | null;
+  selectedRoomId?: string | null;
   onScheduleClick?: (schedule: ScheduleWithDetails) => void;
 }
 
@@ -27,6 +29,8 @@ export default function GanttChart({
   selectedDate, 
   viewMode,
   resourceFilters = [],
+  selectedNurseId = null,
+  selectedRoomId = null,
   onScheduleClick 
 }: GanttChartProps) {
   // 对话框状态
@@ -60,6 +64,16 @@ export default function GanttChart({
   const filteredRooms = shouldShowResource('room') ? rooms : [];
   const filteredNurses = shouldShowResource('nurse') ? nurses : [];
 
+  // 应用具体资源的AND筛选
+  const filteredSchedules = schedules.filter(schedule => {
+    // 人员筛选（如果选择了具体人员）
+    const matchNurse = selectedNurseId ? schedule.nurse_id === selectedNurseId : true;
+    // 房间筛选（如果选择了具体房间）
+    const matchRoom = selectedRoomId ? schedule.room_id === selectedRoomId : true;
+    // AND关系：两个条件都要满足
+    return matchNurse && matchRoom;
+  });
+
   const hours = Array.from({ length: 11 }, (_, i) => i + 8);
   const timeSlots = hours.flatMap(h => [`${h}:00`, `${h}:30`]);
 
@@ -70,13 +84,13 @@ export default function GanttChart({
     resourceName: string,
     resourceType: 'room' | 'nurse'
   ) => {
-    const filteredSchedules = schedules.filter(
+    const cellSchedules = filteredSchedules.filter(
       s => s.scheduled_date === date && 
       (resourceType === 'room' ? s.room_id === resourceId : s.nurse_id === resourceId)
     );
     
-    if (filteredSchedules.length > 0) {
-      setSelectedSchedules(filteredSchedules);
+    if (cellSchedules.length > 0) {
+      setSelectedSchedules(cellSchedules);
       setDialogDate(date);
       setSelectedResourceName(resourceName);
       setSelectedResourceType(resourceType);
@@ -86,10 +100,10 @@ export default function GanttChart({
 
   // 月视图点击处理（不区分资源）
   const handleMonthCellClick = (date: string) => {
-    const filteredSchedules = schedules.filter(s => s.scheduled_date === date);
+    const cellSchedules = filteredSchedules.filter(s => s.scheduled_date === date);
     
-    if (filteredSchedules.length > 0) {
-      setSelectedSchedules(filteredSchedules);
+    if (cellSchedules.length > 0) {
+      setSelectedSchedules(cellSchedules);
       setDialogDate(date);
       setSelectedResourceName('');
       setSelectedResourceType('room');
@@ -121,7 +135,7 @@ export default function GanttChart({
   };
 
   const getSchedulesForResource = (resourceId: string, resourceType: 'room' | 'nurse') => {
-    return schedules.filter(schedule => {
+    return filteredSchedules.filter(schedule => {
       if (resourceType === 'room') {
         return schedule.room_id === resourceId;
       }
@@ -181,7 +195,7 @@ export default function GanttChart({
   // 获取指定日期的排班数量
   const getScheduleCountForDate = (date: Date) => {
     const dateStr = format(date, 'yyyy-MM-dd');
-    return schedules.filter(s => s.scheduled_date === dateStr).length;
+    return filteredSchedules.filter(s => s.scheduled_date === dateStr).length;
   };
 
   // 周视图渲染
@@ -217,7 +231,7 @@ export default function GanttChart({
                   </div>
                   {weekDays.map(day => {
                     const dateStr = format(day, 'yyyy-MM-dd');
-                    const daySchedules = schedules.filter(
+                    const daySchedules = filteredSchedules.filter(
                       s => s.scheduled_date === dateStr && s.room_id === room.id
                     );
                     const isToday = isSameDay(day, currentDate);
@@ -313,7 +327,7 @@ export default function GanttChart({
                   <div className="border-t py-3 px-2 font-medium">{nurse.name}</div>
                   {weekDays.map(day => {
                     const dateStr = format(day, 'yyyy-MM-dd');
-                    const daySchedules = schedules.filter(
+                    const daySchedules = filteredSchedules.filter(
                       s => s.scheduled_date === dateStr && s.nurse_id === nurse.id
                     );
                     const isToday = isSameDay(day, currentDate);
@@ -482,7 +496,7 @@ export default function GanttChart({
                     const isValid = day.getTime() > 0;
                     const isToday = isValid && isSameDay(day, currentDate);
                     const dateStr = isValid ? format(day, 'yyyy-MM-dd') : '';
-                    const daySchedules = isValid ? schedules.filter(s => s.scheduled_date === dateStr) : [];
+                    const daySchedules = isValid ? filteredSchedules.filter(s => s.scheduled_date === dateStr) : [];
                     const scheduleCount = daySchedules.length;
 
                     // 获取客户姓名列表

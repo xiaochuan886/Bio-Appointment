@@ -23,6 +23,7 @@ import ViewSwitcher, { type ViewMode } from '@/components/appointment/ViewSwitch
 import DateRangePicker from '@/components/appointment/DateRangePicker';
 import ResourceConflictDialog from '@/components/appointment/ResourceConflictDialog';
 import ResourceFilter, { type ResourceFilterType } from '@/components/appointment/ResourceFilter';
+import ResourceDetailFilter from '@/components/appointment/ResourceDetailFilter';
 import { detectResourceConflicts, type ResourceConflict } from '@/utils/scheduleUtils';
 
 const scheduleFormSchema = z.object({
@@ -40,6 +41,8 @@ export default function HeadNurseSchedulePage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>('day');
   const [resourceFilters, setResourceFilters] = useState<ResourceFilterType[]>([]);
+  const [selectedNurseId, setSelectedNurseId] = useState<string | null>(null);
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [pendingAppointments, setPendingAppointments] = useState<AppointmentWithDetails[]>([]);
   const [schedules, setSchedules] = useState<ScheduleWithDetails[]>([]);
   const [nurses, setNurses] = useState<Nurse[]>([]);
@@ -104,6 +107,11 @@ export default function HeadNurseSchedulePage() {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       toast.error(`加载数据失败: ${errorMessage}`);
     }
+  };
+
+  const handleClearFilters = () => {
+    setSelectedNurseId(null);
+    setSelectedRoomId(null);
   };
 
   const handleCreateSchedule = (appointment: AppointmentWithDetails) => {
@@ -324,13 +332,26 @@ export default function HeadNurseSchedulePage() {
               selectedDate={format(selectedDate, 'yyyy-MM-dd')}
               viewMode={viewMode}
               resourceFilters={resourceFilters}
+              selectedNurseId={selectedNurseId}
+              selectedRoomId={selectedRoomId}
               onScheduleClick={handleEditSchedule}
             />
           </CardContent>
         </Card>
 
         <div className="space-y-4">
-          {/* 资源筛选器 */}
+          {/* 具体资源筛选器 */}
+          <ResourceDetailFilter
+            nurses={nurses}
+            rooms={rooms}
+            selectedNurseId={selectedNurseId}
+            selectedRoomId={selectedRoomId}
+            onNurseChange={setSelectedNurseId}
+            onRoomChange={setSelectedRoomId}
+            onClearFilters={handleClearFilters}
+          />
+
+          {/* 资源类型筛选器 */}
           <ResourceFilter
             selectedFilters={resourceFilters}
             onFilterChange={setResourceFilters}
