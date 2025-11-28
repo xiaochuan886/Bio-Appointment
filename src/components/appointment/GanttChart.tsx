@@ -42,17 +42,47 @@ export default function GanttChart({
   const [selectedResourceName, setSelectedResourceName] = useState('');
   const [selectedResourceType, setSelectedResourceType] = useState<'room' | 'nurse'>('room');
 
-  // 根据筛选条件过滤资源
+  // 严格筛选模式：根据筛选条件过滤资源
+  // 规则：
+  // 1. 无筛选条件 → 显示所有资源
+  // 2. 有筛选条件 → 只显示被选中的资源
+  
+  // 确定可见的房间
+  const visibleRooms = selectedRoomIds.length > 0 
+    ? rooms.filter(room => selectedRoomIds.includes(room.id))
+    : rooms;
+
+  // 确定可见的护士
+  const visibleNurses = selectedNurseIds.length > 0
+    ? nurses.filter(nurse => selectedNurseIds.includes(nurse.id))
+    : nurses;
+
+  // 确定可见的排班
+  // 规则：
+  // 1. 无筛选条件 → 显示所有排班
+  // 2. 只选护士 → 显示这些护士的所有排班
+  // 3. 只选房间 → 显示这些房间的所有排班
+  // 4. 同时选护士和房间 → 显示同时满足两个条件的排班（交集）
+  let visibleSchedules = schedules;
+
+  if (selectedNurseIds.length > 0 || selectedRoomIds.length > 0) {
+    visibleSchedules = schedules.filter(schedule => {
+      const nurseMatch = selectedNurseIds.length === 0 || selectedNurseIds.includes(schedule.nurse_id);
+      const roomMatch = selectedRoomIds.length === 0 || selectedRoomIds.includes(schedule.room_id);
+      
+      // 同时满足护士和房间的筛选条件（如果有的话）
+      return nurseMatch && roomMatch;
+    });
+  }
+
+  // 根据资源类型筛选器过滤（保留原有的房间/护士维度切换功能）
   const shouldShowResource = (resourceType: 'room' | 'nurse') => {
-    // 如果没有选择任何筛选条件，显示所有资源
     if (resourceFilters.length === 0) {
       return true;
     }
-    // 如果选择了两个筛选条件，显示所有资源
     if (resourceFilters.length === 2) {
       return true;
     }
-    // 根据筛选条件判断
     if (resourceType === 'room') {
       return resourceFilters.includes('room');
     }
@@ -62,88 +92,9 @@ export default function GanttChart({
     return false;
   };
 
-  // 过滤后的资源列表
-  const filteredRooms = shouldShowResource('room') ? rooms : [];
-  const filteredNurses = shouldShowResource('nurse') ? nurses : [];
-
-  // 判断排班是否完全匹配筛选条件（用于高亮显示）
-  const isScheduleHighlighted = (schedule: ScheduleWithDetails) => {
-    const matchNurse = selectedNurseIds.length > 0 
-      ? selectedNurseIds.includes(schedule.nurse_id) 
-      : false;
-    
-    const matchRoom = selectedRoomIds.length > 0 
-      ? selectedRoomIds.includes(schedule.room_id) 
-      : false;
-    
-    // 如果两个条件都选了，必须都匹配
-    if (selectedNurseIds.length > 0 && selectedRoomIds.length > 0) {
-      return matchNurse && matchRoom;
-    }
-    
-    // 如果只选了一个条件，匹配该条件即可
-    return matchNurse || matchRoom;
-  };
-
-  // 确定可见的资源和排班
-  let visibleRooms = filteredRooms;
-  let visibleNurses = filteredNurses;
-  let visibleSchedules = schedules;
-
-  // 如果有筛选条件，应用关联展示逻辑
-  if (selectedNurseIds.length > 0 || selectedRoomIds.length > 0) {
-    // 收集所有相关的资源ID
-    const relatedRoomIds = new Set<string>();
-    const relatedNurseIds = new Set<string>();
-
-    // 1. 如果只选择了护士（没有选择房间），显示所有房间
-    if (selectedNurseIds.length > 0 && selectedRoomIds.length === 0) {
-      // 添加选中的护士
-      selectedNurseIds.forEach(id => relatedNurseIds.add(id));
-      // 添加所有房间
-      filteredRooms.forEach(room => relatedRoomIds.add(room.id));
-      // 找出在这些房间工作的所有护士（用于显示关联排班）
-      schedules
-        .filter(s => relatedRoomIds.has(s.room_id))
-        .forEach(s => relatedNurseIds.add(s.nurse_id));
-    }
-    // 2. 如果只选择了房间（没有选择护士），显示所有护士
-    else if (selectedRoomIds.length > 0 && selectedNurseIds.length === 0) {
-      // 添加选中的房间
-      selectedRoomIds.forEach(id => relatedRoomIds.add(id));
-      // 添加所有护士
-      filteredNurses.forEach(nurse => relatedNurseIds.add(nurse.id));
-      // 找出使用这些护士的所有房间（用于显示关联排班）
-      schedules
-        .filter(s => relatedNurseIds.has(s.nurse_id))
-        .forEach(s => relatedRoomIds.add(s.room_id));
-    }
-    // 3. 如果同时选择了护士和房间，只显示相关的资源
-    else {
-      // 添加直接选中的资源
-      selectedRoomIds.forEach(id => relatedRoomIds.add(id));
-      selectedNurseIds.forEach(id => relatedNurseIds.add(id));
-      
-      // 找出选中护士使用的所有房间
-      schedules
-        .filter(s => selectedNurseIds.includes(s.nurse_id))
-        .forEach(s => relatedRoomIds.add(s.room_id));
-      
-      // 找出在选中房间工作的所有护士
-      schedules
-        .filter(s => selectedRoomIds.includes(s.room_id))
-        .forEach(s => relatedNurseIds.add(s.nurse_id));
-    }
-
-    // 4. 过滤可见资源
-    visibleRooms = filteredRooms.filter(room => relatedRoomIds.has(room.id));
-    visibleNurses = filteredNurses.filter(nurse => relatedNurseIds.has(nurse.id));
-
-    // 5. 显示这些资源的所有排班（不仅是匹配的排班）
-    visibleSchedules = schedules.filter(schedule => 
-      relatedRoomIds.has(schedule.room_id) || relatedNurseIds.has(schedule.nurse_id)
-    );
-  }
+  // 应用资源类型筛选
+  const filteredRooms = shouldShowResource('room') ? visibleRooms : [];
+  const filteredNurses = shouldShowResource('nurse') ? visibleNurses : [];
 
   const hours = Array.from({ length: 11 }, (_, i) => i + 8);
   const timeSlots = hours.flatMap(h => [`${h}:00`, `${h}:30`]);
@@ -238,19 +189,9 @@ export default function GanttChart({
     };
   };
 
-  // 获取排班卡片的样式类名
-  const getScheduleCardClassName = (schedule: ScheduleWithDetails) => {
-    const baseClasses = 'absolute top-2 h-10 rounded px-2 py-1 cursor-pointer hover:opacity-90 hover:shadow-lg transition-all overflow-hidden';
-    const highlightClasses = isScheduleHighlighted(schedule)
-      ? 'ring-2 ring-yellow-400 ring-offset-2'
-      : '';
-    return `${baseClasses} ${highlightClasses}`;
-  };
-
-  // 获取客户名称显示（带高亮标记）
-  const getCustomerNameDisplay = (schedule: ScheduleWithDetails) => {
-    const name = schedule.appointment?.customer_name || '';
-    return isScheduleHighlighted(schedule) ? `${name} ⭐` : name;
+  // 获取排班卡片的样式类名（移除高亮功能）
+  const getScheduleCardClassName = () => {
+    return 'absolute top-2 h-10 rounded px-2 py-1 cursor-pointer hover:opacity-90 hover:shadow-lg transition-all overflow-hidden';
   };
 
   // 渲染排班卡片（带颜色编码和悬停提示）
@@ -265,7 +206,7 @@ export default function GanttChart({
         <Tooltip>
           <TooltipTrigger asChild>
             <div
-              className={getScheduleCardClassName(schedule)}
+              className={getScheduleCardClassName()}
               style={{
                 left: position.left,
                 width: position.width,
@@ -275,7 +216,7 @@ export default function GanttChart({
               onClick={() => onScheduleClick?.(schedule)}
             >
               <div className="text-xs font-medium truncate drop-shadow-sm">
-                {getCustomerNameDisplay(schedule)}
+                {schedule.appointment?.customer_name || ''}
               </div>
               <div className="text-xs truncate opacity-90 drop-shadow-sm">
                 {schedule.appointment?.service?.name}
@@ -468,7 +409,7 @@ export default function GanttChart({
                                 <div className="font-semibold">点击查看详情</div>
                                 {daySchedules.slice(0, 3).map((schedule, idx) => (
                                   <div key={idx} className="text-xs">
-                                    {getCustomerNameDisplay(schedule)} - {schedule.scheduled_time_start?.slice(0, 5)}
+                                    {schedule.appointment?.customer_name || ''} - {schedule.scheduled_time_start?.slice(0, 5)}
                                   </div>
                                 ))}
                                 {daySchedules.length > 3 && (
@@ -564,7 +505,7 @@ export default function GanttChart({
                                 <div className="font-semibold">点击查看详情</div>
                                 {daySchedules.slice(0, 3).map((schedule, idx) => (
                                   <div key={idx} className="text-xs">
-                                    {getCustomerNameDisplay(schedule)} - {schedule.scheduled_time_start?.slice(0, 5)}
+                                    {schedule.appointment?.customer_name || ''} - {schedule.scheduled_time_start?.slice(0, 5)}
                                   </div>
                                 ))}
                                 {daySchedules.length > 3 && (
@@ -737,7 +678,7 @@ export default function GanttChart({
                                 <div className="font-semibold">点击查看详情</div>
                                 {daySchedules.slice(0, 3).map((schedule, idx) => (
                                   <div key={idx} className="text-xs">
-                                    {getCustomerNameDisplay(schedule)} - {schedule.scheduled_time_start?.slice(0, 5)}
+                                    {schedule.appointment?.customer_name || ''} - {schedule.scheduled_time_start?.slice(0, 5)}
                                   </div>
                                 ))}
                                 {scheduleCount > 3 && (

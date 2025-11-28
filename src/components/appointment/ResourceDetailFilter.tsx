@@ -72,20 +72,20 @@ export default function ResourceDetailFilter({
 
   const getFilterDescription = () => {
     if (!hasActiveFilters) {
-      return "未选择筛选条件，显示所有排班";
+      return "未选择筛选条件，显示所有资源和排班";
     }
 
     const parts: string[] = [];
     if (selectedNurseIds.length > 0) {
       const names = getSelectedNurseNames();
-      parts.push(`人员: ${names.join('、')} (${names.length}人)`);
+      parts.push(`护士: ${names.join('、')} (${names.length}人)`);
     }
     if (selectedRoomIds.length > 0) {
       const names = getSelectedRoomNames();
       parts.push(`房间: ${names.join('、')} (${names.length}间)`);
     }
 
-    return `筛选条件：${parts.join(' 且 ')}`;
+    return `当前筛选：${parts.join(' + ')}`;
   };
 
   return (
@@ -95,7 +95,7 @@ export default function ResourceDetailFilter({
           <div className="flex items-center gap-2">
             <Filter className="h-4 w-4" />
             <CardTitle className="text-sm">
-              资源筛选{hasActiveFilters && '（已筛选）'}
+              资源筛选{hasActiveFilters && '（已启用）'}
             </CardTitle>
           </div>
           {hasActiveFilters && (
@@ -112,10 +112,22 @@ export default function ResourceDetailFilter({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* 筛选模式说明 */}
+        {hasActiveFilters && (
+          <div className="rounded-lg bg-primary/5 border border-primary/20 p-3">
+            <p className="text-xs font-medium text-primary mb-1">
+              🔍 严格筛选模式
+            </p>
+            <p className="text-xs text-muted-foreground">
+              仅显示选中的资源及其相关排班，未选中的资源将被隐藏
+            </p>
+          </div>
+        )}
+
         {/* 人员筛选 */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <label className="text-sm font-medium">人员筛选（多选）</label>
+            <label className="text-sm font-medium">护士筛选（多选）</label>
             {selectedNurseIds.length > 0 && (
               <Badge variant="secondary" className="text-xs">
                 已选 {selectedNurseIds.length} 人
@@ -181,22 +193,20 @@ export default function ResourceDetailFilter({
         </div>
 
         {/* 筛选说明 */}
-        <div className="pt-2 border-t">
-          <p className="text-xs text-muted-foreground">
+        <div className="pt-2 border-t space-y-2">
+          <p className="text-xs font-medium text-foreground">
             {getFilterDescription()}
           </p>
           {hasActiveFilters && (
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground mt-1">
-                提示：同类条件为"或"关系，不同类条件为"与"关系
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">
+                📌 筛选规则：
               </p>
-              <p className="text-xs text-amber-600 dark:text-amber-400">
-                💡 {selectedNurseIds.length > 0 && selectedRoomIds.length === 0 
-                  ? '仅筛选护士时，将显示所有房间及其完整排班' 
-                  : selectedRoomIds.length > 0 && selectedNurseIds.length === 0
-                  ? '仅筛选房间时，将显示所有护士及其完整排班'
-                  : '同时筛选护士和房间时，将显示关联资源的完整排班'}，匹配项带⭐标记
-              </p>
+              <ul className="text-xs text-muted-foreground space-y-1 pl-4">
+                <li>• 只选护士：显示这些护士的所有排班</li>
+                <li>• 只选房间：显示这些房间的所有排班</li>
+                <li>• 同时选择：显示同时满足两个条件的排班</li>
+              </ul>
             </div>
           )}
         </div>
