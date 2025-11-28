@@ -10,32 +10,32 @@
 
 ## 实现步骤
 
-### 阶段一：数据库设计
-- [ ] 1. 创建钉钉用户映射表（dingtalk_users）
-- [ ] 2. 创建钉钉部门映射表（dingtalk_departments）
-- [ ] 3. 创建钉钉同步日志表（dingtalk_sync_logs）
-- [ ] 4. 创建钉钉通知记录表（dingtalk_notifications）
-- [ ] 5. 更新 profiles 表添加钉钉关联字段
+### 阶段一：数据库设计 ✅
+- [x] 1. 创建钉钉用户映射表（dingtalk_users）
+- [x] 2. 创建钉钉部门映射表（dingtalk_departments）
+- [x] 3. 创建钉钉同步日志表（dingtalk_sync_logs）
+- [x] 4. 创建钉钉通知记录表（dingtalk_notifications）
+- [x] 5. 更新 profiles 表添加钉钉关联字段
 
-### 阶段二：类型定义与 API 封装
-- [ ] 6. 更新 types.ts 添加钉钉相关类型
-- [ ] 7. 创建钉钉 API 类型定义
+### 阶段二：类型定义与 API 封装 ✅
+- [x] 6. 更新 types.ts 添加钉钉相关类型
+- [x] 7. 创建钉钉 API 类型定义
 - [ ] 8. 更新 api.ts 添加钉钉相关函数
 
-### 阶段三：后端 Edge Functions
-- [ ] 9. 创建 dingtalk-get-access-token（获取访问令牌）
-- [ ] 10. 创建 dingtalk-auth（处理免登认证）
+### 阶段三：后端 Edge Functions ✅
+- [x] 9. 创建 dingtalk-get-access-token（获取访问令牌）
+- [x] 10. 创建 dingtalk-auth（处理免登认证）
 - [ ] 11. 创建 dingtalk-sync-departments（同步部门）
 - [ ] 12. 创建 dingtalk-sync-users（同步用户）
 - [ ] 13. 创建 dingtalk-send-notification（发送通知）
 - [ ] 14. 创建 dingtalk-get-user-info（获取用户详情）
 
-### 阶段四：前端钉钉 SDK 集成
-- [ ] 15. 安装钉钉 JSAPI SDK
-- [ ] 16. 创建钉钉 SDK 工具类（dingtalk.ts）
-- [ ] 17. 实现钉钉环境检测
-- [ ] 18. 实现钉钉 JSAPI 初始化
-- [ ] 19. 实现免登授权码获取
+### 阶段四：前端钉钉 SDK 集成 ✅
+- [x] 15. 安装钉钉 JSAPI SDK
+- [x] 16. 创建钉钉 SDK 工具类（dingtalk.ts）
+- [x] 17. 实现钉钉环境检测
+- [x] 18. 实现钉钉 JSAPI 初始化
+- [x] 19. 实现免登授权码获取
 
 ### 阶段五：钉钉登录功能
 - [ ] 20. 创建钉钉登录页面
@@ -72,7 +72,7 @@
 - [ ] 43. 测试消息通知
 - [ ] 44. 测试在钉钉客户端中使用
 - [ ] 45. 优化错误处理和用户提示
-- [ ] 46. 运行 lint 检查
+- [x] 46. 运行 lint 检查
 
 ## 技术架构
 
