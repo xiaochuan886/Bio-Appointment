@@ -7,6 +7,8 @@ import { zhCN } from 'date-fns/locale';
 import type { ScheduleWithDetails, Nurse, Room } from '@/types/types';
 import ScheduleDetailDialog from './ScheduleDetailDialog';
 import type { ResourceFilterType } from './ResourceFilter';
+import { getNurseColor, getRoomColor, getCombinedGradient } from '@/utils/colorSystem';
+
 
 export type ViewMode = 'day' | 'week' | 'month';
 
@@ -203,12 +205,45 @@ export default function GanttChart({
     return { left: `${left}%`, width: `${width}%` };
   };
 
+  // 获取排班卡片的组合颜色样式
+  const getScheduleCardStyle = (schedule: ScheduleWithDetails) => {
+    const nurseColor = getNurseColor(schedule.nurse_id, nurses);
+    const roomColor = getRoomColor(schedule.room_id, rooms);
+    
+    // 使用渐变色展示护士-房间组合
+    const gradient = getCombinedGradient(nurseColor.bg, roomColor.bg);
+    
+    // 如果是急单，添加红色边框
+    if (schedule.appointment?.is_urgent) {
+      return {
+        background: gradient,
+        borderColor: '#EF4444',
+        borderWidth: '2px',
+        borderStyle: 'solid',
+      };
+    }
+    
+    // 如果已锁定，添加绿色边框
+    if (schedule.status === 'locked') {
+      return {
+        background: gradient,
+        borderColor: '#10B981',
+        borderWidth: '2px',
+        borderStyle: 'solid',
+      };
+    }
+    
+    return {
+      background: gradient,
+    };
+  };
+
   // 获取排班卡片的样式类名
   const getScheduleCardClassName = (schedule: ScheduleWithDetails) => {
-    const baseClasses = 'absolute top-2 h-10 rounded px-2 py-1 cursor-pointer hover:opacity-80 transition-all overflow-hidden';
+    const baseClasses = 'absolute top-2 h-10 rounded px-2 py-1 cursor-pointer hover:opacity-90 hover:shadow-lg transition-all overflow-hidden';
     const highlightClasses = isScheduleHighlighted(schedule)
-      ? 'border-2 border-yellow-400 dark:border-yellow-500 shadow-lg ring-2 ring-yellow-400/50'
-      : 'border border-white/20';
+      ? 'ring-2 ring-yellow-400 ring-offset-2'
+      : '';
     return `${baseClasses} ${highlightClasses}`;
   };
 
@@ -216,6 +251,71 @@ export default function GanttChart({
   const getCustomerNameDisplay = (schedule: ScheduleWithDetails) => {
     const name = schedule.appointment?.customer_name || '';
     return isScheduleHighlighted(schedule) ? `${name} ⭐` : name;
+  };
+
+  // 渲染排班卡片（带颜色编码和悬停提示）
+  const renderScheduleCard = (schedule: ScheduleWithDetails, position: { left: string; width: string }) => {
+    const nurseColor = getNurseColor(schedule.nurse_id, nurses);
+    const roomColor = getRoomColor(schedule.room_id, rooms);
+    const nurse = nurses.find(n => n.id === schedule.nurse_id);
+    const room = rooms.find(r => r.id === schedule.room_id);
+    
+    return (
+      <TooltipProvider key={schedule.id}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div
+              className={getScheduleCardClassName(schedule)}
+              style={{
+                left: position.left,
+                width: position.width,
+                ...getScheduleCardStyle(schedule),
+                color: 'white',
+              }}
+              onClick={() => onScheduleClick?.(schedule)}
+            >
+              <div className="text-xs font-medium truncate drop-shadow-sm">
+                {getCustomerNameDisplay(schedule)}
+              </div>
+              <div className="text-xs truncate opacity-90 drop-shadow-sm">
+                {schedule.appointment?.service?.name}
+              </div>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs">
+            <div className="space-y-2">
+              <div>
+                <p className="font-semibold">{schedule.appointment?.customer_name}</p>
+                <p className="text-xs text-muted-foreground">
+                  {schedule.scheduled_time_start} - {schedule.scheduled_time_end}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 pt-2 border-t">
+                <div
+                  className="w-4 h-4 rounded border border-white/20"
+                  style={{ backgroundColor: nurseColor.bg }}
+                />
+                <span className="text-xs">
+                  护士: {nurse?.name} ({nurse?.skill_level})
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div
+                  className="w-4 h-4 rounded border"
+                  style={{
+                    backgroundColor: roomColor.bg,
+                    borderColor: roomColor.border,
+                  }}
+                />
+                <span className="text-xs">
+                  房间: {room?.name} ({room?.room_type})
+                </span>
+              </div>
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
   };
 
   const getSchedulesForResource = (resourceId: string, resourceType: 'room' | 'nurse') => {
@@ -723,30 +823,7 @@ export default function GanttChart({
                               schedule.scheduled_time_start,
                               schedule.scheduled_time_end
                             );
-                            return (
-                              <div
-                                key={schedule.id}
-                                className={getScheduleCardClassName(schedule)}
-                                style={{
-                                  left: position.left,
-                                  width: position.width,
-                                  backgroundColor: schedule.appointment?.is_urgent 
-                                    ? 'hsl(var(--urgent))' 
-                                    : schedule.status === 'locked'
-                                    ? 'hsl(var(--confirmed))'
-                                    : 'hsl(var(--scheduled))',
-                                  color: 'white',
-                                }}
-                                onClick={() => onScheduleClick?.(schedule)}
-                              >
-                                <div className="text-xs font-medium truncate">
-                                  {getCustomerNameDisplay(schedule)}
-                                </div>
-                                <div className="text-xs truncate opacity-90">
-                                  {schedule.appointment?.service?.name}
-                                </div>
-                              </div>
-                            );
+                            return renderScheduleCard(schedule, position);
                           })}
                         </div>
                       ))}
@@ -810,30 +887,7 @@ export default function GanttChart({
                               schedule.scheduled_time_start,
                               schedule.scheduled_time_end
                             );
-                            return (
-                              <div
-                                key={schedule.id}
-                                className={getScheduleCardClassName(schedule)}
-                                style={{
-                                  left: position.left,
-                                  width: position.width,
-                                  backgroundColor: schedule.appointment?.is_urgent 
-                                    ? 'hsl(var(--urgent))' 
-                                    : schedule.status === 'locked'
-                                    ? 'hsl(var(--confirmed))'
-                                    : 'hsl(var(--scheduled))',
-                                  color: 'white',
-                                }}
-                                onClick={() => onScheduleClick?.(schedule)}
-                              >
-                                <div className="text-xs font-medium truncate">
-                                  {getCustomerNameDisplay(schedule)}
-                                </div>
-                                <div className="text-xs truncate opacity-90">
-                                  {schedule.appointment?.service?.name}
-                                </div>
-                              </div>
-                            );
+                            return renderScheduleCard(schedule, position);
                           })}
                         </div>
                       ))}

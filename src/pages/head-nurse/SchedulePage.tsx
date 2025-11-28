@@ -24,6 +24,7 @@ import DateRangePicker from '@/components/appointment/DateRangePicker';
 import ResourceConflictDialog from '@/components/appointment/ResourceConflictDialog';
 import ResourceFilter, { type ResourceFilterType } from '@/components/appointment/ResourceFilter';
 import ResourceDetailFilter from '@/components/appointment/ResourceDetailFilter';
+import ResourceLegend from '@/components/appointment/ResourceLegend';
 import { detectResourceConflicts, type ResourceConflict } from '@/utils/scheduleUtils';
 
 const scheduleFormSchema = z.object({
@@ -340,6 +341,12 @@ export default function HeadNurseSchedulePage() {
         </Card>
 
         <div className="space-y-4">
+          {/* 资源颜色图例 */}
+          <ResourceLegend
+            nurses={nurses}
+            rooms={rooms}
+          />
+
           {/* 具体资源筛选器 */}
           <ResourceDetailFilter
             nurses={nurses}

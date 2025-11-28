@@ -18,6 +18,7 @@ import SystemConfigPage from '@/pages/admin/SystemConfigPage';
 
 // 公共页面
 import DashboardPage from '@/pages/DashboardPage';
+import ColorSystemDemo from '@/pages/ColorSystemDemo';
 
 interface RouteConfig {
   name: string;
@@ -61,6 +62,12 @@ const routes: RouteConfig[] = [
     name: '系统配置',
     path: '/admin/config',
     element: <SystemConfigPage />,
+    visible: true,
+  },
+  {
+    name: '颜色系统',
+    path: '/color-system',
+    element: <ColorSystemDemo />,
     visible: true,
   },
   {
