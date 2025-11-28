@@ -23,7 +23,7 @@ import ViewSwitcher, { type ViewMode } from '@/components/appointment/ViewSwitch
 import DateRangePicker from '@/components/appointment/DateRangePicker';
 import ResourceConflictDialog from '@/components/appointment/ResourceConflictDialog';
 import ResourceFilter, { type ResourceFilterType } from '@/components/appointment/ResourceFilter';
-import ResourceDetailFilter from '@/components/appointment/ResourceDetailFilter';
+import CompactFilterBar from '@/components/appointment/CompactFilterBar';
 import ResourceLegend from '@/components/appointment/ResourceLegend';
 import { detectResourceConflicts, type ResourceConflict } from '@/utils/scheduleUtils';
 
@@ -305,8 +305,25 @@ export default function HeadNurseSchedulePage() {
         </Card>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-3 mb-8">
-        <Card className="xl:col-span-2">
+      {/* 筛选栏 - 放在资源看板上方 */}
+      <div className="mb-4">
+        <CompactFilterBar
+          nurses={nurses}
+          selectedNurseIds={selectedNurseIds}
+          onNurseChange={setSelectedNurseIds}
+          rooms={rooms}
+          selectedRoomIds={selectedRoomIds}
+          onRoomChange={setSelectedRoomIds}
+          resourceFilters={resourceFilters}
+          onResourceFilterChange={setResourceFilters}
+          onClearFilters={handleClearFilters}
+        />
+      </div>
+
+      {/* 主内容区域 - 资源看板 + 右侧区域 */}
+      <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
+        {/* 资源看板 - 更宽的容器 */}
+        <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
@@ -340,33 +357,12 @@ export default function HeadNurseSchedulePage() {
           </CardContent>
         </Card>
 
+        {/* 右侧区域 - 排班待办 + 颜色图例 */}
         <div className="space-y-4">
-          {/* 资源颜色图例 */}
-          <ResourceLegend
-            nurses={nurses}
-            rooms={rooms}
-          />
-
-          {/* 具体资源筛选器 */}
-          <ResourceDetailFilter
-            nurses={nurses}
-            rooms={rooms}
-            selectedNurseIds={selectedNurseIds}
-            selectedRoomIds={selectedRoomIds}
-            onNurseChange={setSelectedNurseIds}
-            onRoomChange={setSelectedRoomIds}
-            onClearFilters={handleClearFilters}
-          />
-
-          {/* 资源类型筛选器 */}
-          <ResourceFilter
-            selectedFilters={resourceFilters}
-            onFilterChange={setResourceFilters}
-          />
-
+          {/* 排班待办 */}
           <Card>
             <CardHeader>
-              <CardTitle>排班待办</CardTitle>
+              <CardTitle className="text-base">排班待办</CardTitle>
               <CardDescription>
                 <div className="flex gap-4 mt-2">
                   <span className="text-confirmed">● 已确认</span>
@@ -374,26 +370,26 @@ export default function HeadNurseSchedulePage() {
                 </div>
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-3 max-h-[400px] overflow-y-auto">
               {urgentAppointments.map(appointment => (
-                <Card key={appointment.id} className="p-4 border-l-4 border-l-urgent hover:shadow-md transition-shadow">
-                  <div className="space-y-3">
+                <Card key={appointment.id} className="p-3 border-l-4 border-l-urgent hover:shadow-md transition-shadow">
+                  <div className="space-y-2">
                     <div className="flex items-start justify-between">
                       <div>
-                        <div className="font-medium text-lg">{appointment.customer_name}</div>
-                        <div className="text-sm text-muted-foreground mt-1">
+                        <div className="font-medium">{appointment.customer_name}</div>
+                        <div className="text-xs text-muted-foreground mt-1">
                           {appointment.service?.name}
                         </div>
                       </div>
                       <StatusBadge status="pending" isUrgent={true} />
                     </div>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Clock className="h-4 w-4" />
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Clock className="h-3.5 w-3.5" />
                       {appointment.requested_time_start?.substring(0, 5) || '待定'} (预计{appointment.estimated_duration}m)
                     </div>
                     <Button
                       size="sm"
-                      className="w-full bg-primary hover:bg-primary/90"
+                      className="w-full h-8 text-xs"
                       onClick={() => handleCreateSchedule(appointment)}
                     >
                       分配资源
@@ -401,27 +397,26 @@ export default function HeadNurseSchedulePage() {
                   </div>
                 </Card>
               ))}
-              
               {normalAppointments.map(appointment => (
-                <Card key={appointment.id} className="p-4 border-l-4 border-l-pending hover:shadow-md transition-shadow">
-                  <div className="space-y-3">
+                <Card key={appointment.id} className="p-3 hover:shadow-md transition-shadow">
+                  <div className="space-y-2">
                     <div className="flex items-start justify-between">
                       <div>
-                        <div className="font-medium text-lg">{appointment.customer_name}</div>
-                        <div className="text-sm text-muted-foreground mt-1">
+                        <div className="font-medium">{appointment.customer_name}</div>
+                        <div className="text-xs text-muted-foreground mt-1">
                           {appointment.service?.name}
                         </div>
                       </div>
                       <StatusBadge status="pending" />
                     </div>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Clock className="h-4 w-4" />
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Clock className="h-3.5 w-3.5" />
                       {appointment.requested_time_start?.substring(0, 5) || '待定'} (预计{appointment.estimated_duration}m)
                     </div>
                     <Button
                       size="sm"
                       variant="outline"
-                      className="w-full"
+                      className="w-full h-8 text-xs"
                       onClick={() => handleCreateSchedule(appointment)}
                     >
                       分配资源
@@ -429,31 +424,40 @@ export default function HeadNurseSchedulePage() {
                   </div>
                 </Card>
               ))}
-              
               {pendingAppointments.length === 0 && (
-                <p className="text-center text-muted-foreground py-8">暂无待排班预约</p>
+                <div className="text-center py-8 text-muted-foreground">
+                  <AlertCircle className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">暂无待排班预约</p>
+                </div>
               )}
             </CardContent>
           </Card>
+
+          {/* 颜色图例 - 紧凑模式 */}
+          <ResourceLegend
+            nurses={nurses}
+            rooms={rooms}
+            schedules={schedules}
+          />
         </div>
       </div>
 
+      {/* 排班编辑对话框 */}
       <Dialog open={isScheduleDialogOpen} onOpenChange={setIsScheduleDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-xl">
-              <Users className="h-5 w-5 text-primary" />
-              资源调度确认 (Resource Scheduling)
+            <DialogTitle>
+              {selectedSchedule ? '编辑排班' : '创建排班'}
             </DialogTitle>
             <DialogDescription>
-              为 {selectedAppointment?.customer_name} 分配房间和护士资源
+              为预约分配医疗资源并确认时间
             </DialogDescription>
           </DialogHeader>
 
           {selectedAppointment && (
-            <Alert className="bg-muted border-0">
+            <Alert>
               <AlertDescription>
-                <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <span className="text-muted-foreground">客户：</span>
                     <span className="font-medium ml-2">{selectedAppointment.customer_name}</span>
