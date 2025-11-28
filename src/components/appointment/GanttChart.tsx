@@ -348,12 +348,22 @@ export default function GanttChart({
                 ))}
 
                 {/* 房间行 */}
-                {visibleRooms.map(room => (
-                <div key={room.id} className="contents">
-                  <div className="border-t py-3 px-2 font-medium">
-                    {room.name}
-                    <div className="text-xs text-muted-foreground">{getRoomTypeLabel(room.room_type)}</div>
-                  </div>
+                {visibleRooms.map(room => {
+                  const roomColor = getRoomColor(room.id, rooms);
+                  return (
+                  <div key={room.id} className="contents">
+                    <div className="border-t py-3 px-2 font-medium">
+                      <div className="flex items-center gap-2">
+                        <span 
+                          className="w-2.5 h-2.5 rounded-full flex-shrink-0" 
+                          style={{ backgroundColor: roomColor.bg }}
+                        ></span>
+                        <div>
+                          {room.name}
+                          <div className="text-xs text-muted-foreground font-normal">{getRoomTypeLabel(room.room_type)}</div>
+                        </div>
+                      </div>
+                    </div>
                   {weekDays.map(day => {
                     const dateStr = format(day, 'yyyy-MM-dd');
                     const daySchedules = visibleSchedules.filter(
@@ -425,7 +435,8 @@ export default function GanttChart({
                     );
                   })}
                 </div>
-              ))}
+                );
+                })}
             </div>
           </Card>
         </div>
@@ -447,9 +458,19 @@ export default function GanttChart({
                 ))}
 
                 {/* 护士行 */}
-                {visibleNurses.map(nurse => (
-                <div key={nurse.id} className="contents">
-                  <div className="border-t py-3 px-2 font-medium">{nurse.name}</div>
+                {visibleNurses.map(nurse => {
+                  const nurseColor = getNurseColor(nurse.id, nurses);
+                  return (
+                  <div key={nurse.id} className="contents">
+                    <div className="border-t py-3 px-2 font-medium">
+                      <div className="flex items-center gap-2">
+                        <span 
+                          className="w-2.5 h-2.5 rounded-full flex-shrink-0" 
+                          style={{ backgroundColor: nurseColor.bg }}
+                        ></span>
+                        <span>{nurse.name}</span>
+                      </div>
+                    </div>
                   {weekDays.map(day => {
                     const dateStr = format(day, 'yyyy-MM-dd');
                     const daySchedules = visibleSchedules.filter(
@@ -521,7 +542,8 @@ export default function GanttChart({
                     );
                   })}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </Card>
         </div>
@@ -736,17 +758,26 @@ export default function GanttChart({
                 const scheduleRows = arrangeSchedulesInRows(roomSchedules);
                 const rowHeight = 48; // 每行高度
                 const totalHeight = Math.max(scheduleRows.length * rowHeight, rowHeight);
+                const roomColor = getRoomColor(room.id, rooms);
 
                 return (
                   <div key={room.id} className="flex border-b py-4 relative">
                     <div className="w-32 flex-shrink-0 font-medium">
-                      {room.name}
-                      <div className="text-xs text-muted-foreground">{getRoomTypeLabel(room.room_type)}</div>
-                      {scheduleRows.length > 1 && (
-                        <div className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                          ⚠️ {scheduleRows.length}个重叠排班
+                      <div className="flex items-center gap-2">
+                        <span 
+                          className="w-2.5 h-2.5 rounded-full flex-shrink-0" 
+                          style={{ backgroundColor: roomColor.bg }}
+                        ></span>
+                        <div>
+                          {room.name}
+                          <div className="text-xs text-muted-foreground font-normal">{getRoomTypeLabel(room.room_type)}</div>
+                          {scheduleRows.length > 1 && (
+                            <div className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                              ⚠️ {scheduleRows.length}个重叠排班
+                            </div>
+                          )}
                         </div>
-                      )}
+                      </div>
                     </div>
                     <div className="flex-1 relative" style={{ height: `${totalHeight}px` }}>
                       <div className="absolute inset-0 flex">
@@ -801,16 +832,25 @@ export default function GanttChart({
                 const scheduleRows = arrangeSchedulesInRows(nurseSchedules);
                 const rowHeight = 48;
                 const totalHeight = Math.max(scheduleRows.length * rowHeight, rowHeight);
+                const nurseColor = getNurseColor(nurse.id, nurses);
 
                 return (
                   <div key={nurse.id} className="flex border-b py-4 relative">
                     <div className="w-32 flex-shrink-0 font-medium">
-                      {nurse.name}
-                      {scheduleRows.length > 1 && (
-                        <div className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                          ⚠️ {scheduleRows.length}个重叠排班
+                      <div className="flex items-center gap-2">
+                        <span 
+                          className="w-2.5 h-2.5 rounded-full flex-shrink-0" 
+                          style={{ backgroundColor: nurseColor.bg }}
+                        ></span>
+                        <div>
+                          {nurse.name}
+                          {scheduleRows.length > 1 && (
+                            <div className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                              ⚠️ {scheduleRows.length}个重叠排班
+                            </div>
+                          )}
                         </div>
-                      )}
+                      </div>
                     </div>
                     <div className="flex-1 relative" style={{ height: `${totalHeight}px` }}>
                       <div className="absolute inset-0 flex">

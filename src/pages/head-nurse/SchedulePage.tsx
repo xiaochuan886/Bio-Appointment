@@ -320,59 +320,23 @@ export default function HeadNurseSchedulePage() {
         />
       </div>
 
-      {/* 主内容区域 - 资源看板 + 右侧区域 */}
-      <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
-        {/* 资源看板 - 更宽的容器 */}
+      {/* 排班待办 + 图例 - 横向布局，放在资源看板上方 */}
+      <div className="grid gap-4 xl:grid-cols-[1fr_auto] mb-4">
+        {/* 排班待办 */}
         <Card>
-          <CardHeader>
+          <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>资源看板</CardTitle>
-                <CardDescription>
-                  视图：房间维度 (08:00 - 18:00)
-                </CardDescription>
-              </div>
-              <div className="flex items-center gap-3">
-                <ViewSwitcher currentView={viewMode} onViewChange={setViewMode} />
-                <DateRangePicker
-                  selectedDate={selectedDate}
-                  onDateChange={setSelectedDate}
-                  viewMode={viewMode}
-                />
+              <CardTitle className="text-base">排班待办</CardTitle>
+              <div className="flex gap-3 text-xs">
+                <span className="text-confirmed">● 已确认</span>
+                <span className="text-pending">● 待排班</span>
               </div>
             </div>
           </CardHeader>
           <CardContent>
-            <GanttChart
-              schedules={schedules}
-              nurses={nurses}
-              rooms={rooms}
-              selectedDate={format(selectedDate, 'yyyy-MM-dd')}
-              viewMode={viewMode}
-              resourceFilters={resourceFilters}
-              selectedNurseIds={selectedNurseIds}
-              selectedRoomIds={selectedRoomIds}
-              onScheduleClick={handleEditSchedule}
-            />
-          </CardContent>
-        </Card>
-
-        {/* 右侧区域 - 排班待办 + 颜色图例 */}
-        <div className="space-y-4">
-          {/* 排班待办 */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">排班待办</CardTitle>
-              <CardDescription>
-                <div className="flex gap-4 mt-2">
-                  <span className="text-confirmed">● 已确认</span>
-                  <span className="text-pending">● 待排班</span>
-                </div>
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 max-h-[400px] overflow-y-auto">
+            <div className="flex gap-3 overflow-x-auto pb-2">
               {urgentAppointments.map(appointment => (
-                <Card key={appointment.id} className="p-3 border-l-4 border-l-urgent hover:shadow-md transition-shadow">
+                <Card key={appointment.id} className="min-w-[240px] p-3 border-l-4 border-l-urgent hover:shadow-md transition-shadow">
                   <div className="space-y-2">
                     <div className="flex items-start justify-between">
                       <div>
@@ -398,7 +362,7 @@ export default function HeadNurseSchedulePage() {
                 </Card>
               ))}
               {normalAppointments.map(appointment => (
-                <Card key={appointment.id} className="p-3 hover:shadow-md transition-shadow">
+                <Card key={appointment.id} className="min-w-[240px] p-3 hover:shadow-md transition-shadow">
                   <div className="space-y-2">
                     <div className="flex items-start justify-between">
                       <div>
@@ -425,22 +389,76 @@ export default function HeadNurseSchedulePage() {
                 </Card>
               ))}
               {pendingAppointments.length === 0 && (
-                <div className="text-center py-8 text-muted-foreground">
-                  <AlertCircle className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">暂无待排班预约</p>
+                <div className="flex items-center justify-center py-6 text-muted-foreground min-w-[240px]">
+                  <div className="text-center">
+                    <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">暂无待排班预约</p>
+                  </div>
                 </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </CardContent>
+        </Card>
 
-          {/* 颜色图例 - 紧凑模式 */}
-          <ResourceLegend
+        {/* 图例说明 - 紧凑横向显示 */}
+        <Card className="xl:w-[280px]">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm">图例说明</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-xs">
+                <span className="w-3 h-3 rounded-full bg-confirmed"></span>
+                <span className="text-muted-foreground">已确认</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <span className="w-3 h-3 rounded-full bg-pending"></span>
+                <span className="text-muted-foreground">待排班</span>
+              </div>
+              <div className="pt-2 border-t">
+                <p className="text-xs text-muted-foreground">
+                  💡 资源名称前的圆点表示该资源的颜色标识
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* 主内容区域 - 资源看板（全宽） */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>资源看板</CardTitle>
+              <CardDescription>
+                视图：房间维度 (08:00 - 18:00)
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-3">
+              <ViewSwitcher currentView={viewMode} onViewChange={setViewMode} />
+              <DateRangePicker
+                selectedDate={selectedDate}
+                onDateChange={setSelectedDate}
+                viewMode={viewMode}
+              />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <GanttChart
+            schedules={schedules}
             nurses={nurses}
             rooms={rooms}
-            schedules={schedules}
+            selectedDate={format(selectedDate, 'yyyy-MM-dd')}
+            viewMode={viewMode}
+            resourceFilters={resourceFilters}
+            selectedNurseIds={selectedNurseIds}
+            selectedRoomIds={selectedRoomIds}
+            onScheduleClick={handleEditSchedule}
           />
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {/* 排班编辑对话框 */}
       <Dialog open={isScheduleDialogOpen} onOpenChange={setIsScheduleDialogOpen}>
