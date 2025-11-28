@@ -6,6 +6,7 @@ import { format, startOfWeek, endOfWeek, eachDayOfInterval, startOfMonth, endOfM
 import { zhCN } from 'date-fns/locale';
 import type { ScheduleWithDetails, Nurse, Room } from '@/types/types';
 import ScheduleDetailDialog from './ScheduleDetailDialog';
+import type { ResourceFilterType } from './ResourceFilter';
 
 export type ViewMode = 'day' | 'week' | 'month';
 
@@ -15,6 +16,7 @@ interface GanttChartProps {
   rooms: Room[];
   selectedDate: string;
   viewMode: ViewMode;
+  resourceFilters?: ResourceFilterType[];
   onScheduleClick?: (schedule: ScheduleWithDetails) => void;
 }
 
@@ -24,6 +26,7 @@ export default function GanttChart({
   rooms, 
   selectedDate, 
   viewMode,
+  resourceFilters = [],
   onScheduleClick 
 }: GanttChartProps) {
   // 对话框状态
@@ -32,6 +35,30 @@ export default function GanttChart({
   const [dialogDate, setDialogDate] = useState('');
   const [selectedResourceName, setSelectedResourceName] = useState('');
   const [selectedResourceType, setSelectedResourceType] = useState<'room' | 'nurse'>('room');
+
+  // 根据筛选条件过滤资源
+  const shouldShowResource = (resourceType: 'room' | 'nurse') => {
+    // 如果没有选择任何筛选条件，显示所有资源
+    if (resourceFilters.length === 0) {
+      return true;
+    }
+    // 如果选择了两个筛选条件，显示所有资源
+    if (resourceFilters.length === 2) {
+      return true;
+    }
+    // 根据筛选条件判断
+    if (resourceType === 'room') {
+      return resourceFilters.includes('room');
+    }
+    if (resourceType === 'nurse') {
+      return resourceFilters.includes('nurse');
+    }
+    return false;
+  };
+
+  // 过滤后的资源列表
+  const filteredRooms = shouldShowResource('room') ? rooms : [];
+  const filteredNurses = shouldShowResource('nurse') ? nurses : [];
 
   const hours = Array.from({ length: 11 }, (_, i) => i + 8);
   const timeSlots = hours.flatMap(h => [`${h}:00`, `${h}:30`]);
@@ -166,21 +193,23 @@ export default function GanttChart({
 
     return (
       <div className="space-y-6">
-        <div>
-          <h3 className="text-lg font-semibold mb-4">周视图 - 房间排班</h3>
-          <Card className="p-4">
-            <div className="grid grid-cols-8 gap-2">
-              {/* 表头 */}
-              <div className="font-medium text-center py-2">房间</div>
-              {weekDays.map(day => (
-                <div key={day.toISOString()} className="font-medium text-center py-2">
-                  <div className="text-sm">{format(day, 'EEE', { locale: zhCN })}</div>
-                  <div className="text-xs text-muted-foreground">{format(day, 'M/d')}</div>
-                </div>
-              ))}
+        {/* 房间排班 */}
+        {filteredRooms.length > 0 && (
+          <div>
+            <h3 className="text-lg font-semibold mb-4">周视图 - 房间排班</h3>
+            <Card className="p-4">
+              <div className="grid grid-cols-8 gap-2">
+                {/* 表头 */}
+                <div className="font-medium text-center py-2">房间</div>
+                {weekDays.map(day => (
+                  <div key={day.toISOString()} className="font-medium text-center py-2">
+                    <div className="text-sm">{format(day, 'EEE', { locale: zhCN })}</div>
+                    <div className="text-xs text-muted-foreground">{format(day, 'M/d')}</div>
+                  </div>
+                ))}
 
-              {/* 房间行 */}
-              {rooms.map(room => (
+                {/* 房间行 */}
+                {filteredRooms.map(room => (
                 <div key={room.id} className="contents">
                   <div className="border-t py-3 px-2 font-medium">
                     {room.name}
@@ -261,22 +290,25 @@ export default function GanttChart({
             </div>
           </Card>
         </div>
+        )}
 
-        <div>
-          <h3 className="text-lg font-semibold mb-4">周视图 - 护士排班</h3>
-          <Card className="p-4">
-            <div className="grid grid-cols-8 gap-2">
-              {/* 表头 */}
-              <div className="font-medium text-center py-2">护士</div>
-              {weekDays.map(day => (
-                <div key={day.toISOString()} className="font-medium text-center py-2">
-                  <div className="text-sm">{format(day, 'EEE', { locale: zhCN })}</div>
-                  <div className="text-xs text-muted-foreground">{format(day, 'M/d')}</div>
-                </div>
-              ))}
+        {/* 护士排班 */}
+        {filteredNurses.length > 0 && (
+          <div>
+            <h3 className="text-lg font-semibold mb-4">周视图 - 护士排班</h3>
+            <Card className="p-4">
+              <div className="grid grid-cols-8 gap-2">
+                {/* 表头 */}
+                <div className="font-medium text-center py-2">护士</div>
+                {weekDays.map(day => (
+                  <div key={day.toISOString()} className="font-medium text-center py-2">
+                    <div className="text-sm">{format(day, 'EEE', { locale: zhCN })}</div>
+                    <div className="text-xs text-muted-foreground">{format(day, 'M/d')}</div>
+                  </div>
+                ))}
 
-              {/* 护士行 */}
-              {nurses.map(nurse => (
+                {/* 护士行 */}
+                {filteredNurses.map(nurse => (
                 <div key={nurse.id} className="contents">
                   <div className="border-t py-3 px-2 font-medium">{nurse.name}</div>
                   {weekDays.map(day => {
@@ -354,6 +386,17 @@ export default function GanttChart({
             </div>
           </Card>
         </div>
+        )}
+
+        {/* 无筛选结果提示 */}
+        {filteredRooms.length === 0 && filteredNurses.length === 0 && (
+          <Card className="p-8">
+            <div className="text-center text-muted-foreground">
+              <p className="text-lg mb-2">暂无符合筛选条件的资源</p>
+              <p className="text-sm">请调整筛选条件或清除筛选</p>
+            </div>
+          </Card>
+        )}
 
         {/* 详情对话框 */}
         <ScheduleDetailDialog
@@ -374,6 +417,9 @@ export default function GanttChart({
     const monthStart = startOfMonth(currentDate);
     const monthEnd = endOfMonth(currentDate);
     const monthDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
+
+    // 月视图显示所有排班的汇总，不区分资源类型
+    const hasActiveFilter = resourceFilters.length > 0 && resourceFilters.length < 2;
 
     // 按周分组
     const weeks: Date[][] = [];
@@ -408,9 +454,16 @@ export default function GanttChart({
     return (
       <div className="space-y-6">
         <div>
-          <h3 className="text-lg font-semibold mb-4">
-            月视图 - {format(currentDate, 'yyyy年M月', { locale: zhCN })}
-          </h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold">
+              月视图 - {format(currentDate, 'yyyy年M月', { locale: zhCN })}
+            </h3>
+            {hasActiveFilter && (
+              <div className="text-sm text-muted-foreground">
+                注意：月视图显示所有排班汇总，不区分资源类型
+              </div>
+            )}
+          </div>
           <Card className="p-4">
             <div className="space-y-2">
               {/* 星期表头 */}
@@ -521,23 +574,25 @@ export default function GanttChart({
   // 日视图渲染（原有逻辑）
   return (
     <div className="space-y-6">
-      <div>
-        <h3 className="text-lg font-semibold mb-4">房间排班</h3>
-        <Card className="p-4">
-          <ScrollArea className="w-full">
-            <div className="min-w-[1200px]">
-              <div className="flex border-b pb-2 mb-4">
-                <div className="w-32 flex-shrink-0 font-medium">房间</div>
-                <div className="flex-1 flex">
-                  {hours.map(hour => (
-                    <div key={hour} className="flex-1 text-center text-sm text-muted-foreground border-l">
-                      {hour}:00
-                    </div>
-                  ))}
+      {/* 房间排班 */}
+      {filteredRooms.length > 0 && (
+        <div>
+          <h3 className="text-lg font-semibold mb-4">房间排班</h3>
+          <Card className="p-4">
+            <ScrollArea className="w-full">
+              <div className="min-w-[1200px]">
+                <div className="flex border-b pb-2 mb-4">
+                  <div className="w-32 flex-shrink-0 font-medium">房间</div>
+                  <div className="flex-1 flex">
+                    {hours.map(hour => (
+                      <div key={hour} className="flex-1 text-center text-sm text-muted-foreground border-l">
+                        {hour}:00
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
 
-              {rooms.map(room => {
+                {filteredRooms.map(room => {
                 const roomSchedules = getSchedulesForResource(room.id, 'room');
                 const scheduleRows = arrangeSchedulesInRows(roomSchedules);
                 const rowHeight = 48; // 每行高度
@@ -605,24 +660,27 @@ export default function GanttChart({
           </ScrollArea>
         </Card>
       </div>
+      )}
 
-      <div>
-        <h3 className="text-lg font-semibold mb-4">护士排班</h3>
-        <Card className="p-4">
-          <ScrollArea className="w-full">
-            <div className="min-w-[1200px]">
-              <div className="flex border-b pb-2 mb-4">
-                <div className="w-32 flex-shrink-0 font-medium">护士</div>
-                <div className="flex-1 flex">
-                  {hours.map(hour => (
-                    <div key={hour} className="flex-1 text-center text-sm text-muted-foreground border-l">
-                      {hour}:00
-                    </div>
-                  ))}
+      {/* 护士排班 */}
+      {filteredNurses.length > 0 && (
+        <div>
+          <h3 className="text-lg font-semibold mb-4">护士排班</h3>
+          <Card className="p-4">
+            <ScrollArea className="w-full">
+              <div className="min-w-[1200px]">
+                <div className="flex border-b pb-2 mb-4">
+                  <div className="w-32 flex-shrink-0 font-medium">护士</div>
+                  <div className="flex-1 flex">
+                    {hours.map(hour => (
+                      <div key={hour} className="flex-1 text-center text-sm text-muted-foreground border-l">
+                        {hour}:00
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
 
-              {nurses.map(nurse => {
+                {filteredNurses.map(nurse => {
                 const nurseSchedules = getSchedulesForResource(nurse.id, 'nurse');
                 const scheduleRows = arrangeSchedulesInRows(nurseSchedules);
                 const rowHeight = 48;
@@ -689,7 +747,19 @@ export default function GanttChart({
           </ScrollArea>
         </Card>
       </div>
+      )}
 
+      {/* 无筛选结果提示 */}
+      {filteredRooms.length === 0 && filteredNurses.length === 0 && (
+        <Card className="p-8">
+          <div className="text-center text-muted-foreground">
+            <p className="text-lg mb-2">暂无符合筛选条件的资源</p>
+            <p className="text-sm">请调整筛选条件或清除筛选</p>
+          </div>
+        </Card>
+      )}
+
+      {/* 图例 */}
       <div className="flex gap-4 items-center text-sm">
         <div className="flex items-center gap-2">
           <div className="w-4 h-4 rounded bg-urgent" />

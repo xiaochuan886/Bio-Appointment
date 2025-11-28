@@ -22,6 +22,7 @@ import GanttChart from '@/components/appointment/GanttChart';
 import ViewSwitcher, { type ViewMode } from '@/components/appointment/ViewSwitcher';
 import DateRangePicker from '@/components/appointment/DateRangePicker';
 import ResourceConflictDialog from '@/components/appointment/ResourceConflictDialog';
+import ResourceFilter, { type ResourceFilterType } from '@/components/appointment/ResourceFilter';
 import { detectResourceConflicts, type ResourceConflict } from '@/utils/scheduleUtils';
 
 const scheduleFormSchema = z.object({
@@ -38,6 +39,7 @@ type ScheduleFormValues = z.infer<typeof scheduleFormSchema>;
 export default function HeadNurseSchedulePage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>('day');
+  const [resourceFilters, setResourceFilters] = useState<ResourceFilterType[]>([]);
   const [pendingAppointments, setPendingAppointments] = useState<AppointmentWithDetails[]>([]);
   const [schedules, setSchedules] = useState<ScheduleWithDetails[]>([]);
   const [nurses, setNurses] = useState<Nurse[]>([]);
@@ -321,12 +323,19 @@ export default function HeadNurseSchedulePage() {
               rooms={rooms}
               selectedDate={format(selectedDate, 'yyyy-MM-dd')}
               viewMode={viewMode}
+              resourceFilters={resourceFilters}
               onScheduleClick={handleEditSchedule}
             />
           </CardContent>
         </Card>
 
         <div className="space-y-4">
+          {/* 资源筛选器 */}
+          <ResourceFilter
+            selectedFilters={resourceFilters}
+            onFilterChange={setResourceFilters}
+          />
+
           <Card>
             <CardHeader>
               <CardTitle>排班待办</CardTitle>
