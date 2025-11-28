@@ -1,8 +1,11 @@
+import { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { format, startOfWeek, endOfWeek, eachDayOfInterval, startOfMonth, endOfMonth, isSameDay, parseISO } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import type { ScheduleWithDetails, Nurse, Room } from '@/types/types';
+import ScheduleDetailDialog from './ScheduleDetailDialog';
 
 export type ViewMode = 'day' | 'week' | 'month';
 
@@ -23,8 +26,49 @@ export default function GanttChart({
   viewMode,
   onScheduleClick 
 }: GanttChartProps) {
+  // 对话框状态
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [selectedSchedules, setSelectedSchedules] = useState<ScheduleWithDetails[]>([]);
+  const [dialogDate, setDialogDate] = useState('');
+  const [selectedResourceName, setSelectedResourceName] = useState('');
+  const [selectedResourceType, setSelectedResourceType] = useState<'room' | 'nurse'>('room');
+
   const hours = Array.from({ length: 11 }, (_, i) => i + 8);
   const timeSlots = hours.flatMap(h => [`${h}:00`, `${h}:30`]);
+
+  // 打开详情对话框
+  const handleCellClick = (
+    date: string,
+    resourceId: string,
+    resourceName: string,
+    resourceType: 'room' | 'nurse'
+  ) => {
+    const filteredSchedules = schedules.filter(
+      s => s.scheduled_date === date && 
+      (resourceType === 'room' ? s.room_id === resourceId : s.nurse_id === resourceId)
+    );
+    
+    if (filteredSchedules.length > 0) {
+      setSelectedSchedules(filteredSchedules);
+      setDialogDate(date);
+      setSelectedResourceName(resourceName);
+      setSelectedResourceType(resourceType);
+      setDialogOpen(true);
+    }
+  };
+
+  // 月视图点击处理（不区分资源）
+  const handleMonthCellClick = (date: string) => {
+    const filteredSchedules = schedules.filter(s => s.scheduled_date === date);
+    
+    if (filteredSchedules.length > 0) {
+      setSelectedSchedules(filteredSchedules);
+      setDialogDate(date);
+      setSelectedResourceName('');
+      setSelectedResourceType('room');
+      setDialogOpen(true);
+    }
+  };
 
   const getRoomTypeLabel = (roomType: string) => {
     const labels: Record<string, string> = {
@@ -149,24 +193,67 @@ export default function GanttChart({
                     );
                     const isToday = isSameDay(day, currentDate);
 
+                    // 获取客户姓名列表
+                    const customerNames = daySchedules
+                      .map(s => s.appointment?.customer_name)
+                      .filter(Boolean)
+                      .slice(0, 2); // 最多显示2个
+
                     return (
-                      <div
-                        key={day.toISOString()}
-                        className={`border-t py-3 px-2 text-center ${
-                          isToday ? 'bg-primary/10' : ''
-                        }`}
-                      >
-                        {daySchedules.length > 0 ? (
-                          <div className="space-y-1">
-                            <div className="text-lg font-semibold text-primary">
-                              {daySchedules.length}
+                      <TooltipProvider key={day.toISOString()}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div
+                              onClick={() => daySchedules.length > 0 && handleCellClick(dateStr, room.id, room.name, 'room')}
+                              className={`border-t py-2 px-2 text-center transition-all cursor-pointer ${
+                                isToday ? 'bg-primary/10' : ''
+                              } ${
+                                daySchedules.length > 0 
+                                  ? 'hover:bg-primary/20 hover:scale-105 active:scale-95' 
+                                  : ''
+                              }`}
+                            >
+                              {daySchedules.length > 0 ? (
+                                <div className="space-y-1">
+                                  <div className="text-lg font-semibold text-primary">
+                                    {daySchedules.length}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">个排班</div>
+                                  {customerNames.length > 0 && (
+                                    <div className="text-xs font-medium text-foreground mt-1 space-y-0.5">
+                                      {customerNames.map((name, idx) => (
+                                        <div key={idx} className="truncate">{name}</div>
+                                      ))}
+                                      {daySchedules.length > 2 && (
+                                        <div className="text-muted-foreground">...</div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="text-muted-foreground">-</div>
+                              )}
                             </div>
-                            <div className="text-xs text-muted-foreground">个排班</div>
-                          </div>
-                        ) : (
-                          <div className="text-muted-foreground">-</div>
-                        )}
-                      </div>
+                          </TooltipTrigger>
+                          {daySchedules.length > 0 && (
+                            <TooltipContent>
+                              <div className="space-y-1">
+                                <div className="font-semibold">点击查看详情</div>
+                                {daySchedules.slice(0, 3).map((schedule, idx) => (
+                                  <div key={idx} className="text-xs">
+                                    {schedule.appointment?.customer_name} - {schedule.scheduled_time_start?.slice(0, 5)}
+                                  </div>
+                                ))}
+                                {daySchedules.length > 3 && (
+                                  <div className="text-xs text-muted-foreground">
+                                    还有 {daySchedules.length - 3} 个排班
+                                  </div>
+                                )}
+                              </div>
+                            </TooltipContent>
+                          )}
+                        </Tooltip>
+                      </TooltipProvider>
                     );
                   })}
                 </div>
@@ -199,24 +286,67 @@ export default function GanttChart({
                     );
                     const isToday = isSameDay(day, currentDate);
 
+                    // 获取客户姓名列表
+                    const customerNames = daySchedules
+                      .map(s => s.appointment?.customer_name)
+                      .filter(Boolean)
+                      .slice(0, 2); // 最多显示2个
+
                     return (
-                      <div
-                        key={day.toISOString()}
-                        className={`border-t py-3 px-2 text-center ${
-                          isToday ? 'bg-primary/10' : ''
-                        }`}
-                      >
-                        {daySchedules.length > 0 ? (
-                          <div className="space-y-1">
-                            <div className="text-lg font-semibold text-primary">
-                              {daySchedules.length}
+                      <TooltipProvider key={day.toISOString()}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div
+                              onClick={() => daySchedules.length > 0 && handleCellClick(dateStr, nurse.id, nurse.name, 'nurse')}
+                              className={`border-t py-2 px-2 text-center transition-all cursor-pointer ${
+                                isToday ? 'bg-primary/10' : ''
+                              } ${
+                                daySchedules.length > 0 
+                                  ? 'hover:bg-primary/20 hover:scale-105 active:scale-95' 
+                                  : ''
+                              }`}
+                            >
+                              {daySchedules.length > 0 ? (
+                                <div className="space-y-1">
+                                  <div className="text-lg font-semibold text-primary">
+                                    {daySchedules.length}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">个排班</div>
+                                  {customerNames.length > 0 && (
+                                    <div className="text-xs font-medium text-foreground mt-1 space-y-0.5">
+                                      {customerNames.map((name, idx) => (
+                                        <div key={idx} className="truncate">{name}</div>
+                                      ))}
+                                      {daySchedules.length > 2 && (
+                                        <div className="text-muted-foreground">...</div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="text-muted-foreground">-</div>
+                              )}
                             </div>
-                            <div className="text-xs text-muted-foreground">个排班</div>
-                          </div>
-                        ) : (
-                          <div className="text-muted-foreground">-</div>
-                        )}
-                      </div>
+                          </TooltipTrigger>
+                          {daySchedules.length > 0 && (
+                            <TooltipContent>
+                              <div className="space-y-1">
+                                <div className="font-semibold">点击查看详情</div>
+                                {daySchedules.slice(0, 3).map((schedule, idx) => (
+                                  <div key={idx} className="text-xs">
+                                    {schedule.appointment?.customer_name} - {schedule.scheduled_time_start?.slice(0, 5)}
+                                  </div>
+                                ))}
+                                {daySchedules.length > 3 && (
+                                  <div className="text-xs text-muted-foreground">
+                                    还有 {daySchedules.length - 3} 个排班
+                                  </div>
+                                )}
+                              </div>
+                            </TooltipContent>
+                          )}
+                        </Tooltip>
+                      </TooltipProvider>
                     );
                   })}
                 </div>
@@ -224,6 +354,16 @@ export default function GanttChart({
             </div>
           </Card>
         </div>
+
+        {/* 详情对话框 */}
+        <ScheduleDetailDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          schedules={selectedSchedules}
+          date={dialogDate}
+          resourceName={selectedResourceName}
+          resourceType={selectedResourceType}
+        />
       </div>
     );
   }
@@ -288,34 +428,77 @@ export default function GanttChart({
                   {week.map((day, dayIndex) => {
                     const isValid = day.getTime() > 0;
                     const isToday = isValid && isSameDay(day, currentDate);
-                    const scheduleCount = isValid ? getScheduleCountForDate(day) : 0;
+                    const dateStr = isValid ? format(day, 'yyyy-MM-dd') : '';
+                    const daySchedules = isValid ? schedules.filter(s => s.scheduled_date === dateStr) : [];
+                    const scheduleCount = daySchedules.length;
+
+                    // 获取客户姓名列表
+                    const customerNames = daySchedules
+                      .map(s => s.appointment?.customer_name)
+                      .filter(Boolean)
+                      .slice(0, 2); // 最多显示2个
 
                     return (
-                      <div
-                        key={dayIndex}
-                        className={`border rounded-lg p-3 min-h-[80px] ${
-                          !isValid
-                            ? 'bg-muted/20'
-                            : isToday
-                            ? 'bg-primary/10 border-primary'
-                            : 'hover:bg-muted/50'
-                        }`}
-                      >
-                        {isValid && (
-                          <>
-                            <div className="text-sm font-medium mb-2">
-                              {format(day, 'd')}
+                      <TooltipProvider key={dayIndex}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div
+                              onClick={() => scheduleCount > 0 && handleMonthCellClick(dateStr)}
+                              className={`border rounded-lg p-3 min-h-[100px] transition-all ${
+                                !isValid
+                                  ? 'bg-muted/20'
+                                  : isToday
+                                  ? 'bg-primary/10 border-primary'
+                                  : scheduleCount > 0
+                                  ? 'hover:bg-muted/50 cursor-pointer hover:scale-105 active:scale-95'
+                                  : 'hover:bg-muted/30'
+                              }`}
+                            >
+                              {isValid && (
+                                <>
+                                  <div className="text-sm font-medium mb-2">
+                                    {format(day, 'd')}
+                                  </div>
+                                  {scheduleCount > 0 && (
+                                    <div className="space-y-1">
+                                      <div className="text-xs bg-primary text-primary-foreground rounded px-2 py-1 text-center font-medium">
+                                        {scheduleCount} 个排班
+                                      </div>
+                                      {customerNames.length > 0 && (
+                                        <div className="text-xs font-medium text-foreground mt-2 space-y-0.5">
+                                          {customerNames.map((name, idx) => (
+                                            <div key={idx} className="truncate">{name}</div>
+                                          ))}
+                                          {scheduleCount > 2 && (
+                                            <div className="text-muted-foreground">...</div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </>
+                              )}
                             </div>
-                            {scheduleCount > 0 && (
+                          </TooltipTrigger>
+                          {scheduleCount > 0 && (
+                            <TooltipContent>
                               <div className="space-y-1">
-                                <div className="text-xs bg-primary text-primary-foreground rounded px-2 py-1 text-center">
-                                  {scheduleCount} 个排班
-                                </div>
+                                <div className="font-semibold">点击查看详情</div>
+                                {daySchedules.slice(0, 3).map((schedule, idx) => (
+                                  <div key={idx} className="text-xs">
+                                    {schedule.appointment?.customer_name} - {schedule.scheduled_time_start?.slice(0, 5)}
+                                  </div>
+                                ))}
+                                {scheduleCount > 3 && (
+                                  <div className="text-xs text-muted-foreground">
+                                    还有 {scheduleCount - 3} 个排班
+                                  </div>
+                                )}
                               </div>
-                            )}
-                          </>
-                        )}
-                      </div>
+                            </TooltipContent>
+                          )}
+                        </Tooltip>
+                      </TooltipProvider>
                     );
                   })}
                 </div>
@@ -323,6 +506,14 @@ export default function GanttChart({
             </div>
           </Card>
         </div>
+
+        {/* 详情对话框 */}
+        <ScheduleDetailDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          schedules={selectedSchedules}
+          date={dialogDate}
+        />
       </div>
     );
   }
