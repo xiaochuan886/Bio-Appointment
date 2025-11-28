@@ -1,6 +1,10 @@
 // Bio-Appointment系统类型定义
 
-export type UserRole = 'sales' | 'head_nurse' | 'nurse' | 'doctor';
+// ==================== 用户角色与权限 ====================
+
+export type UserRole = 'super_admin' | 'sales' | 'head_nurse' | 'nurse' | 'doctor';
+
+export type UserStatus = 'active' | 'disabled';
 
 export type ServiceCategory = 'nursing' | 'consultation' | 'report';
 
@@ -14,18 +18,61 @@ export type ScheduleStatus = 'draft' | 'published' | 'locked';
 
 export type TaskExecutionStatus = 'pending' | 'checked_in' | 'in_progress' | 'completed';
 
-// 数据库表类型定义
+// ==================== 用户认证类型 ====================
 
 export interface Profile {
   id: string;
-  name: string;
-  role: UserRole;
-  phone?: string;
+  username: string;
   email?: string;
-  status: 'active' | 'unavailable';
+  full_name?: string;
+  role: UserRole;
+  department?: string;
+  status: UserStatus;
   created_at: string;
   updated_at: string;
 }
+
+export interface PublicProfile {
+  id: string;
+  username: string;
+  full_name?: string;
+  role: UserRole;
+  department?: string;
+}
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  profile?: Profile;
+}
+
+export interface LoginCredentials {
+  username: string;
+  password: string;
+}
+
+export interface RegisterCredentials {
+  username: string;
+  password: string;
+  full_name?: string;
+}
+
+export interface UpdateProfileInput {
+  full_name?: string;
+  department?: string;
+}
+
+export interface UpdateUserRoleInput {
+  user_id: string;
+  role: UserRole;
+}
+
+export interface UpdateUserStatusInput {
+  user_id: string;
+  status: UserStatus;
+}
+
+// 数据库表类型定义（保持向后兼容）
 
 export interface Service {
   id: string;

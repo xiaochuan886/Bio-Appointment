@@ -186,7 +186,7 @@ export default function DoctorAppointmentPage() {
                       {appointment.sales && (
                         <div className="col-span-2">
                           <span className="text-muted-foreground">销售：</span>
-                          <span className="font-medium">{appointment.sales.name}</span>
+                          <span className="font-medium">{appointment.sales.full_name || appointment.sales.username}</span>
                         </div>
                       )}
                     </div>

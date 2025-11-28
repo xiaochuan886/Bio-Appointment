@@ -20,7 +20,192 @@ import type {
   Room,
   SkillLevel,
   RoomType,
+  LoginCredentials,
+  RegisterCredentials,
+  UpdateProfileInput,
+  UpdateUserRoleInput,
+  UpdateUserStatusInput,
+  UserRole,
+  UserStatus,
 } from '@/types/types';
+
+// ==================== 认证 API ====================
+
+/**
+ * 用户登录
+ * @param credentials 登录凭证（用户名和密码）
+ * @returns 用户信息和 profile
+ */
+export async function login(credentials: LoginCredentials) {
+  const { username, password } = credentials;
+  
+  // 将用户名转换为邮箱格式（username@miaoda.com）
+  const email = `${username}@miaoda.com`;
+  
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
+  
+  if (error) throw error;
+  
+  // 获取用户的 profile 信息
+  if (data.user) {
+    const profile = await getProfileById(data.user.id);
+    return {
+      user: data.user,
+      session: data.session,
+      profile,
+    };
+  }
+  
+  return data;
+}
+
+/**
+ * 用户注册
+ * @param credentials 注册凭证
+ * @returns 用户信息
+ */
+export async function register(credentials: RegisterCredentials) {
+  const { username, password, full_name } = credentials;
+  
+  // 验证用户名格式（只允许字母、数字和下划线）
+  if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+    throw new Error('用户名只能包含字母、数字和下划线');
+  }
+  
+  // 将用户名转换为邮箱格式
+  const email = `${username}@miaoda.com`;
+  
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        username,
+        full_name: full_name || username,
+      },
+    },
+  });
+  
+  if (error) throw error;
+  
+  return data;
+}
+
+/**
+ * 用户登出
+ */
+export async function logout() {
+  const { error } = await supabase.auth.signOut();
+  if (error) throw error;
+}
+
+/**
+ * 获取当前登录用户
+ * @returns 当前用户信息和 profile
+ */
+export async function getCurrentUser() {
+  const { data: { user }, error } = await supabase.auth.getUser();
+  
+  if (error) throw error;
+  
+  if (user) {
+    const profile = await getProfileById(user.id);
+    return {
+      user,
+      profile,
+    };
+  }
+  
+  return null;
+}
+
+/**
+ * 获取当前用户的 session
+ */
+export async function getSession() {
+  const { data: { session }, error } = await supabase.auth.getSession();
+  if (error) throw error;
+  return session;
+}
+
+/**
+ * 监听认证状态变化
+ * @param callback 状态变化回调函数
+ */
+export function onAuthStateChange(callback: (event: string, session: any) => void) {
+  return supabase.auth.onAuthStateChange(callback);
+}
+
+// ==================== 用户管理 API ====================
+
+/**
+ * 获取所有用户列表（仅管理员）
+ */
+export async function getAllUsers() {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .order('created_at', { ascending: false });
+  
+  if (error) throw error;
+  return Array.isArray(data) ? data : [];
+}
+
+/**
+ * 更新用户角色（仅管理员）
+ */
+export async function updateUserRole(input: UpdateUserRoleInput) {
+  const { user_id, role } = input;
+  
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({ role })
+    .eq('id', user_id)
+    .select()
+    .maybeSingle();
+  
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * 更新用户状态（仅管理员）
+ */
+export async function updateUserStatus(input: UpdateUserStatusInput) {
+  const { user_id, status } = input;
+  
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({ status })
+    .eq('id', user_id)
+    .select()
+    .maybeSingle();
+  
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * 更新当前用户的个人信息
+ */
+export async function updateCurrentUserProfile(input: UpdateProfileInput) {
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (!user) throw new Error('未登录');
+  
+  const { data, error } = await supabase
+    .from('profiles')
+    .update(input)
+    .eq('id', user.id)
+    .select()
+    .maybeSingle();
+  
+  if (error) throw error;
+  return data;
+}
 
 // ==================== Profiles ====================
 
@@ -40,7 +225,7 @@ export async function getProfilesByRole(role: string) {
     .select('*')
     .eq('role', role)
     .eq('status', 'active')
-    .order('name', { ascending: true });
+    .order('username', { ascending: true });
   
   if (error) throw error;
   return Array.isArray(data) ? data : [];
