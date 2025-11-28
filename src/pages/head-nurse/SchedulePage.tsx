@@ -41,8 +41,8 @@ export default function HeadNurseSchedulePage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>('day');
   const [resourceFilters, setResourceFilters] = useState<ResourceFilterType[]>([]);
-  const [selectedNurseId, setSelectedNurseId] = useState<string | null>(null);
-  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  const [selectedNurseIds, setSelectedNurseIds] = useState<string[]>([]);
+  const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>([]);
   const [pendingAppointments, setPendingAppointments] = useState<AppointmentWithDetails[]>([]);
   const [schedules, setSchedules] = useState<ScheduleWithDetails[]>([]);
   const [nurses, setNurses] = useState<Nurse[]>([]);
@@ -110,8 +110,8 @@ export default function HeadNurseSchedulePage() {
   };
 
   const handleClearFilters = () => {
-    setSelectedNurseId(null);
-    setSelectedRoomId(null);
+    setSelectedNurseIds([]);
+    setSelectedRoomIds([]);
   };
 
   const handleCreateSchedule = (appointment: AppointmentWithDetails) => {
@@ -332,8 +332,8 @@ export default function HeadNurseSchedulePage() {
               selectedDate={format(selectedDate, 'yyyy-MM-dd')}
               viewMode={viewMode}
               resourceFilters={resourceFilters}
-              selectedNurseId={selectedNurseId}
-              selectedRoomId={selectedRoomId}
+              selectedNurseIds={selectedNurseIds}
+              selectedRoomIds={selectedRoomIds}
               onScheduleClick={handleEditSchedule}
             />
           </CardContent>
@@ -344,10 +344,10 @@ export default function HeadNurseSchedulePage() {
           <ResourceDetailFilter
             nurses={nurses}
             rooms={rooms}
-            selectedNurseId={selectedNurseId}
-            selectedRoomId={selectedRoomId}
-            onNurseChange={setSelectedNurseId}
-            onRoomChange={setSelectedRoomId}
+            selectedNurseIds={selectedNurseIds}
+            selectedRoomIds={selectedRoomIds}
+            onNurseChange={setSelectedNurseIds}
+            onRoomChange={setSelectedRoomIds}
             onClearFilters={handleClearFilters}
           />
 

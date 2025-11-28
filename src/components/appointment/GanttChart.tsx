@@ -17,8 +17,8 @@ interface GanttChartProps {
   selectedDate: string;
   viewMode: ViewMode;
   resourceFilters?: ResourceFilterType[];
-  selectedNurseId?: string | null;
-  selectedRoomId?: string | null;
+  selectedNurseIds?: string[];
+  selectedRoomIds?: string[];
   onScheduleClick?: (schedule: ScheduleWithDetails) => void;
 }
 
@@ -29,8 +29,8 @@ export default function GanttChart({
   selectedDate, 
   viewMode,
   resourceFilters = [],
-  selectedNurseId = null,
-  selectedRoomId = null,
+  selectedNurseIds = [],
+  selectedRoomIds = [],
   onScheduleClick 
 }: GanttChartProps) {
   // 对话框状态
@@ -64,14 +64,47 @@ export default function GanttChart({
   const filteredRooms = shouldShowResource('room') ? rooms : [];
   const filteredNurses = shouldShowResource('nurse') ? nurses : [];
 
-  // 应用具体资源的AND筛选
+  // 应用具体资源的多选筛选
   const filteredSchedules = schedules.filter(schedule => {
-    // 人员筛选（如果选择了具体人员）
-    const matchNurse = selectedNurseId ? schedule.nurse_id === selectedNurseId : true;
-    // 房间筛选（如果选择了具体房间）
-    const matchRoom = selectedRoomId ? schedule.room_id === selectedRoomId : true;
+    // 人员筛选（如果选择了具体人员）- OR逻辑
+    const matchNurse = selectedNurseIds.length > 0 
+      ? selectedNurseIds.includes(schedule.nurse_id) 
+      : true;
+    
+    // 房间筛选（如果选择了具体房间）- OR逻辑
+    const matchRoom = selectedRoomIds.length > 0 
+      ? selectedRoomIds.includes(schedule.room_id) 
+      : true;
+    
     // AND关系：两个条件都要满足
     return matchNurse && matchRoom;
+  });
+
+  // 过滤资源列表，只显示有排班的资源
+  const visibleRooms = filteredRooms.filter(room => {
+    // 如果没有选择任何筛选条件，显示所有房间
+    if (selectedNurseIds.length === 0 && selectedRoomIds.length === 0) {
+      return true;
+    }
+    // 如果选择了房间筛选，只显示选中的房间
+    if (selectedRoomIds.length > 0) {
+      return selectedRoomIds.includes(room.id);
+    }
+    // 如果只选择了护士筛选，显示有该护士排班的房间
+    return filteredSchedules.some(s => s.room_id === room.id);
+  });
+
+  const visibleNurses = filteredNurses.filter(nurse => {
+    // 如果没有选择任何筛选条件，显示所有护士
+    if (selectedNurseIds.length === 0 && selectedRoomIds.length === 0) {
+      return true;
+    }
+    // 如果选择了护士筛选，只显示选中的护士
+    if (selectedNurseIds.length > 0) {
+      return selectedNurseIds.includes(nurse.id);
+    }
+    // 如果只选择了房间筛选，显示有该房间排班的护士
+    return filteredSchedules.some(s => s.nurse_id === nurse.id);
   });
 
   const hours = Array.from({ length: 11 }, (_, i) => i + 8);
@@ -208,7 +241,7 @@ export default function GanttChart({
     return (
       <div className="space-y-6">
         {/* 房间排班 */}
-        {filteredRooms.length > 0 && (
+        {visibleRooms.length > 0 && (
           <div>
             <h3 className="text-lg font-semibold mb-4">周视图 - 房间排班</h3>
             <Card className="p-4">
@@ -223,7 +256,7 @@ export default function GanttChart({
                 ))}
 
                 {/* 房间行 */}
-                {filteredRooms.map(room => (
+                {visibleRooms.map(room => (
                 <div key={room.id} className="contents">
                   <div className="border-t py-3 px-2 font-medium">
                     {room.name}
@@ -307,7 +340,7 @@ export default function GanttChart({
         )}
 
         {/* 护士排班 */}
-        {filteredNurses.length > 0 && (
+        {visibleNurses.length > 0 && (
           <div>
             <h3 className="text-lg font-semibold mb-4">周视图 - 护士排班</h3>
             <Card className="p-4">
@@ -322,7 +355,7 @@ export default function GanttChart({
                 ))}
 
                 {/* 护士行 */}
-                {filteredNurses.map(nurse => (
+                {visibleNurses.map(nurse => (
                 <div key={nurse.id} className="contents">
                   <div className="border-t py-3 px-2 font-medium">{nurse.name}</div>
                   {weekDays.map(day => {
@@ -403,7 +436,7 @@ export default function GanttChart({
         )}
 
         {/* 无筛选结果提示 */}
-        {filteredRooms.length === 0 && filteredNurses.length === 0 && (
+        {visibleRooms.length === 0 && visibleNurses.length === 0 && (
           <Card className="p-8">
             <div className="text-center text-muted-foreground">
               <p className="text-lg mb-2">暂无符合筛选条件的资源</p>
@@ -589,7 +622,7 @@ export default function GanttChart({
   return (
     <div className="space-y-6">
       {/* 房间排班 */}
-      {filteredRooms.length > 0 && (
+      {visibleRooms.length > 0 && (
         <div>
           <h3 className="text-lg font-semibold mb-4">房间排班</h3>
           <Card className="p-4">
@@ -606,7 +639,7 @@ export default function GanttChart({
                   </div>
                 </div>
 
-                {filteredRooms.map(room => {
+                {visibleRooms.map(room => {
                 const roomSchedules = getSchedulesForResource(room.id, 'room');
                 const scheduleRows = arrangeSchedulesInRows(roomSchedules);
                 const rowHeight = 48; // 每行高度
@@ -677,7 +710,7 @@ export default function GanttChart({
       )}
 
       {/* 护士排班 */}
-      {filteredNurses.length > 0 && (
+      {visibleNurses.length > 0 && (
         <div>
           <h3 className="text-lg font-semibold mb-4">护士排班</h3>
           <Card className="p-4">
@@ -694,7 +727,7 @@ export default function GanttChart({
                   </div>
                 </div>
 
-                {filteredNurses.map(nurse => {
+                {visibleNurses.map(nurse => {
                 const nurseSchedules = getSchedulesForResource(nurse.id, 'nurse');
                 const scheduleRows = arrangeSchedulesInRows(nurseSchedules);
                 const rowHeight = 48;
@@ -764,7 +797,7 @@ export default function GanttChart({
       )}
 
       {/* 无筛选结果提示 */}
-      {filteredRooms.length === 0 && filteredNurses.length === 0 && (
+      {visibleRooms.length === 0 && visibleNurses.length === 0 && (
         <Card className="p-8">
           <div className="text-center text-muted-foreground">
             <p className="text-lg mb-2">暂无符合筛选条件的资源</p>
