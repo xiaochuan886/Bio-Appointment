@@ -1,11 +1,9 @@
 import { useState, useEffect } from 'react';
-import { format } from 'date-fns';
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
-import { Calendar as CalendarIcon, Plus, AlertCircle, Clock, Users } from 'lucide-react';
+import { Plus, AlertCircle, Clock, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
@@ -22,6 +20,7 @@ import type { AppointmentWithDetails, ScheduleWithDetails, Nurse, Room } from '@
 import StatusBadge from '@/components/appointment/StatusBadge';
 import GanttChart from '@/components/appointment/GanttChart';
 import ViewSwitcher, { type ViewMode } from '@/components/appointment/ViewSwitcher';
+import DateRangePicker from '@/components/appointment/DateRangePicker';
 import ResourceConflictDialog from '@/components/appointment/ResourceConflictDialog';
 import { detectResourceConflicts, type ResourceConflict } from '@/utils/scheduleUtils';
 
@@ -57,15 +56,39 @@ export default function HeadNurseSchedulePage() {
 
   useEffect(() => {
     loadData();
-  }, [selectedDate]);
+  }, [selectedDate, viewMode]);
 
   const loadData = async () => {
     try {
-      const dateStr = format(selectedDate, 'yyyy-MM-dd');
+      // 根据视图模式计算日期范围
+      let startDate: string;
+      let endDate: string;
+
+      switch (viewMode) {
+        case 'day':
+          startDate = endDate = format(selectedDate, 'yyyy-MM-dd');
+          break;
+        case 'week': {
+          const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 });
+          const weekEnd = endOfWeek(selectedDate, { weekStartsOn: 1 });
+          startDate = format(weekStart, 'yyyy-MM-dd');
+          endDate = format(weekEnd, 'yyyy-MM-dd');
+          break;
+        }
+        case 'month': {
+          const monthStart = startOfMonth(selectedDate);
+          const monthEnd = endOfMonth(selectedDate);
+          startDate = format(monthStart, 'yyyy-MM-dd');
+          endDate = format(monthEnd, 'yyyy-MM-dd');
+          break;
+        }
+        default:
+          startDate = endDate = format(selectedDate, 'yyyy-MM-dd');
+      }
       
       const [appointmentsData, schedulesData, nursesData, roomsData] = await Promise.all([
         getAppointments({ status: 'pending' }),
-        getSchedules({ date: dateStr }),
+        getSchedules({ startDate, endDate }),
         getAvailableNurses(),
         getAvailableRooms(),
       ]);
@@ -283,22 +306,11 @@ export default function HeadNurseSchedulePage() {
               </div>
               <div className="flex items-center gap-3">
                 <ViewSwitcher currentView={viewMode} onViewChange={setViewMode} />
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" size="sm">
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {format(selectedDate, 'PPP', { locale: zhCN })}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="end">
-                    <Calendar
-                      mode="single"
-                      selected={selectedDate}
-                      onSelect={(date) => date && setSelectedDate(date)}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
+                <DateRangePicker
+                  selectedDate={selectedDate}
+                  onDateChange={setSelectedDate}
+                  viewMode={viewMode}
+                />
               </div>
             </div>
           </CardHeader>

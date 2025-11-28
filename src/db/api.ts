@@ -246,6 +246,8 @@ export async function deleteAppointment(id: string) {
 
 export async function getSchedules(filters?: {
   date?: string;
+  startDate?: string;
+  endDate?: string;
   status?: string;
   appointment_id?: string;
 }) {
@@ -264,9 +266,24 @@ export async function getSchedules(filters?: {
       created_by_profile:profiles!schedules_created_by_fkey(id, name, role)
     `);
   
+  // 支持单日查询
   if (filters?.date) {
     query = query.eq('scheduled_date', filters.date);
   }
+  // 支持日期范围查询
+  else if (filters?.startDate && filters?.endDate) {
+    query = query.gte('scheduled_date', filters.startDate)
+      .lte('scheduled_date', filters.endDate);
+  }
+  // 如果只有startDate，查询该日期及之后
+  else if (filters?.startDate) {
+    query = query.gte('scheduled_date', filters.startDate);
+  }
+  // 如果只有endDate，查询该日期及之前
+  else if (filters?.endDate) {
+    query = query.lte('scheduled_date', filters.endDate);
+  }
+  
   if (filters?.status) {
     query = query.eq('status', filters.status);
   }
