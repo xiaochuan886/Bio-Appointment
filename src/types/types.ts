@@ -253,3 +253,145 @@ export interface Room {
   is_available: boolean;
   created_at: string;
 }
+
+// ==================== 钉钉集成类型 ====================
+
+export type DingTalkSyncType = 'departments' | 'users';
+export type DingTalkSyncStatus = 'running' | 'success' | 'failed';
+export type DingTalkNotificationStatus = 'pending' | 'sent' | 'failed';
+
+// 钉钉用户映射
+export interface DingTalkUser {
+  id: string;
+  profile_id?: string;
+  dingtalk_userid: string;
+  dingtalk_unionid?: string;
+  name: string;
+  mobile?: string;
+  department_ids: string[];
+  avatar?: string;
+  is_active: boolean;
+  last_sync_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// 钉钉部门
+export interface DingTalkDepartment {
+  id: string;
+  dingtalk_dept_id: string;
+  name: string;
+  parent_id?: string;
+  order_num: number;
+  is_active: boolean;
+  last_sync_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// 钉钉同步日志
+export interface DingTalkSyncLog {
+  id: string;
+  sync_type: DingTalkSyncType;
+  status: DingTalkSyncStatus;
+  total_count: number;
+  success_count: number;
+  failed_count: number;
+  error_message?: string;
+  started_at: string;
+  completed_at?: string;
+  created_by?: string;
+  created_at: string;
+}
+
+// 钉钉通知记录
+export interface DingTalkNotification {
+  id: string;
+  notification_type: string;
+  recipient_userid: string;
+  title: string;
+  content: string;
+  status: DingTalkNotificationStatus;
+  sent_at?: string;
+  error_message?: string;
+  related_id?: string;
+  created_at: string;
+}
+
+// 钉钉 API 响应类型
+export interface DingTalkAccessTokenResponse {
+  errcode: number;
+  errmsg: string;
+  access_token: string;
+  expires_in: number;
+}
+
+export interface DingTalkUserInfoResponse {
+  errcode: number;
+  errmsg: string;
+  userid: string;
+  name: string;
+  mobile?: string;
+  avatar?: string;
+  unionid?: string;
+}
+
+export interface DingTalkDepartmentListResponse {
+  errcode: number;
+  errmsg: string;
+  result: Array<{
+    dept_id: number;
+    name: string;
+    parent_id: number;
+    order: number;
+  }>;
+}
+
+export interface DingTalkUserListResponse {
+  errcode: number;
+  errmsg: string;
+  result: {
+    list: Array<{
+      userid: string;
+      name: string;
+      mobile?: string;
+      avatar?: string;
+      unionid?: string;
+      dept_id_list: number[];
+    }>;
+    has_more: boolean;
+    next_cursor: number;
+  };
+}
+
+// 钉钉登录相关
+export interface DingTalkAuthCodeResponse {
+  code: string;
+}
+
+export interface DingTalkLoginInput {
+  auth_code: string;
+}
+
+// 钉钉通讯录同步输入
+export interface DingTalkSyncInput {
+  sync_type: DingTalkSyncType;
+  force?: boolean; // 是否强制全量同步
+}
+
+// 钉钉通知输入
+export interface DingTalkNotificationInput {
+  recipient_userids: string[]; // 接收人钉钉 userid 列表
+  notification_type: string;
+  title: string;
+  content: string;
+  related_id?: string;
+}
+
+// 钉钉配置
+export interface DingTalkConfig {
+  appKey: string;
+  agentId: string;
+  corpId: string;
+}
+
