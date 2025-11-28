@@ -64,48 +64,63 @@ export default function GanttChart({
   const filteredRooms = shouldShowResource('room') ? rooms : [];
   const filteredNurses = shouldShowResource('nurse') ? nurses : [];
 
-  // 应用具体资源的多选筛选
-  const filteredSchedules = schedules.filter(schedule => {
-    // 人员筛选（如果选择了具体人员）- OR逻辑
+  // 判断排班是否完全匹配筛选条件（用于高亮显示）
+  const isScheduleHighlighted = (schedule: ScheduleWithDetails) => {
     const matchNurse = selectedNurseIds.length > 0 
       ? selectedNurseIds.includes(schedule.nurse_id) 
-      : true;
+      : false;
     
-    // 房间筛选（如果选择了具体房间）- OR逻辑
     const matchRoom = selectedRoomIds.length > 0 
       ? selectedRoomIds.includes(schedule.room_id) 
-      : true;
+      : false;
     
-    // AND关系：两个条件都要满足
-    return matchNurse && matchRoom;
-  });
+    // 如果两个条件都选了，必须都匹配
+    if (selectedNurseIds.length > 0 && selectedRoomIds.length > 0) {
+      return matchNurse && matchRoom;
+    }
+    
+    // 如果只选了一个条件，匹配该条件即可
+    return matchNurse || matchRoom;
+  };
 
-  // 过滤资源列表，只显示有排班的资源
-  const visibleRooms = filteredRooms.filter(room => {
-    // 如果没有选择任何筛选条件，显示所有房间
-    if (selectedNurseIds.length === 0 && selectedRoomIds.length === 0) {
-      return true;
-    }
-    // 如果选择了房间筛选，只显示选中的房间
-    if (selectedRoomIds.length > 0) {
-      return selectedRoomIds.includes(room.id);
-    }
-    // 如果只选择了护士筛选，显示有该护士排班的房间
-    return filteredSchedules.some(s => s.room_id === room.id);
-  });
+  // 确定可见的资源和排班
+  let visibleRooms = filteredRooms;
+  let visibleNurses = filteredNurses;
+  let visibleSchedules = schedules;
 
-  const visibleNurses = filteredNurses.filter(nurse => {
-    // 如果没有选择任何筛选条件，显示所有护士
-    if (selectedNurseIds.length === 0 && selectedRoomIds.length === 0) {
-      return true;
-    }
-    // 如果选择了护士筛选，只显示选中的护士
+  // 如果有筛选条件，应用关联展示逻辑
+  if (selectedNurseIds.length > 0 || selectedRoomIds.length > 0) {
+    // 收集所有相关的资源ID
+    const relatedRoomIds = new Set<string>();
+    const relatedNurseIds = new Set<string>();
+
+    // 1. 添加直接选中的资源
+    selectedRoomIds.forEach(id => relatedRoomIds.add(id));
+    selectedNurseIds.forEach(id => relatedNurseIds.add(id));
+
+    // 2. 如果选择了护士，找出这些护士使用的所有房间
     if (selectedNurseIds.length > 0) {
-      return selectedNurseIds.includes(nurse.id);
+      schedules
+        .filter(s => selectedNurseIds.includes(s.nurse_id))
+        .forEach(s => relatedRoomIds.add(s.room_id));
     }
-    // 如果只选择了房间筛选，显示有该房间排班的护士
-    return filteredSchedules.some(s => s.nurse_id === nurse.id);
-  });
+
+    // 3. 如果选择了房间，找出在这些房间工作的所有护士
+    if (selectedRoomIds.length > 0) {
+      schedules
+        .filter(s => selectedRoomIds.includes(s.room_id))
+        .forEach(s => relatedNurseIds.add(s.nurse_id));
+    }
+
+    // 4. 过滤可见资源
+    visibleRooms = filteredRooms.filter(room => relatedRoomIds.has(room.id));
+    visibleNurses = filteredNurses.filter(nurse => relatedNurseIds.has(nurse.id));
+
+    // 5. 显示这些资源的所有排班（不仅是匹配的排班）
+    visibleSchedules = schedules.filter(schedule => 
+      relatedRoomIds.has(schedule.room_id) || relatedNurseIds.has(schedule.nurse_id)
+    );
+  }
 
   const hours = Array.from({ length: 11 }, (_, i) => i + 8);
   const timeSlots = hours.flatMap(h => [`${h}:00`, `${h}:30`]);
@@ -117,7 +132,7 @@ export default function GanttChart({
     resourceName: string,
     resourceType: 'room' | 'nurse'
   ) => {
-    const cellSchedules = filteredSchedules.filter(
+    const cellSchedules = visibleSchedules.filter(
       s => s.scheduled_date === date && 
       (resourceType === 'room' ? s.room_id === resourceId : s.nurse_id === resourceId)
     );
@@ -133,7 +148,7 @@ export default function GanttChart({
 
   // 月视图点击处理（不区分资源）
   const handleMonthCellClick = (date: string) => {
-    const cellSchedules = filteredSchedules.filter(s => s.scheduled_date === date);
+    const cellSchedules = visibleSchedules.filter(s => s.scheduled_date === date);
     
     if (cellSchedules.length > 0) {
       setSelectedSchedules(cellSchedules);
@@ -167,8 +182,23 @@ export default function GanttChart({
     return { left: `${left}%`, width: `${width}%` };
   };
 
+  // 获取排班卡片的样式类名
+  const getScheduleCardClassName = (schedule: ScheduleWithDetails) => {
+    const baseClasses = 'absolute top-2 h-10 rounded px-2 py-1 cursor-pointer hover:opacity-80 transition-all overflow-hidden';
+    const highlightClasses = isScheduleHighlighted(schedule)
+      ? 'border-2 border-yellow-400 dark:border-yellow-500 shadow-lg ring-2 ring-yellow-400/50'
+      : 'border border-white/20';
+    return `${baseClasses} ${highlightClasses}`;
+  };
+
+  // 获取客户名称显示（带高亮标记）
+  const getCustomerNameDisplay = (schedule: ScheduleWithDetails) => {
+    const name = schedule.appointment?.customer_name || '';
+    return isScheduleHighlighted(schedule) ? `${name} ⭐` : name;
+  };
+
   const getSchedulesForResource = (resourceId: string, resourceType: 'room' | 'nurse') => {
-    return filteredSchedules.filter(schedule => {
+    return visibleSchedules.filter(schedule => {
       if (resourceType === 'room') {
         return schedule.room_id === resourceId;
       }
@@ -228,7 +258,7 @@ export default function GanttChart({
   // 获取指定日期的排班数量
   const getScheduleCountForDate = (date: Date) => {
     const dateStr = format(date, 'yyyy-MM-dd');
-    return filteredSchedules.filter(s => s.scheduled_date === dateStr).length;
+    return visibleSchedules.filter(s => s.scheduled_date === dateStr).length;
   };
 
   // 周视图渲染
@@ -264,7 +294,7 @@ export default function GanttChart({
                   </div>
                   {weekDays.map(day => {
                     const dateStr = format(day, 'yyyy-MM-dd');
-                    const daySchedules = filteredSchedules.filter(
+                    const daySchedules = visibleSchedules.filter(
                       s => s.scheduled_date === dateStr && s.room_id === room.id
                     );
                     const isToday = isSameDay(day, currentDate);
@@ -317,7 +347,7 @@ export default function GanttChart({
                                 <div className="font-semibold">点击查看详情</div>
                                 {daySchedules.slice(0, 3).map((schedule, idx) => (
                                   <div key={idx} className="text-xs">
-                                    {schedule.appointment?.customer_name} - {schedule.scheduled_time_start?.slice(0, 5)}
+                                    {getCustomerNameDisplay(schedule)} - {schedule.scheduled_time_start?.slice(0, 5)}
                                   </div>
                                 ))}
                                 {daySchedules.length > 3 && (
@@ -360,7 +390,7 @@ export default function GanttChart({
                   <div className="border-t py-3 px-2 font-medium">{nurse.name}</div>
                   {weekDays.map(day => {
                     const dateStr = format(day, 'yyyy-MM-dd');
-                    const daySchedules = filteredSchedules.filter(
+                    const daySchedules = visibleSchedules.filter(
                       s => s.scheduled_date === dateStr && s.nurse_id === nurse.id
                     );
                     const isToday = isSameDay(day, currentDate);
@@ -413,7 +443,7 @@ export default function GanttChart({
                                 <div className="font-semibold">点击查看详情</div>
                                 {daySchedules.slice(0, 3).map((schedule, idx) => (
                                   <div key={idx} className="text-xs">
-                                    {schedule.appointment?.customer_name} - {schedule.scheduled_time_start?.slice(0, 5)}
+                                    {getCustomerNameDisplay(schedule)} - {schedule.scheduled_time_start?.slice(0, 5)}
                                   </div>
                                 ))}
                                 {daySchedules.length > 3 && (
@@ -529,7 +559,7 @@ export default function GanttChart({
                     const isValid = day.getTime() > 0;
                     const isToday = isValid && isSameDay(day, currentDate);
                     const dateStr = isValid ? format(day, 'yyyy-MM-dd') : '';
-                    const daySchedules = isValid ? filteredSchedules.filter(s => s.scheduled_date === dateStr) : [];
+                    const daySchedules = isValid ? visibleSchedules.filter(s => s.scheduled_date === dateStr) : [];
                     const scheduleCount = daySchedules.length;
 
                     // 获取客户姓名列表
@@ -586,7 +616,7 @@ export default function GanttChart({
                                 <div className="font-semibold">点击查看详情</div>
                                 {daySchedules.slice(0, 3).map((schedule, idx) => (
                                   <div key={idx} className="text-xs">
-                                    {schedule.appointment?.customer_name} - {schedule.scheduled_time_start?.slice(0, 5)}
+                                    {getCustomerNameDisplay(schedule)} - {schedule.scheduled_time_start?.slice(0, 5)}
                                   </div>
                                 ))}
                                 {scheduleCount > 3 && (
@@ -675,7 +705,7 @@ export default function GanttChart({
                             return (
                               <div
                                 key={schedule.id}
-                                className="absolute top-2 h-10 rounded px-2 py-1 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden border border-white/20"
+                                className={getScheduleCardClassName(schedule)}
                                 style={{
                                   left: position.left,
                                   width: position.width,
@@ -689,7 +719,7 @@ export default function GanttChart({
                                 onClick={() => onScheduleClick?.(schedule)}
                               >
                                 <div className="text-xs font-medium truncate">
-                                  {schedule.appointment?.customer_name}
+                                  {getCustomerNameDisplay(schedule)}
                                 </div>
                                 <div className="text-xs truncate opacity-90">
                                   {schedule.appointment?.service?.name}
@@ -762,7 +792,7 @@ export default function GanttChart({
                             return (
                               <div
                                 key={schedule.id}
-                                className="absolute top-2 h-10 rounded px-2 py-1 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden border border-white/20"
+                                className={getScheduleCardClassName(schedule)}
                                 style={{
                                   left: position.left,
                                   width: position.width,
@@ -776,7 +806,7 @@ export default function GanttChart({
                                 onClick={() => onScheduleClick?.(schedule)}
                               >
                                 <div className="text-xs font-medium truncate">
-                                  {schedule.appointment?.customer_name}
+                                  {getCustomerNameDisplay(schedule)}
                                 </div>
                                 <div className="text-xs truncate opacity-90">
                                   {schedule.appointment?.service?.name}

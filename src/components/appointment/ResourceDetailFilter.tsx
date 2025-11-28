@@ -186,9 +186,14 @@ export default function ResourceDetailFilter({
             {getFilterDescription()}
           </p>
           {hasActiveFilters && (
-            <p className="text-xs text-muted-foreground mt-1">
-              提示：同类条件为"或"关系，不同类条件为"与"关系
-            </p>
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground mt-1">
+                提示：同类条件为"或"关系，不同类条件为"与"关系
+              </p>
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                💡 视图将展示筛选资源及其关联资源的完整排班，匹配项带⭐标记
+              </p>
+            </div>
           )}
         </div>
       </CardContent>
