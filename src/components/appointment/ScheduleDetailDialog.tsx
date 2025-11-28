@@ -1,7 +1,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { format } from 'date-fns';
+import { format, isValid, parseISO } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import type { ScheduleWithDetails } from '@/types/types';
 import { Calendar, Clock, User, FileText, AlertCircle } from 'lucide-react';
@@ -23,6 +23,17 @@ export default function ScheduleDetailDialog({
   resourceName,
   resourceType,
 }: ScheduleDetailDialogProps) {
+  // 安全地格式化日期
+  const formatDate = (dateStr: string) => {
+    if (!dateStr) return '未指定日期';
+    try {
+      const parsedDate = parseISO(dateStr);
+      if (!isValid(parsedDate)) return '无效日期';
+      return format(parsedDate, 'yyyy年M月d日 EEEE', { locale: zhCN });
+    } catch {
+      return '日期格式错误';
+    }
+  };
   const getStatusBadge = (status: string) => {
     const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
       pending: { label: '待排班', variant: 'secondary' },
@@ -51,7 +62,7 @@ export default function ScheduleDetailDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Calendar className="w-5 h-5" />
-            {format(new Date(date), 'yyyy年M月d日 EEEE', { locale: zhCN })}
+            {formatDate(date)}
             {resourceName && (
               <span className="text-muted-foreground text-sm">
                 - {resourceType === 'room' ? '房间' : '护士'}: {resourceName}
