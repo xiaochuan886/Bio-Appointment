@@ -35,17 +35,39 @@ export default function LoginPage() {
   });
 
   const onSubmit = async (values: LoginFormValues) => {
+    console.log('=== 开始登录流程 ===');
+    console.log('表单值:', { username: values.username, password: '***' });
+    
     setIsLoading(true);
     try {
-      await login({
+      console.log('1. 调用 login API...');
+      const result = await login({
         username: values.username,
         password: values.password,
       });
+      
+      console.log('2. 登录 API 返回结果:', {
+        hasUser: !!result.user,
+        hasSession: !!result.session,
+        hasProfile: !!result.profile,
+      });
+      
+      console.log('3. 刷新用户信息...');
       await refreshUser();
+      
+      console.log('4. 显示成功提示...');
       toast.success('登录成功');
+      
+      console.log('5. 跳转到首页...');
       navigate('/');
+      
+      console.log('=== 登录流程完成 ===');
     } catch (error: any) {
-      console.error('登录失败:', error);
+      console.error('=== 登录失败 ===');
+      console.error('错误详情:', error);
+      console.error('错误消息:', error.message);
+      console.error('错误堆栈:', error.stack);
+      
       toast.error(error.message || '登录失败，请检查用户名和密码');
     } finally {
       setIsLoading(false);

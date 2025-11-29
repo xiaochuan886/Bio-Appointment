@@ -40,29 +40,60 @@ import type {
  * @returns 用户信息和 profile
  */
 export async function login(credentials: LoginCredentials) {
-  const { username, password } = credentials;
-  
-  // 将用户名转换为邮箱格式（username@miaoda.com）
-  const email = `${username}@miaoda.com`;
-  
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
-  
-  if (error) throw error;
-  
-  // 获取用户的 profile 信息
-  if (data.user) {
-    const profile = await getProfileById(data.user.id);
-    return {
-      user: data.user,
-      session: data.session,
-      profile,
-    };
+  try {
+    const { username, password } = credentials;
+    
+    console.log('开始登录流程，用户名:', username);
+    
+    // 将用户名转换为邮箱格式（username@miaoda.com）
+    const email = `${username}@miaoda.com`;
+    
+    console.log('尝试使用邮箱登录:', email);
+    
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    
+    if (error) {
+      console.error('Supabase 登录错误:', error);
+      throw new Error(error.message || '登录失败');
+    }
+    
+    if (!data.user) {
+      console.error('登录成功但未返回用户信息');
+      throw new Error('登录失败：未获取到用户信息');
+    }
+    
+    console.log('登录成功，用户 ID:', data.user.id);
+    
+    // 获取用户的 profile 信息
+    try {
+      const profile = await getProfileById(data.user.id);
+      console.log('获取 profile 成功:', profile);
+      
+      if (!profile) {
+        console.warn('用户没有 profile 记录');
+      }
+      
+      return {
+        user: data.user,
+        session: data.session,
+        profile,
+      };
+    } catch (profileError) {
+      console.error('获取 profile 失败:', profileError);
+      // 即使 profile 获取失败，也返回用户信息
+      return {
+        user: data.user,
+        session: data.session,
+        profile: null,
+      };
+    }
+  } catch (error: any) {
+    console.error('登录过程出错:', error);
+    throw error;
   }
-  
-  return data;
 }
 
 /**
@@ -71,30 +102,44 @@ export async function login(credentials: LoginCredentials) {
  * @returns 用户信息
  */
 export async function register(credentials: RegisterCredentials) {
-  const { username, password, full_name } = credentials;
-  
-  // 验证用户名格式（只允许字母、数字和下划线）
-  if (!/^[a-zA-Z0-9_]+$/.test(username)) {
-    throw new Error('用户名只能包含字母、数字和下划线');
-  }
-  
-  // 将用户名转换为邮箱格式
-  const email = `${username}@miaoda.com`;
-  
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: {
-        username,
-        full_name: full_name || username,
+  try {
+    const { username, password, full_name } = credentials;
+    
+    console.log('开始注册流程，用户名:', username);
+    
+    // 验证用户名格式（只允许字母、数字和下划线）
+    if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+      throw new Error('用户名只能包含字母、数字和下划线');
+    }
+    
+    // 将用户名转换为邮箱格式
+    const email = `${username}@miaoda.com`;
+    
+    console.log('尝试使用邮箱注册:', email);
+    
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          username,
+          full_name: full_name || username,
+        },
       },
-    },
-  });
-  
-  if (error) throw error;
-  
-  return data;
+    });
+    
+    if (error) {
+      console.error('Supabase 注册错误:', error);
+      throw new Error(error.message || '注册失败');
+    }
+    
+    console.log('注册成功，用户 ID:', data.user?.id);
+    
+    return data;
+  } catch (error: any) {
+    console.error('注册过程出错:', error);
+    throw error;
+  }
 }
 
 /**

@@ -43,18 +43,31 @@ export default function RegisterPage() {
   });
 
   const onSubmit = async (values: RegisterFormValues) => {
+    console.log('=== 开始注册流程 ===');
+    console.log('表单值:', { 
+      username: values.username, 
+      full_name: values.full_name,
+      password: '***' 
+    });
+    
     setIsLoading(true);
     try {
-      await register({
+      console.log('1. 调用 register API...');
+      const result = await register({
         username: values.username,
         password: values.password,
         full_name: values.full_name,
       });
       
+      console.log('2. 注册 API 返回结果:', result);
+      console.log('=== 注册成功 ===');
+      
       toast.success('注册成功！请登录');
       navigate('/login');
     } catch (error: any) {
-      console.error('注册失败:', error);
+      console.error('=== 注册失败 ===');
+      console.error('错误详情:', error);
+      console.error('错误消息:', error.message);
       
       // 处理常见错误
       let errorMessage = '注册失败，请稍后重试';
