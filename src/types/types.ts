@@ -72,6 +72,26 @@ export interface UpdateUserStatusInput {
   status: UserStatus;
 }
 
+export interface CreateUserInput {
+  username: string;
+  password: string;
+  full_name: string;
+  role: UserRole;
+  department?: string;
+}
+
+export interface UpdateUserInput {
+  user_id: string;
+  full_name?: string;
+  role?: UserRole;
+  department?: string;
+  status?: UserStatus;
+}
+
+export interface DeleteUserInput {
+  user_id: string;
+}
+
 // 数据库表类型定义（保持向后兼容）
 
 export interface Service {

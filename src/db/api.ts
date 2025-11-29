@@ -25,6 +25,9 @@ import type {
   UpdateProfileInput,
   UpdateUserRoleInput,
   UpdateUserStatusInput,
+  CreateUserInput,
+  UpdateUserInput,
+  DeleteUserInput,
   UserRole,
   UserStatus,
 } from '@/types/types';
@@ -180,6 +183,107 @@ export async function updateUserStatus(input: UpdateUserStatusInput) {
   const { data, error } = await supabase
     .from('profiles')
     .update({ status })
+    .eq('id', user_id)
+    .select()
+    .maybeSingle();
+  
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * 创建新用户（仅管理员）
+ */
+export async function createUser(input: CreateUserInput) {
+  const { username, password, full_name, role, department } = input;
+  
+  // 验证用户名格式
+  if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+    throw new Error('用户名只能包含字母、数字和下划线');
+  }
+  
+  // 检查用户名是否已存在
+  const { data: existingUser } = await supabase
+    .from('profiles')
+    .select('username')
+    .eq('username', username)
+    .maybeSingle();
+  
+  if (existingUser) {
+    throw new Error('用户名已存在');
+  }
+  
+  // 将用户名转换为邮箱格式
+  const email = `${username}@miaoda.com`;
+  
+  // 创建 auth 用户
+  const { data: authData, error: authError } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        username,
+        full_name,
+      },
+    },
+  });
+  
+  if (authError) throw authError;
+  if (!authData.user) throw new Error('创建用户失败');
+  
+  // 更新 profile 信息
+  const { data: profileData, error: profileError } = await supabase
+    .from('profiles')
+    .update({
+      username,
+      full_name,
+      role,
+      department,
+      status: 'active',
+    })
+    .eq('id', authData.user.id)
+    .select()
+    .maybeSingle();
+  
+  if (profileError) throw profileError;
+  
+  return profileData;
+}
+
+/**
+ * 更新用户信息（仅管理员）
+ */
+export async function updateUser(input: UpdateUserInput) {
+  const { user_id, full_name, role, department, status } = input;
+  
+  const updateData: Partial<Profile> = {};
+  if (full_name !== undefined) updateData.full_name = full_name;
+  if (role !== undefined) updateData.role = role;
+  if (department !== undefined) updateData.department = department;
+  if (status !== undefined) updateData.status = status;
+  
+  const { data, error } = await supabase
+    .from('profiles')
+    .update(updateData)
+    .eq('id', user_id)
+    .select()
+    .maybeSingle();
+  
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * 删除用户（仅管理员）
+ * 注意：这会软删除用户（设置状态为 disabled），而不是物理删除
+ */
+export async function deleteUser(input: DeleteUserInput) {
+  const { user_id } = input;
+  
+  // 软删除：将用户状态设置为 disabled
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({ status: 'disabled' })
     .eq('id', user_id)
     .select()
     .maybeSingle();

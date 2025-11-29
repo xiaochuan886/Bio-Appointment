@@ -1,15 +1,21 @@
 import { useState, useEffect } from 'react';
-import { Users, UserPlus, Shield, Edit, Ban, CheckCircle } from 'lucide-react';
+import { Users, UserPlus, Shield, Edit, Ban, CheckCircle, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { toast } from 'sonner';
-import { getAllUsers, updateUserRole, updateUserStatus } from '@/db/api';
-import { Profile, UserRole, UserStatus } from '@/types/types';
+import { getAllUsers, createUser, updateUser, deleteUser } from '@/db/api';
+import { Profile, UserRole, CreateUserInput, UpdateUserInput } from '@/types/types';
 import { useAuth } from '@/contexts/AuthContext';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
 
 const roleLabels: Record<UserRole, string> = {
   super_admin: '超级管理员',
@@ -27,12 +33,65 @@ const roleColors: Record<UserRole, string> = {
   doctor: 'bg-orange-500',
 };
 
+// 创建用户表单验证
+const createUserSchema = z.object({
+  username: z.string()
+    .min(3, '用户名至少3个字符')
+    .max(20, '用户名最多20个字符')
+    .regex(/^[a-zA-Z0-9_]+$/, '用户名只能包含字母、数字和下划线'),
+  password: z.string()
+    .min(6, '密码至少6个字符')
+    .max(50, '密码最多50个字符'),
+  full_name: z.string()
+    .min(2, '姓名至少2个字符')
+    .max(50, '姓名最多50个字符'),
+  role: z.enum(['super_admin', 'sales', 'head_nurse', 'nurse', 'doctor']),
+  department: z.string().optional(),
+});
+
+// 编辑用户表单验证
+const editUserSchema = z.object({
+  full_name: z.string()
+    .min(2, '姓名至少2个字符')
+    .max(50, '姓名最多50个字符'),
+  role: z.enum(['super_admin', 'sales', 'head_nurse', 'nurse', 'doctor']),
+  department: z.string().optional(),
+});
+
+type CreateUserFormData = z.infer<typeof createUserSchema>;
+type EditUserFormData = z.infer<typeof editUserSchema>;
+
 export default function UserManagementPage() {
   const { profile: currentProfile } = useAuth();
   const [users, setUsers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingUser, setEditingUser] = useState<Profile | null>(null);
-  const [selectedRole, setSelectedRole] = useState<UserRole>('sales');
+  const [deletingUser, setDeletingUser] = useState<Profile | null>(null);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+
+  // 创建用户表单
+  const createForm = useForm<CreateUserFormData>({
+    resolver: zodResolver(createUserSchema),
+    defaultValues: {
+      username: '',
+      password: '',
+      full_name: '',
+      role: 'sales',
+      department: '',
+    },
+  });
+
+  // 编辑用户表单
+  const editForm = useForm<EditUserFormData>({
+    resolver: zodResolver(editUserSchema),
+    defaultValues: {
+      full_name: '',
+      role: 'sales',
+      department: '',
+    },
+  });
 
   useEffect(() => {
     loadUsers();
@@ -51,28 +110,81 @@ export default function UserManagementPage() {
     }
   };
 
-  const handleUpdateRole = async (userId: string, role: UserRole) => {
+  // 创建用户
+  const handleCreateUser = async (data: CreateUserFormData) => {
     try {
-      await updateUserRole({ user_id: userId, role });
-      toast.success('角色更新成功');
+      const input: CreateUserInput = {
+        username: data.username,
+        password: data.password,
+        full_name: data.full_name,
+        role: data.role,
+        department: data.department || undefined,
+      };
+      
+      await createUser(input);
+      toast.success('用户创建成功');
+      setCreateDialogOpen(false);
+      createForm.reset();
       await loadUsers();
-      setEditingUser(null);
     } catch (error: any) {
-      console.error('更新角色失败:', error);
-      toast.error('更新角色失败');
+      console.error('创建用户失败:', error);
+      toast.error(error.message || '创建用户失败');
     }
   };
 
-  const handleToggleStatus = async (userId: string, currentStatus: UserStatus) => {
-    const newStatus: UserStatus = currentStatus === 'active' ? 'disabled' : 'active';
-    
+  // 打开编辑对话框
+  const handleOpenEditDialog = (user: Profile) => {
+    setEditingUser(user);
+    editForm.reset({
+      full_name: user.full_name || '',
+      role: user.role,
+      department: user.department || '',
+    });
+    setEditDialogOpen(true);
+  };
+
+  // 更新用户
+  const handleUpdateUser = async (data: EditUserFormData) => {
+    if (!editingUser) return;
+
     try {
-      await updateUserStatus({ user_id: userId, status: newStatus });
-      toast.success(`用户已${newStatus === 'active' ? '启用' : '禁用'}`);
+      const input: UpdateUserInput = {
+        user_id: editingUser.id,
+        full_name: data.full_name,
+        role: data.role,
+        department: data.department || undefined,
+      };
+      
+      await updateUser(input);
+      toast.success('用户信息更新成功');
+      setEditDialogOpen(false);
+      setEditingUser(null);
       await loadUsers();
     } catch (error: any) {
-      console.error('更新状态失败:', error);
-      toast.error('更新状态失败');
+      console.error('更新用户失败:', error);
+      toast.error(error.message || '更新用户失败');
+    }
+  };
+
+  // 打开删除确认对话框
+  const handleOpenDeleteDialog = (user: Profile) => {
+    setDeletingUser(user);
+    setDeleteDialogOpen(true);
+  };
+
+  // 删除用户
+  const handleDeleteUser = async () => {
+    if (!deletingUser) return;
+
+    try {
+      await deleteUser({ user_id: deletingUser.id });
+      toast.success('用户已删除');
+      setDeleteDialogOpen(false);
+      setDeletingUser(null);
+      await loadUsers();
+    } catch (error: any) {
+      console.error('删除用户失败:', error);
+      toast.error(error.message || '删除用户失败');
     }
   };
 
@@ -88,6 +200,139 @@ export default function UserManagementPage() {
             管理系统用户和权限分配
           </p>
         </div>
+        
+        <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+          <DialogTrigger asChild>
+            <Button>
+              <UserPlus className="h-4 w-4 mr-2" />
+              创建用户
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>创建新用户</DialogTitle>
+              <DialogDescription>
+                填写用户信息创建新账号
+              </DialogDescription>
+            </DialogHeader>
+            <Form {...createForm}>
+              <form onSubmit={createForm.handleSubmit(handleCreateUser)} className="space-y-4">
+                <FormField
+                  control={createForm.control}
+                  name="username"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>用户名</FormLabel>
+                      <FormControl>
+                        <Input placeholder="输入用户名（字母、数字、下划线）" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                
+                <FormField
+                  control={createForm.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>密码</FormLabel>
+                      <FormControl>
+                        <Input type="password" placeholder="输入密码（至少6位）" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                
+                <FormField
+                  control={createForm.control}
+                  name="full_name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>真实姓名</FormLabel>
+                      <FormControl>
+                        <Input placeholder="输入真实姓名" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                
+                <FormField
+                  control={createForm.control}
+                  name="role"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>角色</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="选择角色" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="super_admin">
+                            <div className="flex items-center gap-2">
+                              <Shield className="h-4 w-4 text-red-500" />
+                              超级管理员
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="sales">
+                            <div className="flex items-center gap-2">
+                              <UserPlus className="h-4 w-4 text-blue-500" />
+                              销售/健康管理师
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="head_nurse">
+                            <div className="flex items-center gap-2">
+                              <Users className="h-4 w-4 text-purple-500" />
+                              护士长
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="nurse">
+                            <div className="flex items-center gap-2">
+                              <Users className="h-4 w-4 text-green-500" />
+                              护士
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="doctor">
+                            <div className="flex items-center gap-2">
+                              <Users className="h-4 w-4 text-orange-500" />
+                              医生
+                            </div>
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                
+                <FormField
+                  control={createForm.control}
+                  name="department"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>部门（可选）</FormLabel>
+                      <FormControl>
+                        <Input placeholder="输入部门名称" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setCreateDialogOpen(false)}>
+                    取消
+                  </Button>
+                  <Button type="submit">创建</Button>
+                </DialogFooter>
+              </form>
+            </Form>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <Card>
@@ -148,112 +393,24 @@ export default function UserManagementPage() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Dialog
-                          open={editingUser?.id === user.id}
-                          onOpenChange={(open) => {
-                            if (open) {
-                              setEditingUser(user);
-                              setSelectedRole(user.role);
-                            } else {
-                              setEditingUser(null);
-                            }
-                          }}
-                        >
-                          <DialogTrigger asChild>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={user.id === currentProfile?.id}
-                            >
-                              <Edit className="h-4 w-4 mr-1" />
-                              编辑角色
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent>
-                            <DialogHeader>
-                              <DialogTitle>编辑用户角色</DialogTitle>
-                              <DialogDescription>
-                                修改用户 {user.username} 的系统角色
-                              </DialogDescription>
-                            </DialogHeader>
-                            <div className="space-y-4 py-4">
-                              <div className="space-y-2">
-                                <label className="text-sm font-medium">选择角色</label>
-                                <Select
-                                  value={selectedRole}
-                                  onValueChange={(value) => setSelectedRole(value as UserRole)}
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="super_admin">
-                                      <div className="flex items-center gap-2">
-                                        <Shield className="h-4 w-4 text-red-500" />
-                                        超级管理员
-                                      </div>
-                                    </SelectItem>
-                                    <SelectItem value="sales">
-                                      <div className="flex items-center gap-2">
-                                        <UserPlus className="h-4 w-4 text-blue-500" />
-                                        销售/健康管理师
-                                      </div>
-                                    </SelectItem>
-                                    <SelectItem value="head_nurse">
-                                      <div className="flex items-center gap-2">
-                                        <Users className="h-4 w-4 text-purple-500" />
-                                        护士长
-                                      </div>
-                                    </SelectItem>
-                                    <SelectItem value="nurse">
-                                      <div className="flex items-center gap-2">
-                                        <Users className="h-4 w-4 text-green-500" />
-                                        护士
-                                      </div>
-                                    </SelectItem>
-                                    <SelectItem value="doctor">
-                                      <div className="flex items-center gap-2">
-                                        <Users className="h-4 w-4 text-orange-500" />
-                                        医生
-                                      </div>
-                                    </SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div className="flex justify-end gap-2">
-                                <Button
-                                  variant="outline"
-                                  onClick={() => setEditingUser(null)}
-                                >
-                                  取消
-                                </Button>
-                                <Button
-                                  onClick={() => handleUpdateRole(user.id, selectedRole)}
-                                >
-                                  保存
-                                </Button>
-                              </div>
-                            </div>
-                          </DialogContent>
-                        </Dialog>
-
                         <Button
-                          variant={user.status === 'active' ? 'destructive' : 'default'}
+                          variant="outline"
                           size="sm"
-                          onClick={() => handleToggleStatus(user.id, user.status)}
+                          onClick={() => handleOpenEditDialog(user)}
                           disabled={user.id === currentProfile?.id}
                         >
-                          {user.status === 'active' ? (
-                            <>
-                              <Ban className="h-4 w-4 mr-1" />
-                              禁用
-                            </>
-                          ) : (
-                            <>
-                              <CheckCircle className="h-4 w-4 mr-1" />
-                              启用
-                            </>
-                          )}
+                          <Edit className="h-4 w-4 mr-1" />
+                          编辑
+                        </Button>
+
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => handleOpenDeleteDialog(user)}
+                          disabled={user.id === currentProfile?.id}
+                        >
+                          <Trash2 className="h-4 w-4 mr-1" />
+                          删除
                         </Button>
                       </div>
                     </TableCell>
@@ -302,6 +459,128 @@ export default function UserManagementPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* 编辑用户对话框 */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>编辑用户信息</DialogTitle>
+            <DialogDescription>
+              修改用户 {editingUser?.username} 的信息
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...editForm}>
+            <form onSubmit={editForm.handleSubmit(handleUpdateUser)} className="space-y-4">
+              <FormField
+                control={editForm.control}
+                name="full_name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>真实姓名</FormLabel>
+                    <FormControl>
+                      <Input placeholder="输入真实姓名" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              <FormField
+                control={editForm.control}
+                name="role"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>角色</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="选择角色" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="super_admin">
+                          <div className="flex items-center gap-2">
+                            <Shield className="h-4 w-4 text-red-500" />
+                            超级管理员
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="sales">
+                          <div className="flex items-center gap-2">
+                            <UserPlus className="h-4 w-4 text-blue-500" />
+                            销售/健康管理师
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="head_nurse">
+                          <div className="flex items-center gap-2">
+                            <Users className="h-4 w-4 text-purple-500" />
+                            护士长
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="nurse">
+                          <div className="flex items-center gap-2">
+                            <Users className="h-4 w-4 text-green-500" />
+                            护士
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="doctor">
+                          <div className="flex items-center gap-2">
+                            <Users className="h-4 w-4 text-orange-500" />
+                            医生
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              <FormField
+                control={editForm.control}
+                name="department"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>部门（可选）</FormLabel>
+                    <FormControl>
+                      <Input placeholder="输入部门名称" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>
+                  取消
+                </Button>
+                <Button type="submit">保存</Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* 删除用户确认对话框 */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认删除用户</DialogTitle>
+            <DialogDescription>
+              您确定要删除用户 <span className="font-semibold">{deletingUser?.username}</span> 吗？
+              <br />
+              此操作将禁用该用户账号，用户将无法登录系统。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+              取消
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteUser}>
+              确认删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
