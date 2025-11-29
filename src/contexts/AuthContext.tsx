@@ -39,11 +39,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    let mounted = true;
+    
+    // 添加超时保护，防止无限加载
+    const timeout = setTimeout(() => {
+      if (mounted && loading) {
+        console.warn('认证初始化超时，停止加载');
+        setLoading(false);
+      }
+    }, 5000); // 5秒超时
+
     // 初始化时获取当前用户
-    refreshUser().finally(() => setLoading(false));
+    refreshUser()
+      .catch((error) => {
+        console.error('初始化用户失败:', error);
+      })
+      .finally(() => {
+        if (mounted) {
+          clearTimeout(timeout);
+          setLoading(false);
+        }
+      });
 
     // 监听认证状态变化
     const { data: { subscription } } = onAuthStateChange(async (event, newSession) => {
+      if (!mounted) return;
+      
       setSession(newSession);
       
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
@@ -55,6 +76,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     return () => {
+      mounted = false;
+      clearTimeout(timeout);
       subscription.unsubscribe();
     };
   }, []);

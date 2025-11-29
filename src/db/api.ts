@@ -110,19 +110,36 @@ export async function logout() {
  * @returns 当前用户信息和 profile
  */
 export async function getCurrentUser() {
-  const { data: { user }, error } = await supabase.auth.getUser();
-  
-  if (error) throw error;
-  
-  if (user) {
-    const profile = await getProfileById(user.id);
-    return {
-      user,
-      profile,
-    };
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser();
+    
+    if (error) {
+      console.error('获取认证用户失败:', error);
+      throw error;
+    }
+    
+    if (user) {
+      try {
+        const profile = await getProfileById(user.id);
+        return {
+          user,
+          profile,
+        };
+      } catch (profileError) {
+        console.error('获取用户 profile 失败:', profileError);
+        // 即使 profile 获取失败，也返回用户信息
+        return {
+          user,
+          profile: null,
+        };
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('getCurrentUser 错误:', error);
+    return null;
   }
-  
-  return null;
 }
 
 /**
@@ -336,14 +353,23 @@ export async function getProfilesByRole(role: string) {
 }
 
 export async function getProfileById(id: string) {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', id)
-    .maybeSingle();
-  
-  if (error) throw error;
-  return data;
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    
+    if (error) {
+      console.error('查询 profile 失败:', error);
+      throw error;
+    }
+    
+    return data;
+  } catch (error) {
+    console.error('getProfileById 错误:', error);
+    throw error;
+  }
 }
 
 export async function updateProfile(id: string, updates: Partial<Profile>) {
