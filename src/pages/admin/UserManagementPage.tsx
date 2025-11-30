@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { getAllUsers, createUser, updateUser, deleteUser } from '@/db/api';
 import { Profile, UserRole, CreateUserInput, UpdateUserInput } from '@/types/types';
@@ -16,6 +17,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
+import DingTalkSyncPanel from '@/components/dingtalk/DingTalkSyncPanel';
 
 const roleLabels: Record<UserRole, string> = {
   super_admin: '超级管理员',
@@ -335,14 +337,27 @@ export default function UserManagementPage() {
         </Dialog>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>用户列表</CardTitle>
-          <CardDescription>
-            共 {users.length} 个用户
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+      <Tabs defaultValue="users" className="w-full">
+        <TabsList>
+          <TabsTrigger value="users">
+            <Users className="w-4 h-4 mr-2" />
+            用户列表
+          </TabsTrigger>
+          <TabsTrigger value="dingtalk">
+            <Shield className="w-4 h-4 mr-2" />
+            钉钉同步
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="users" className="mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>用户列表</CardTitle>
+              <CardDescription>
+                共 {users.length} 个用户
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
           {loading ? (
             <div className="text-center py-8 text-muted-foreground">
               加载中...
@@ -459,6 +474,12 @@ export default function UserManagementPage() {
           </div>
         </CardContent>
       </Card>
+        </TabsContent>
+
+        <TabsContent value="dingtalk" className="mt-6">
+          <DingTalkSyncPanel />
+        </TabsContent>
+      </Tabs>
 
       {/* 编辑用户对话框 */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>

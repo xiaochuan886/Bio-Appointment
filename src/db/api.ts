@@ -987,3 +987,179 @@ export async function deleteRoom(id: string) {
   
   if (error) throw error;
 }
+
+// ==================== 钉钉同步相关 API ====================
+
+/**
+ * 获取钉钉同步配置
+ */
+export async function getDingTalkSyncConfig() {
+  const { data, error } = await supabase
+    .from('dingtalk_sync_config')
+    .select('*')
+    .maybeSingle();
+  
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * 创建或更新钉钉同步配置
+ */
+export async function upsertDingTalkSyncConfig(config: {
+  app_key: string;
+  app_secret: string;
+  agent_id: string;
+  corp_id: string;
+  sync_enabled?: boolean;
+  auto_sync_enabled?: boolean;
+  sync_schedule?: string;
+  sync_time?: string;
+  conflict_strategy?: 'dingtalk_first' | 'local_first' | 'manual';
+  selected_departments?: string[];
+}) {
+  // 先查询是否已存在配置
+  const { data: existing } = await supabase
+    .from('dingtalk_sync_config')
+    .select('id')
+    .maybeSingle();
+
+  if (existing) {
+    // 更新现有配置
+    const { data, error } = await supabase
+      .from('dingtalk_sync_config')
+      .update({
+        ...config,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existing.id)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
+  } else {
+    // 创建新配置
+    const { data, error } = await supabase
+      .from('dingtalk_sync_config')
+      .insert(config)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
+  }
+}
+
+/**
+ * 触发钉钉同步
+ */
+export async function triggerDingTalkSync(params: {
+  sync_type: 'manual' | 'auto' | 'incremental';
+  selected_departments?: string[];
+  conflict_strategy?: 'dingtalk_first' | 'local_first' | 'manual';
+}) {
+  const { data, error } = await supabase.functions.invoke('dingtalk-sync', {
+    body: JSON.stringify(params),
+  });
+
+  if (error) {
+    const errorMsg = await error?.context?.text();
+    console.error('钉钉同步 Edge Function 错误:', errorMsg);
+    throw new Error(errorMsg || '钉钉同步失败');
+  }
+
+  return data;
+}
+
+/**
+ * 获取钉钉同步日志列表
+ */
+export async function getDingTalkSyncLogs(params?: {
+  limit?: number;
+  offset?: number;
+  status?: 'pending' | 'running' | 'success' | 'failed' | 'partial';
+}) {
+  const { limit = 20, offset = 0, status } = params || {};
+
+  let query = supabase
+    .from('dingtalk_sync_logs')
+    .select('*, created_by_profile:profiles!dingtalk_sync_logs_created_by_fkey(username, full_name)', { count: 'exact' })
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (status) {
+    query = query.eq('status', status);
+  }
+
+  const { data, error, count } = await query;
+
+  if (error) throw error;
+
+  return {
+    data: Array.isArray(data) ? data : [],
+    count: count || 0,
+  };
+}
+
+/**
+ * 获取单个同步日志详情
+ */
+export async function getDingTalkSyncLogById(id: string) {
+  const { data, error } = await supabase
+    .from('dingtalk_sync_logs')
+    .select('*, created_by_profile:profiles!dingtalk_sync_logs_created_by_fkey(username, full_name)')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * 获取钉钉部门映射列表
+ */
+export async function getDingTalkDepartmentMappings() {
+  const { data, error } = await supabase
+    .from('dingtalk_department_mapping')
+    .select('*')
+    .order('order_num', { ascending: true });
+
+  if (error) throw error;
+  return Array.isArray(data) ? data : [];
+}
+
+/**
+ * 更新钉钉部门映射
+ */
+export async function updateDingTalkDepartmentMapping(
+  id: string,
+  updates: {
+    local_department?: string;
+    enabled?: boolean;
+  }
+) {
+  const { data, error } = await supabase
+    .from('dingtalk_department_mapping')
+    .update({
+      ...updates,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * 获取同步统计信息
+ */
+export async function getSyncStatistics() {
+  const { data, error } = await supabase.rpc('get_sync_statistics');
+
+  if (error) throw error;
+  return data;
+}
+

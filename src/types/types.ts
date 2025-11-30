@@ -280,6 +280,59 @@ export type DingTalkSyncType = 'departments' | 'users';
 export type DingTalkSyncStatus = 'running' | 'success' | 'failed';
 export type DingTalkNotificationStatus = 'pending' | 'sent' | 'failed';
 
+// 新增：同步状态枚举
+export type SyncStatus = 'pending' | 'running' | 'success' | 'failed' | 'partial';
+export type SyncType = 'manual' | 'auto' | 'incremental';
+export type ConflictStrategy = 'dingtalk_first' | 'local_first' | 'manual';
+
+// 新增：钉钉同步配置
+export interface DingTalkSyncConfig {
+  id: string;
+  app_key: string;
+  app_secret: string;
+  agent_id: string;
+  corp_id: string;
+  sync_enabled: boolean;
+  auto_sync_enabled: boolean;
+  sync_schedule: string;
+  sync_time: string;
+  conflict_strategy: ConflictStrategy;
+  selected_departments: string[];
+  last_sync_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// 新增：钉钉同步日志（新版）
+export interface DingTalkSyncLogV2 {
+  id: string;
+  sync_type: SyncType;
+  status: SyncStatus;
+  total_users: number;
+  success_count: number;
+  failed_count: number;
+  skipped_count: number;
+  error_message?: string;
+  details: Record<string, any>;
+  started_at: string;
+  completed_at?: string;
+  created_by?: string;
+  created_at: string;
+}
+
+// 新增：钉钉部门映射
+export interface DingTalkDepartmentMapping {
+  id: string;
+  dingtalk_dept_id: string;
+  dingtalk_dept_name: string;
+  local_department?: string;
+  parent_id?: string;
+  order_num: number;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 // 钉钉用户映射
 export interface DingTalkUser {
   id: string;
@@ -309,7 +362,7 @@ export interface DingTalkDepartment {
   updated_at: string;
 }
 
-// 钉钉同步日志
+// 钉钉同步日志（旧版，保留兼容性）
 export interface DingTalkSyncLog {
   id: string;
   sync_type: DingTalkSyncType;
@@ -399,6 +452,13 @@ export interface DingTalkSyncInput {
   force?: boolean; // 是否强制全量同步
 }
 
+// 新增：钉钉同步请求输入
+export interface DingTalkSyncRequestInput {
+  sync_type: SyncType;
+  selected_departments?: string[];
+  conflict_strategy?: ConflictStrategy;
+}
+
 // 钉钉通知输入
 export interface DingTalkNotificationInput {
   recipient_userids: string[]; // 接收人钉钉 userid 列表
@@ -413,5 +473,14 @@ export interface DingTalkConfig {
   appKey: string;
   agentId: string;
   corpId: string;
+}
+
+// 新增：同步统计信息
+export interface SyncStatistics {
+  total_syncs: number;
+  success_count: number;
+  failed_count: number;
+  last_sync?: string;
+  total_users_synced: number;
 }
 
