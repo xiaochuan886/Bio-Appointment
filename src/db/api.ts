@@ -1018,35 +1018,103 @@ export async function upsertDingTalkSyncConfig(config: {
   conflict_strategy?: 'dingtalk_first' | 'local_first' | 'manual';
   selected_departments?: string[];
 }) {
+  console.log('开始保存钉钉配置...', { ...config, app_secret: '***' });
+  
+  // 检查当前用户
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    throw new Error('未登录，请先登录');
+  }
+  console.log('当前用户 ID:', user.id);
+  
+  // 检查用户角色
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('role, status')
+    .eq('id', user.id)
+    .maybeSingle();
+  
+  if (profileError) {
+    console.error('获取用户信息失败:', profileError);
+    throw new Error('获取用户信息失败: ' + profileError.message);
+  }
+  
+  if (!profile) {
+    throw new Error('用户信息不存在');
+  }
+  
+  console.log('用户角色:', profile.role, '状态:', profile.status);
+  
+  if (profile.role !== 'super_admin') {
+    throw new Error('只有超级管理员可以配置钉钉同步');
+  }
+  
   // 先查询是否已存在配置
-  const { data: existing } = await supabase
+  const { data: existing, error: queryError } = await supabase
     .from('dingtalk_sync_config')
     .select('id')
     .maybeSingle();
+  
+  if (queryError) {
+    console.error('查询配置失败:', queryError);
+    throw new Error('查询配置失败: ' + queryError.message);
+  }
+  
+  console.log('现有配置:', existing);
 
   if (existing) {
     // 更新现有配置
+    console.log('更新现有配置, ID:', existing.id);
     const { data, error } = await supabase
       .from('dingtalk_sync_config')
       .update({
-        ...config,
+        app_key: config.app_key,
+        app_secret: config.app_secret,
+        agent_id: config.agent_id,
+        corp_id: config.corp_id,
+        sync_enabled: config.sync_enabled ?? true,
+        auto_sync_enabled: config.auto_sync_enabled ?? false,
+        sync_schedule: config.sync_schedule || 'daily',
+        sync_time: config.sync_time || '02:00:00',
+        conflict_strategy: config.conflict_strategy || 'dingtalk_first',
+        selected_departments: config.selected_departments || [],
         updated_at: new Date().toISOString(),
       })
       .eq('id', existing.id)
       .select()
-      .single();
+      .maybeSingle();
     
-    if (error) throw error;
+    if (error) {
+      console.error('更新配置失败:', error);
+      throw new Error('更新配置失败: ' + error.message);
+    }
+    console.log('配置更新成功:', data);
     return data;
   } else {
     // 创建新配置
+    console.log('创建新配置');
     const { data, error } = await supabase
       .from('dingtalk_sync_config')
-      .insert(config)
+      .insert({
+        app_key: config.app_key,
+        app_secret: config.app_secret,
+        agent_id: config.agent_id,
+        corp_id: config.corp_id,
+        sync_enabled: config.sync_enabled ?? true,
+        auto_sync_enabled: config.auto_sync_enabled ?? false,
+        sync_schedule: config.sync_schedule || 'daily',
+        sync_time: config.sync_time || '02:00:00',
+        conflict_strategy: config.conflict_strategy || 'dingtalk_first',
+        selected_departments: config.selected_departments || [],
+      })
       .select()
-      .single();
+      .maybeSingle();
     
-    if (error) throw error;
+    if (error) {
+      console.error('创建配置失败:', error);
+      throw new Error('创建配置失败: ' + error.message);
+    }
+    console.log('配置创建成功:', data);
     return data;
   }
 }
