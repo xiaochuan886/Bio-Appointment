@@ -1,0 +1,1297 @@
+const express = require('express');
+const cors = require('cors');
+const { Pool } = require('pg');
+
+const app = express();
+const PORT = 3001;
+
+// Database connection
+const pool = new Pool({
+  host: '127.0.0.1',
+  port: 5437,
+  database: 'bio_appointment',
+  user: 'app_user',
+  password: 'secure_password_123',
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+});
+
+// Middleware
+app.use(cors({
+  origin: ['http://127.0.0.1:5173', 'http://127.0.0.1:5174', 'http://localhost:5173', 'http://localhost:5174'],
+  credentials: true,
+}));
+app.use(express.json());
+
+// Simple in-memory storage for DingTalk configuration
+// In a real implementation, this would be stored in the database
+let dingTalkConfig = {
+  id: 'mock-config-id',
+  app_key: '',
+  app_secret: '',
+  agent_id: '',
+  corp_id: '',
+  sync_enabled: false,
+  auto_sync_enabled: false,
+  sync_schedule: 'daily',
+  sync_time: '02:00',
+  conflict_strategy: 'manual',
+  selected_departments: [],
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+};
+
+// Database health check
+async function checkDatabase() {
+  try {
+    const result = await pool.query('SELECT NOW()');
+    return { status: 'connected', timestamp: result.rows[0].now };
+  } catch (error) {
+    return { status: 'error', message: error.message };
+  }
+}
+
+// Initialize database tables
+async function initializeDatabase() {
+  try {
+    // Create profiles table if not exists
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS profiles (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        email VARCHAR(255) UNIQUE NOT NULL,
+        full_name VARCHAR(255) NOT NULL,
+        role VARCHAR(50) NOT NULL,
+        phone VARCHAR(20),
+        department VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Create appointments table if not exists
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS appointments (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        customer_name VARCHAR(255) NOT NULL,
+        customer_phone VARCHAR(20),
+        service_id UUID,
+        requested_date DATE NOT NULL,
+        requested_time_start TIME NOT NULL,
+        requested_time_end TIME NOT NULL,
+        status VARCHAR(50) DEFAULT 'pending',
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    console.log('✅ Database tables initialized successfully');
+    return true;
+  } catch (error) {
+    console.error('❌ Failed to initialize database:', error);
+    return false;
+  }
+}
+
+// Routes
+
+// Health check
+app.get('/api/health', async (req, res) => {
+  try {
+    const dbStatus = await checkDatabase();
+    res.json({
+      status: 'healthy',
+      database: dbStatus,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'unhealthy',
+      error: error.message
+    });
+  }
+});
+
+// Mock authentication endpoints
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // Mock admin user for testing
+    if (email === 'admin@test.com' && password === 'admin123') {
+      res.json({
+        user: {
+          id: 'admin-id',
+          email: 'admin@test.com',
+          full_name: '系统管理员',
+          role: 'super_admin',
+        },
+        tokens: {
+          accessToken: 'mock-access-token',
+          refreshToken: 'mock-refresh-token',
+        }
+      });
+      return;
+    }
+
+    // Try to get user from database
+    const result = await pool.query('SELECT * FROM profiles WHERE email = $1', [email]);
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({
+        error: 'Authentication failed',
+        message: 'User not found'
+      });
+    }
+
+    const user = result.rows[0];
+
+    // For now, accept any password for existing users
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        full_name: user.full_name,
+        role: user.role,
+      },
+      tokens: {
+        accessToken: 'mock-access-token',
+        refreshToken: 'mock-refresh-token',
+      }
+    });
+  } catch (error) {
+    res.status(401).json({
+      error: 'Authentication failed',
+      message: error.message
+    });
+  }
+});
+
+// Token refresh
+app.post('/api/auth/refresh', async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+      return res.status(400).json({
+        error: 'Refresh token required'
+      });
+    }
+
+    // Mock refresh - always return new tokens for now
+    res.json({
+      accessToken: 'mock-access-token-' + Date.now(),
+      refreshToken: 'mock-refresh-token-' + Date.now()
+    });
+  } catch (error) {
+    res.status(401).json({
+      error: 'Token refresh failed',
+      message: error.message
+    });
+  }
+});
+
+// Logout
+app.post('/api/auth/logout', async (req, res) => {
+  try {
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Logout failed',
+      message: error.message
+    });
+  }
+});
+
+// Get profiles
+app.get('/api/profiles', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM profiles ORDER BY created_at DESC');
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch profiles',
+      message: error.message
+    });
+  }
+});
+
+// Get specific profile by ID
+app.get('/api/profiles/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Return mock admin user for testing
+    if (id === 'admin-id') {
+      res.json({
+        id: 'admin-id',
+        email: 'admin@test.com',
+        full_name: '系统管理员',
+        role: 'super_admin',
+      });
+      return;
+    }
+
+    const result = await pool.query('SELECT * FROM profiles WHERE id = $1', [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Profile not found'
+      });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch profile',
+      message: error.message
+    });
+  }
+});
+
+// Get services
+app.get('/api/services', async (req, res) => {
+  try {
+    const { category } = req.query;
+    let query = 'SELECT * FROM services ORDER BY name';
+    let params = [];
+
+    if (category) {
+      query = 'SELECT * FROM services WHERE category = $1 ORDER BY name';
+      params = [category];
+    }
+
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch services',
+      message: error.message
+    });
+  }
+});
+
+// Get resources
+app.get('/api/resources', async (req, res) => {
+  try {
+    const { type, status } = req.query;
+    let query = 'SELECT * FROM resources ORDER BY name';
+    let params = [];
+
+    if (type || status) {
+      const conditions = [];
+      if (type) {
+        conditions.push(`type = $${params.length + 1}`);
+        params.push(type);
+      }
+      if (status) {
+        conditions.push(`status = $${params.length + 1}`);
+        params.push(status);
+      }
+      query = `SELECT * FROM resources WHERE ${conditions.join(' AND ')} ORDER BY name`;
+    }
+
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch resources',
+      message: error.message
+    });
+  }
+});
+
+// Get schedules
+app.get('/api/schedules', async (req, res) => {
+  try {
+    const { date, nurse_id } = req.query;
+    let query = 'SELECT * FROM schedules ORDER BY scheduled_date, scheduled_time_start';
+    let params = [];
+
+    if (date || nurse_id) {
+      const conditions = [];
+      if (date) {
+        conditions.push(`scheduled_date = $${params.length + 1}`);
+        params.push(date);
+      }
+      if (nurse_id) {
+        conditions.push(`nurse_id = $${params.length + 1}`);
+        params.push(nurse_id);
+      }
+      query = `SELECT * FROM schedules WHERE ${conditions.join(' AND ')} ORDER BY scheduled_date, scheduled_time_start`;
+    }
+
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch schedules',
+      message: error.message
+    });
+  }
+});
+
+// Get task executions
+app.get('/api/task-executions', async (req, res) => {
+  try {
+    const { status, assigned_to } = req.query;
+    let query = 'SELECT * FROM task_executions ORDER BY created_at DESC';
+    let params = [];
+
+    if (status || assigned_to) {
+      const conditions = [];
+      if (status) {
+        conditions.push(`status = $${params.length + 1}`);
+        params.push(status);
+      }
+      if (assigned_to) {
+        conditions.push(`assigned_to = $${params.length + 1}`);
+        params.push(assigned_to);
+      }
+      query = `SELECT * FROM task_executions WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC`;
+    }
+
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch task executions',
+      message: error.message
+    });
+  }
+});
+
+// Create appointment
+app.post('/api/appointments', async (req, res) => {
+  try {
+    const {
+      customer_name,
+      customer_phone,
+      service_id,
+      requested_date,
+      requested_time_start,
+      requested_time_end,
+      notes,
+      total_people = 1,
+      estimated_duration = 60,
+      is_urgent = false,
+      companion_names
+    } = req.body;
+
+    const result = await pool.query(
+      `INSERT INTO appointments (customer_name, customer_phone, service_id, requested_date, requested_time_start, requested_time_end, notes, total_people, estimated_duration, is_urgent, companion_names)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       RETURNING *`,
+      [customer_name, customer_phone, service_id, requested_date, requested_time_start, requested_time_end, notes, total_people, estimated_duration, is_urgent, companion_names]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Create appointment error:', error);
+    res.status(500).json({
+      error: 'Failed to create appointment',
+      message: error.message
+    });
+  }
+});
+
+// Get appointments
+app.get('/api/appointments', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM appointments ORDER BY requested_date DESC');
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch appointments',
+      message: error.message
+    });
+  }
+});
+
+// Dashboard stats
+app.get('/api/dashboard/stats', async (req, res) => {
+  try {
+    const date = req.query.date || new Date().toISOString().split('T')[0];
+
+    // Get appointment stats
+    const appointmentStats = await pool.query(
+      `SELECT
+        COUNT(*) as total,
+        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending,
+        COUNT(CASE WHEN status = 'confirmed' THEN 1 END) as confirmed,
+        COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
+        COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled
+       FROM appointments
+       WHERE DATE(requested_date) = $1`,
+      [date]
+    );
+
+    // Get user stats
+    const userStats = await pool.query(
+      `SELECT
+        COUNT(CASE WHEN role = 'doctor' THEN 1 END) as doctors,
+        COUNT(CASE WHEN role = 'nurse' THEN 1 END) as nurses,
+        COUNT(CASE WHEN role = 'sales' THEN 1 END) as sales,
+        COUNT(CASE WHEN role = 'super_admin' THEN 1 END) as admins
+       FROM profiles`
+    );
+
+    // Get today's schedule count
+    const scheduleStats = await pool.query(
+      `SELECT COUNT(*) as today_schedules
+       FROM schedules
+       WHERE scheduled_date = $1`,
+      [date]
+    );
+
+    res.json({
+      date,
+      appointments: appointmentStats.rows[0],
+      users: userStats.rows[0],
+      schedules: scheduleStats.rows[0],
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch dashboard stats',
+      message: error.message
+    });
+  }
+});
+
+// Resource availability
+app.get('/api/resources/availability', async (req, res) => {
+  try {
+    const { date, time_start, time_end } = req.query;
+
+    if (!date || !time_start || !time_end) {
+      return res.status(400).json({
+        error: 'Missing required parameters: date, time_start, time_end'
+      });
+    }
+
+    // Get available resources (this is a simplified version)
+    const result = await pool.query(
+      `SELECT * FROM resources
+       WHERE status = 'available'
+       ORDER BY name`
+    );
+
+    res.json({
+      date,
+      time_start,
+      time_end,
+      available_resources: result.rows,
+      total_available: result.rows.length
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch resource availability',
+      message: error.message
+    });
+  }
+});
+
+// Get available rooms
+app.get('/api/resources/rooms/available', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT * FROM resources
+       WHERE type = 'room' AND status = 'available'
+       ORDER BY name`
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch available rooms',
+      message: error.message
+    });
+  }
+});
+
+// Get available nurses
+app.get('/api/profiles/nurses/available', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT * FROM profiles
+       WHERE role = 'nurse'
+       ORDER BY full_name`
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch available nurses',
+      message: error.message
+    });
+  }
+});
+
+// Create schedule
+app.post('/api/schedules', async (req, res) => {
+  try {
+    const {
+      appointment_id,
+      scheduled_date,
+      scheduled_time_start,
+      scheduled_time_end,
+      room_id,
+      nurse_id,
+      notes
+    } = req.body;
+
+    const result = await pool.query(
+      `INSERT INTO schedules (appointment_id, scheduled_date, scheduled_time_start, scheduled_time_end, room_id, nurse_id, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING *`,
+      [appointment_id, scheduled_date, scheduled_time_start, scheduled_time_end, room_id, nurse_id, notes]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to create schedule',
+      message: error.message
+    });
+  }
+});
+
+// Update schedule
+app.put('/api/schedules/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+
+    // Build dynamic update query
+    const updateFields = [];
+    const values = [];
+    let paramIndex = 1;
+
+    for (const [key, value] of Object.entries(updates)) {
+      if (value !== undefined) {
+        updateFields.push(`${key} = $${paramIndex}`);
+        values.push(value);
+        paramIndex++;
+      }
+    }
+
+    if (updateFields.length === 0) {
+      return res.status(400).json({
+        error: 'No valid fields to update'
+      });
+    }
+
+    values.push(id);
+
+    const result = await pool.query(
+      `UPDATE schedules SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $${paramIndex}
+       RETURNING *`,
+      values
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Schedule not found'
+      });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to update schedule',
+      message: error.message
+    });
+  }
+});
+
+// Create task execution
+app.post('/api/task-executions', async (req, res) => {
+  try {
+    const {
+      schedule_id,
+      title,
+      description,
+      status = 'pending',
+      assigned_to
+    } = req.body;
+
+    const result = await pool.query(
+      `INSERT INTO task_executions (schedule_id, title, description, status, assigned_to)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [schedule_id, title, description, status, assigned_to]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to create task execution',
+      message: error.message
+    });
+  }
+});
+
+// Update task execution
+app.put('/api/task-executions/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+
+    // Build dynamic update query
+    const updateFields = [];
+    const values = [];
+    let paramIndex = 1;
+
+    for (const [key, value] of Object.entries(updates)) {
+      if (value !== undefined) {
+        updateFields.push(`${key} = $${paramIndex}`);
+        values.push(value);
+        paramIndex++;
+      }
+    }
+
+    if (updateFields.length === 0) {
+      return res.status(400).json({
+        error: 'No valid fields to update'
+      });
+    }
+
+    values.push(id);
+
+    const result = await pool.query(
+      `UPDATE task_executions SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $${paramIndex}
+       RETURNING *`,
+      values
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Task execution not found'
+      });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to update task execution',
+      message: error.message
+    });
+  }
+});
+
+// DingTalk Configuration endpoints
+// Get DingTalk configuration
+app.get('/api/dingtalk/config', async (req, res) => {
+  try {
+    const result = await query(
+      'SELECT * FROM dingtalk_sync_config ORDER BY created_at DESC LIMIT 1'
+    );
+    const config = result.rows[0] || null;
+    if (config && config.app_secret) {
+      config.app_secret = '***'; // Hide secret
+    }
+    console.log('获取钉钉配置:', config ? { sync_enabled: config.sync_enabled } : '无配置');
+    res.json(config);
+  } catch (error) {
+    console.error('Failed to fetch DingTalk config:', error);
+    res.status(500).json({
+      error: 'Failed to fetch DingTalk configuration',
+      message: error.message
+    });
+  }
+});
+
+// Update DingTalk configuration
+app.post('/api/dingtalk/config', async (req, res) => {
+  try {
+    const {
+      app_key,
+      app_secret,
+      agent_id,
+      corp_id,
+      sync_enabled = false,
+      auto_sync_enabled = false,
+      sync_schedule = 'daily',
+      sync_time = '02:00:00',
+      conflict_strategy = 'manual',
+      selected_departments = []
+    } = req.body;
+
+    console.log('保存钉钉配置:', { app_key, agent_id, corp_id, sync_enabled });
+
+    // Check if config exists
+    const existingConfig = await query(
+      'SELECT id FROM dingtalk_sync_config LIMIT 1'
+    );
+
+    let result;
+    if (existingConfig.rows.length > 0) {
+      // Update existing config
+      result = await query(
+        `UPDATE dingtalk_sync_config 
+         SET app_key = $1, app_secret = $2, agent_id = $3, corp_id = $4,
+             sync_enabled = $5, auto_sync_enabled = $6, sync_schedule = $7,
+             sync_time = $8, conflict_strategy = $9, selected_departments = $10,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $11
+         RETURNING *`,
+        [
+          app_key, app_secret, agent_id, corp_id,
+          sync_enabled, auto_sync_enabled, sync_schedule,
+          sync_time, conflict_strategy, JSON.stringify(selected_departments),
+          existingConfig.rows[0].id
+        ]
+      );
+    } else {
+      // Insert new config
+      result = await query(
+        `INSERT INTO dingtalk_sync_config 
+         (app_key, app_secret, agent_id, corp_id, sync_enabled, auto_sync_enabled,
+          sync_schedule, sync_time, conflict_strategy, selected_departments)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         RETURNING *`,
+        [
+          app_key, app_secret, agent_id, corp_id,
+          sync_enabled, auto_sync_enabled, sync_schedule,
+          sync_time, conflict_strategy, JSON.stringify(selected_departments)
+        ]
+      );
+    }
+
+    const savedConfig = result.rows[0];
+    if (savedConfig.app_secret) {
+      savedConfig.app_secret = '***'; // Hide secret
+    }
+    
+    console.log('钉钉配置已保存，sync_enabled:', savedConfig.sync_enabled);
+    res.status(200).json(savedConfig);
+  } catch (error) {
+    console.error('Save DingTalk config error:', error);
+    res.status(500).json({
+      error: 'Failed to save DingTalk configuration',
+      message: error.message
+    });
+  }
+});
+
+// DingTalk sync endpoints
+// Trigger manual sync
+app.post('/api/dingtalk/sync', async (req, res) => {
+  try {
+    const { sync_type = 'manual', selected_departments = [], conflict_strategy } = req.body;
+
+    console.log('开始钉钉同步:', { sync_type, selected_departments, conflict_strategy });
+
+    // Get DingTalk config from database
+    const configResult = await query(
+      'SELECT * FROM dingtalk_sync_config LIMIT 1'
+    );
+
+    if (!configResult.rows[0]) {
+      return res.status(400).json({
+        error: 'DingTalk configuration not found. Please configure DingTalk first.'
+      });
+    }
+
+    const config = configResult.rows[0];
+
+    if (!config.sync_enabled) {
+      return res.status(400).json({
+        error: 'DingTalk sync is disabled. Please enable it in configuration.'
+      });
+    }
+
+    // Create sync log
+    const logResult = await query(
+      `INSERT INTO dingtalk_sync_logs 
+       (sync_type, status, started_at)
+       VALUES ($1, $2, CURRENT_TIMESTAMP)
+       RETURNING id`,
+      [sync_type, 'running']
+    );
+
+    const syncLogId = logResult.rows[0].id;
+
+    try {
+      // 1. Get DingTalk access token
+      console.log('Getting DingTalk access token...');
+      const tokenResponse = await fetch(
+        `https://oapi.dingtalk.com/gettoken?appkey=${encodeURIComponent(config.app_key)}&appsecret=${encodeURIComponent(config.app_secret)}`
+      );
+      const tokenData = await tokenResponse.json();
+
+      if (tokenData.errcode !== 0 || !tokenData.access_token) {
+        throw new Error(`Failed to get DingTalk access token: ${tokenData.errmsg}`);
+      }
+
+      const accessToken = tokenData.access_token;
+      console.log('Access token obtained successfully');
+
+      // 2. Get department list
+      console.log('Fetching DingTalk departments...');
+      const deptResponse = await fetch(
+        `https://oapi.dingtalk.com/topapi/v2/department/listsub?access_token=${accessToken}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dept_id: 1 })
+        }
+      );
+      const deptData = await deptResponse.json();
+
+      if (deptData.errcode !== 0 || !deptData.result) {
+        throw new Error(`Failed to fetch departments: ${deptData.errmsg}`);
+      }
+
+      console.log(`Found ${deptData.result.length} departments`);
+
+      // 3. Sync departments to department_mapping table
+      for (const dept of deptData.result) {
+        await query(
+          `INSERT INTO dingtalk_department_mapping 
+           (dingtalk_dept_id, dingtalk_dept_name, parent_id, order_num, enabled)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (dingtalk_dept_id) 
+           DO UPDATE SET 
+             dingtalk_dept_name = EXCLUDED.dingtalk_dept_name,
+             parent_id = EXCLUDED.parent_id,
+             order_num = EXCLUDED.order_num,
+             updated_at = CURRENT_TIMESTAMP`,
+          [dept.dept_id.toString(), dept.name, dept.parent_id.toString(), dept.order, true]
+        );
+      }
+
+      // 4. Get departments to sync
+      const deptIdsToSync = selected_departments.length > 0
+        ? selected_departments
+        : deptData.result.map(d => d.dept_id.toString());
+
+      console.log(`Syncing users from ${deptIdsToSync.length} departments...`);
+
+      // 5. Sync users
+      let totalUsers = 0;
+      let successCount = 0;
+      let failedCount = 0;
+      let skippedCount = 0;
+      const failedDetails = [];
+
+      for (const deptId of deptIdsToSync) {
+        console.log(`Syncing users from department ${deptId}...`);
+        let cursor = 0;
+        let hasMore = true;
+
+        while (hasMore) {
+          const userResponse = await fetch(
+            `https://oapi.dingtalk.com/topapi/v2/user/list?access_token=${accessToken}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                dept_id: parseInt(deptId),
+                cursor,
+                size: 100
+              })
+            }
+          );
+
+          const userData = await userResponse.json();
+
+          if (userData.errcode !== 0 || !userData.result) {
+            console.error(`Failed to fetch users from department ${deptId}:`, userData.errmsg);
+            break;
+          }
+
+          const users = userData.result.list;
+          totalUsers += users.length;
+
+          for (const user of users) {
+            try {
+              // Check if user exists
+              const existingUser = await query(
+                'SELECT id, username, full_name FROM profiles WHERE username = $1',
+                [user.userid]
+              );
+
+              const strategy = conflict_strategy || config.conflict_strategy;
+
+              if (existingUser.rows.length > 0) {
+                // User exists, handle according to conflict strategy
+                if (strategy === 'dingtalk_first') {
+                  // Update with DingTalk data
+                  const deptName = deptData.result?.find(d => d.dept_id === user.dept_id_list[0])?.name;
+                  await query(
+                    `UPDATE profiles 
+                     SET full_name = $1, department = $2, updated_at = CURRENT_TIMESTAMP
+                     WHERE id = $3`,
+                    [user.name, deptName, existingUser.rows[0].id]
+                  );
+                  successCount++;
+                } else if (strategy === 'local_first') {
+                  // Keep local data, skip
+                  skippedCount++;
+                } else {
+                  // Manual strategy: record conflict, need manual handling
+                  skippedCount++;
+                }
+              } else {
+                // User doesn't exist, create new user
+                const email = user.email || `${user.userid}@company.local`;
+                const password = user.mobile || '123456'; // Default password
+                const deptName = deptData.result?.find(d => d.dept_id === user.dept_id_list[0])?.name;
+
+                // Create user account
+                await query(
+                  `INSERT INTO profiles 
+                   (username, email, full_name, role, department, status, password_hash)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                  [
+                    user.userid,
+                    email,
+                    user.name,
+                    'sales', // Default role
+                    deptName,
+                    'active',
+                    password // Note: In production, this should be hashed
+                  ]
+                );
+
+                successCount++;
+              }
+            } catch (error) {
+              console.error(`Failed to process user ${user.name}:`, error);
+              failedCount++;
+              failedDetails.push({
+                userid: user.userid,
+                name: user.name,
+                error: error.message
+              });
+            }
+          }
+
+          hasMore = userData.result.has_more;
+          cursor = userData.result.next_cursor || 0;
+        }
+      }
+
+      // 6. Update sync log
+      const status = failedCount === 0 ? 'success' : (successCount > 0 ? 'partial' : 'failed');
+
+      await query(
+        `UPDATE dingtalk_sync_logs 
+         SET status = $1, total_users = $2, success_count = $3, 
+             failed_count = $4, skipped_count = $5, 
+             details = $6, completed_at = CURRENT_TIMESTAMP
+         WHERE id = $7`,
+        [
+          status,
+          totalUsers,
+          successCount,
+          failedCount,
+          skippedCount,
+          JSON.stringify({
+            departments_synced: deptIdsToSync.length,
+            failed_details: failedDetails
+          }),
+          syncLogId
+        ]
+      );
+
+      // 7. Update config last_sync_at
+      await query(
+        `UPDATE dingtalk_sync_config 
+         SET last_sync_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [config.id]
+      );
+
+      console.log('Sync completed:', { totalUsers, successCount, failedCount, skippedCount });
+
+      res.json({
+        success: true,
+        data: {
+          sync_log_id: syncLogId,
+          status,
+          total_users: totalUsers,
+          success_count: successCount,
+          failed_count: failedCount,
+          skipped_count: skippedCount,
+          failed_details: failedDetails
+        }
+      });
+    } catch (syncError) {
+      console.error('Sync process error:', syncError);
+
+      // Update sync log to failed
+      await query(
+        `UPDATE dingtalk_sync_logs 
+         SET status = $1, error_message = $2, completed_at = CURRENT_TIMESTAMP
+         WHERE id = $3`,
+        ['failed', syncError.message, syncLogId]
+      );
+
+      throw syncError;
+    }
+  } catch (error) {
+    console.error('DingTalk sync error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Sync failed'
+    });
+  }
+});
+
+// Get DingTalk sync logs
+app.get('/api/dingtalk/sync/logs', async (req, res) => {
+  try {
+    const { limit = 20, offset = 0, status } = req.query;
+
+    let queryText = `
+      SELECT l.*, p.username, p.full_name 
+      FROM dingtalk_sync_logs l
+      LEFT JOIN profiles p ON l.created_by = p.id
+    `;
+    const params = [];
+
+    if (status) {
+      queryText += ' WHERE l.status = $1';
+      params.push(status);
+    }
+
+    queryText += ` ORDER BY l.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    params.push(limit, offset);
+
+    const result = await query(queryText, params);
+
+    // Get total count
+    const countQuery = status
+      ? 'SELECT COUNT(*) FROM dingtalk_sync_logs WHERE status = $1'
+      : 'SELECT COUNT(*) FROM dingtalk_sync_logs';
+    const countParams = status ? [status] : [];
+    const countResult = await query(countQuery, countParams);
+
+    res.json({
+      logs: result.rows,
+      total: parseInt(countResult.rows[0].count)
+    });
+  } catch (error) {
+    console.error('Failed to fetch sync logs:', error);
+    res.status(500).json({
+      error: 'Failed to fetch sync logs',
+      message: error.message
+    });
+  }
+});
+            });
+          }
+        } catch (error) {
+          console.warn(`获取用户${userId}详情失败:`, error.message);
+        }
+      }
+    }
+
+    return allUsers;
+  } catch (error) {
+    console.error('获取钉钉用户列表错误:', error);
+    throw new Error('获取钉钉用户列表失败: ' + error.message);
+  }
+}
+
+// Helper function to sync users to local database
+async function syncUsersToLocalDatabase(users, conflictStrategy) {
+  const summary = {
+    total_processed: 0,
+    created: 0,
+    updated: 0,
+    skipped: 0,
+    failed: 0
+  };
+  const details = [];
+  const started_at = new Date().toISOString();
+
+  try {
+    for (const user of users) {
+      summary.total_processed++;
+
+      try {
+        // Check if user already exists in database
+        const existingUser = await pool.query(
+          'SELECT * FROM profiles WHERE email = $1 OR phone = $2 LIMIT 1',
+          [user.email, user.mobile]
+        );
+
+        if (existingUser.rows.length === 0) {
+          // Create new user
+          const role = determineUserRole(user.department);
+          await pool.query(
+            `INSERT INTO profiles (email, full_name, role, phone, department, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            [
+              user.email || `${user.dingtalk_userId}@dingtalk.local`,
+              user.name,
+              role,
+              user.mobile,
+              user.department
+            ]
+          );
+          summary.created++;
+          details.push({
+            action: 'created',
+            dingtalk_userId: user.dingtalk_userId,
+            name: user.name,
+            email: user.email || `${user.dingtalk_userId}@dingtalk.local`,
+            department: user.department,
+            role
+          });
+        } else {
+          // Handle conflict based on strategy
+          const localUser = existingUser.rows[0];
+
+          if (conflictStrategy === 'dingtalk_first') {
+            // Update with DingTalk data
+            const role = determineUserRole(user.department);
+            await pool.query(
+              `UPDATE profiles
+               SET full_name = $1, role = $2, phone = $3, department = $4, updated_at = CURRENT_TIMESTAMP
+               WHERE id = $5`,
+              [user.name, role, user.mobile, user.department, localUser.id]
+            );
+            summary.updated++;
+            details.push({
+              action: 'updated',
+              dingtalk_userId: user.dingtalk_userId,
+              name: user.name,
+              email: user.email || localUser.email,
+              department: user.department,
+              role
+            });
+          } else {
+            // Keep local data, skip
+            summary.skipped++;
+            details.push({
+              action: 'skipped',
+              dingtalk_userId: user.dingtalk_userId,
+              name: user.name,
+              reason: '保留本地数据'
+            });
+          }
+        }
+      } catch (error) {
+        summary.failed++;
+        details.push({
+          action: 'failed',
+          dingtalk_userId: user.dingtalk_userId,
+          name: user.name,
+          error: error.message
+        });
+        console.error(`同步用户${user.name}失败:`, error);
+      }
+    }
+
+    return { started_at, summary, details };
+  } catch (error) {
+    throw new Error('同步用户到本地数据库失败: ' + error.message);
+  }
+}
+
+// Helper function to determine user role based on department
+function determineUserRole(department) {
+  const deptName = (department || '').toLowerCase();
+
+  if (deptName.includes('护理') || deptName.includes('护士')) {
+    return 'nurse';
+  } else if (deptName.includes('医疗') || deptName.includes('医生')) {
+    return 'doctor';
+  } else if (deptName.includes('销售') || deptName.includes('市场')) {
+    return 'sales';
+  } else if (deptName.includes('管理') || deptName.includes('行政')) {
+    return 'super_admin';
+  } else {
+    return 'nurse'; // Default role
+  }
+}
+
+// Get sync logs
+app.get('/api/dingtalk/sync/logs', async (req, res) => {
+  try {
+    const { limit = 20, offset = 0, status } = req.query;
+
+    // Mock sync logs
+    const mockLogs = [
+      {
+        id: 'sync-1',
+        sync_type: 'manual',
+        status: 'success',
+        started_at: '2024-01-15T10:30:00Z',
+        completed_at: '2024-01-15T10:32:15Z',
+        summary: {
+          total_processed: 15,
+          created: 5,
+          updated: 8,
+          skipped: 2,
+          failed: 0
+        },
+        error_message: null
+      },
+      {
+        id: 'sync-2',
+        sync_type: 'auto',
+        status: 'failed',
+        started_at: '2024-01-15T02:00:00Z',
+        completed_at: '2024-01-15T02:01:30Z',
+        summary: {
+          total_processed: 0,
+          created: 0,
+          updated: 0,
+          skipped: 0,
+          failed: 1
+        },
+        error_message: '钉钉API调用失败：Invalid access token'
+      }
+    ];
+
+    // Filter by status if provided
+    let filteredLogs = mockLogs;
+    if (status) {
+      filteredLogs = mockLogs.filter(log => log.status === status);
+    }
+
+    // Apply pagination
+    const paginatedLogs = filteredLogs.slice(parseInt(offset), parseInt(offset) + parseInt(limit));
+
+    res.json({
+      logs: paginatedLogs,
+      total: filteredLogs.length,
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
+  } catch (error) {
+    console.error('Get sync logs error:', error);
+    res.status(500).json({
+      error: 'Failed to fetch sync logs',
+      message: error.message
+    });
+  }
+});
+
+// Start server
+app.listen(PORT, async () => {
+  console.log(`🚀 API Server running on http://localhost:${PORT}`);
+  console.log('📊 Health check: http://localhost:${PORT}/api/health');
+
+  // Initialize database
+  await initializeDatabase();
+
+  try {
+    const dbStatus = await checkDatabase();
+    if (dbStatus.status === 'connected') {
+      console.log('✅ Database connected successfully');
+    } else {
+      console.error('❌ Database connection failed:', dbStatus.message);
+    }
+  } catch (error) {
+    console.error('❌ Failed to connect to database:', error);
+  }
+});

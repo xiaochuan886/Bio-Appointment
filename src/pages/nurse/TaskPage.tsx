@@ -12,8 +12,8 @@ import { toast } from 'sonner';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { getSchedules, updateTaskExecution, updateAppointment } from '@/db/api';
-import type { ScheduleWithDetails } from '@/types/types';
+import clientApi from '@/services/api-client';
+import type { Schedule, TaskExecution } from '@/services/api-client';
 import StatusBadge from '@/components/appointment/StatusBadge';
 
 const finishFormSchema = z.object({
@@ -23,8 +23,8 @@ const finishFormSchema = z.object({
 type FinishFormValues = z.infer<typeof finishFormSchema>;
 
 export default function NurseTaskPage() {
-  const [tasks, setTasks] = useState<ScheduleWithDetails[]>([]);
-  const [selectedTask, setSelectedTask] = useState<ScheduleWithDetails | null>(null);
+  const [tasks, setTasks] = useState<Schedule[]>([]);
+  const [selectedTask, setSelectedTask] = useState<Schedule | null>(null);
   const [isFinishDialogOpen, setIsFinishDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -41,9 +41,9 @@ export default function NurseTaskPage() {
   const loadTasks = async () => {
     try {
       const today = format(new Date(), 'yyyy-MM-dd');
-      const schedulesData = await getSchedules({ date: today, status: 'published' });
-      
-      const lockedSchedules = await getSchedules({ date: today, status: 'locked' });
+      const schedulesData = await clientApi.getSchedules({ date: today });
+
+      const lockedSchedules = await clientApi.getSchedules({ date: today });
       
       setTasks([...schedulesData, ...lockedSchedules]);
     } catch (error) {
@@ -51,11 +51,11 @@ export default function NurseTaskPage() {
     }
   };
 
-  const handleCheckIn = async (task: ScheduleWithDetails) => {
-    if (!task.appointment) return;
+  const handleCheckIn = async (task: Schedule) => {
+    if (!task.appointment_id) return;
 
     try {
-      await updateAppointment(task.appointment.id, {
+      await clientApi.updateSchedule(task.id, {
         status: 'in_progress',
       });
 
@@ -66,11 +66,11 @@ export default function NurseTaskPage() {
     }
   };
 
-  const handleStart = async (task: ScheduleWithDetails) => {
-    if (!task.appointment) return;
+  const handleStart = async (task: Schedule) => {
+    if (!task.appointment_id) return;
 
     try {
-      await updateAppointment(task.appointment.id, {
+      await clientApi.updateSchedule(task.id, {
         status: 'in_progress',
       });
 
@@ -81,33 +81,20 @@ export default function NurseTaskPage() {
     }
   };
 
-  const handleFinish = (task: ScheduleWithDetails) => {
+  const handleFinish = (task: Schedule) => {
     setSelectedTask(task);
     form.reset({ overtime_note: '' });
     setIsFinishDialogOpen(true);
   };
 
   const onFinishSubmit = async (values: FinishFormValues) => {
-    if (!selectedTask?.appointment) return;
+    if (!selectedTask?.appointment_id) return;
 
     setIsLoading(true);
     try {
-      const startTime = new Date(`${selectedTask.scheduled_date}T${selectedTask.scheduled_time_start}`);
-      const endTime = new Date();
-      const actualDuration = Math.round((endTime.getTime() - startTime.getTime()) / 60000);
-      
-      const estimatedDuration = selectedTask.adjusted_duration || selectedTask.appointment.estimated_duration;
-      const isOvertime = actualDuration > estimatedDuration * 1.2;
-
-      if (isOvertime && !values.overtime_note) {
-        toast.error('实际执行时间超过预约时间20%，请填写备注');
-        setIsLoading(false);
-        return;
-      }
-
-      await updateAppointment(selectedTask.appointment.id, {
+      await clientApi.updateSchedule(selectedTask.id, {
         status: 'completed',
-        actual_duration: actualDuration,
+        notes: values.overtime_note,
       });
 
       toast.success('服务已完成');
@@ -120,12 +107,11 @@ export default function NurseTaskPage() {
     }
   };
 
-  const getTaskStatus = (task: ScheduleWithDetails) => {
-    if (!task.appointment) return 'pending';
-    return task.appointment.status;
+  const getTaskStatus = (task: Schedule) => {
+    return task.status || 'pending';
   };
 
-  const getTaskActions = (task: ScheduleWithDetails) => {
+  const getTaskActions = (task: Schedule) => {
     const status = getTaskStatus(task);
 
     if (status === 'scheduled' || status === 'confirmed') {
@@ -218,10 +204,10 @@ export default function NurseTaskPage() {
                 <Card key={task.id} className="border-primary">
                   <CardHeader>
                     <div className="flex items-center justify-between">
-                      <CardTitle className="text-lg">{task.appointment?.customer_name}</CardTitle>
-                      <StatusBadge status={getTaskStatus(task)} isUrgent={task.appointment?.is_urgent} />
+                      <CardTitle className="text-lg">客户 #{task.appointment_id?.substring(0, 8)}</CardTitle>
+                      <StatusBadge status={getTaskStatus(task)}  />
                     </div>
-                    <CardDescription>{task.appointment?.service?.name}</CardDescription>
+                    <CardDescription>服务项目</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3">
                     <div className="grid grid-cols-2 gap-4 text-sm">
@@ -237,12 +223,12 @@ export default function NurseTaskPage() {
                       </div>
                       <div>
                         <span className="text-muted-foreground">人数：</span>
-                        <span className="font-medium">{task.appointment?.total_people} 人</span>
+                        <span className="font-medium">1 人</span>
                       </div>
                       <div>
                         <span className="text-muted-foreground">预估时长：</span>
                         <span className="font-medium">
-                          {task.adjusted_duration || task.appointment?.estimated_duration} 分钟
+                          60 分钟
                         </span>
                       </div>
                     </div>
@@ -262,10 +248,10 @@ export default function NurseTaskPage() {
                 <Card key={task.id}>
                   <CardHeader>
                     <div className="flex items-center justify-between">
-                      <CardTitle className="text-lg">{task.appointment?.customer_name}</CardTitle>
-                      <StatusBadge status={getTaskStatus(task)} isUrgent={task.appointment?.is_urgent} />
+                      <CardTitle className="text-lg">客户 #{task.appointment_id?.substring(0, 8)}</CardTitle>
+                      <StatusBadge status={getTaskStatus(task)}  />
                     </div>
-                    <CardDescription>{task.appointment?.service?.name}</CardDescription>
+                    <CardDescription>服务项目</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3">
                     <div className="grid grid-cols-2 gap-4 text-sm">
@@ -281,12 +267,12 @@ export default function NurseTaskPage() {
                       </div>
                       <div>
                         <span className="text-muted-foreground">人数：</span>
-                        <span className="font-medium">{task.appointment?.total_people} 人</span>
+                        <span className="font-medium">1 人</span>
                       </div>
                       <div>
                         <span className="text-muted-foreground">预估时长：</span>
                         <span className="font-medium">
-                          {task.adjusted_duration || task.appointment?.estimated_duration} 分钟
+                          60 分钟
                         </span>
                       </div>
                     </div>
@@ -306,10 +292,10 @@ export default function NurseTaskPage() {
                 <Card key={task.id} className="opacity-75">
                   <CardHeader>
                     <div className="flex items-center justify-between">
-                      <CardTitle className="text-lg">{task.appointment?.customer_name}</CardTitle>
+                      <CardTitle className="text-lg">客户 #{task.appointment_id?.substring(0, 8)}</CardTitle>
                       <StatusBadge status={getTaskStatus(task)} />
                     </div>
-                    <CardDescription>{task.appointment?.service?.name}</CardDescription>
+                    <CardDescription>服务项目</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3">
                     <div className="grid grid-cols-2 gap-4 text-sm">
@@ -323,12 +309,6 @@ export default function NurseTaskPage() {
                           {task.scheduled_time_start.substring(0, 5)} - {task.scheduled_time_end.substring(0, 5)}
                         </span>
                       </div>
-                      {task.appointment?.actual_duration && (
-                        <div className="col-span-2">
-                          <span className="text-muted-foreground">实际时长：</span>
-                          <span className="font-medium">{task.appointment.actual_duration} 分钟</span>
-                        </div>
-                      )}
                     </div>
                     {getTaskActions(task)}
                   </CardContent>

@@ -14,8 +14,25 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
-import { getServices, createAppointment, checkResourceAvailability } from '@/db/api';
-import type { Service } from '@/types/types';
+import clientApi from '@/services/api-client';
+import type { Service } from '@/services/api-client';
+
+// Helper functions for API calls
+const getServices = () => clientApi.getServices();
+const createAppointment = (data: any) => clientApi.createAppointment(data);
+const checkResourceAvailability = async (date: string, timeStart: string, timeEnd: string) => {
+  try {
+    const availability = await clientApi.getResourceAvailability({
+      date,
+      time_start: timeStart,
+      time_end: timeEnd
+    });
+    return availability.available_resources.length > 0;
+  } catch (error) {
+    console.error('检查资源可用性失败:', error);
+    return false;
+  }
+};
 
 const formSchema = z.object({
   customer_name: z.string().min(1, '请输入客户姓名'),
@@ -148,7 +165,7 @@ export default function SalesAppointmentPage() {
     setIsLoading(true);
     try {
       const validCompanions = companions.filter(c => c.trim() !== '');
-      
+
       if (isUrgent && selectedService?.category !== 'nursing') {
         toast.error('急单仅允许预约护理类服务');
         setIsLoading(false);
@@ -156,15 +173,14 @@ export default function SalesAppointmentPage() {
       }
 
       const requestedDate = format(values.requested_date, 'yyyy-MM-dd');
-      
-      let timeStart = values.requested_time_start;
+      const timeStart = values.requested_time_start;
+
+      // 使用动态时长计算模型：T_est = T_base + (N_pax - 1) × 30min
+      const totalPeople = 1 + validCompanions.length;
+      const estimatedDuration = selectedService ? selectedService.base_duration + (totalPeople - 1) * 30 : 60;
+
       let timeEnd: string | undefined;
-      
       if (timeStart && selectedService) {
-        // 使用动态时长计算模型：T_est = T_base + (N_pax - 1) × 30min
-        const totalPeople = 1 + validCompanions.length;
-        const estimatedDuration = selectedService.base_duration + (totalPeople - 1) * 30;
-        
         const [hour, minute] = timeStart.split(':').map(Number);
         const endMinutes = hour * 60 + minute + estimatedDuration;
         const endHour = Math.floor(endMinutes / 60);
@@ -174,12 +190,16 @@ export default function SalesAppointmentPage() {
 
       await createAppointment({
         customer_name: values.customer_name,
-        companion_names: validCompanions,
+        customer_phone: '', // 可以根据需要添加电话字段
         service_id: values.service_id,
         requested_date: requestedDate,
         requested_time_start: timeStart,
         requested_time_end: timeEnd,
+        total_people: totalPeople,
+        estimated_duration: estimatedDuration,
         is_urgent: isUrgent,
+        companion_names: validCompanions.length > 0 ? validCompanions : null,
+        notes: `同行客户: ${validCompanions.join(', ')}` || undefined,
       });
 
       toast.success(
@@ -201,8 +221,8 @@ export default function SalesAppointmentPage() {
   const totalPeople = 1 + companions.filter(c => c.trim() !== '').length;
   
   // 动态计算预估时长（根据人数）
-  const estimatedDuration = selectedService 
-    ? selectedService.base_duration * (selectedService.allow_companions ? totalPeople : 1)
+  const estimatedDuration = selectedService
+    ? selectedService.base_duration + (selectedService.allow_companions ? (totalPeople - 1) * 30 : 0)
     : 0;
 
   return (

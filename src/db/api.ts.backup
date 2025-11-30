@@ -1030,24 +1030,96 @@ export async function upsertDingTalkSyncConfig(config: {
     console.error('保存钉钉配置失败:', error);
     throw new Error('保存钉钉配置失败: ' + error.message);
   }
+  
+  // 先查询是否已存在配置
+  const { data: existing, error: queryError } = await supabase
+    .from('dingtalk_sync_config')
+    .select('id')
+    .maybeSingle();
+  
+  if (queryError) {
+    console.error('查询配置失败:', queryError);
+    throw new Error('查询配置失败: ' + queryError.message);
+  }
+  
+  console.log('现有配置:', existing);
+
+  if (existing) {
+    // 更新现有配置
+    console.log('更新现有配置, ID:', existing.id);
+    const { data, error } = await supabase
+      .from('dingtalk_sync_config')
+      .update({
+        app_key: config.app_key,
+        app_secret: config.app_secret,
+        agent_id: config.agent_id,
+        corp_id: config.corp_id,
+        sync_enabled: config.sync_enabled ?? true,
+        auto_sync_enabled: config.auto_sync_enabled ?? false,
+        sync_schedule: config.sync_schedule || 'daily',
+        sync_time: config.sync_time || '02:00:00',
+        conflict_strategy: config.conflict_strategy || 'dingtalk_first',
+        selected_departments: config.selected_departments || [],
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existing.id)
+      .select()
+      .maybeSingle();
+    
+    if (error) {
+      console.error('更新配置失败:', error);
+      throw new Error('更新配置失败: ' + error.message);
+    }
+    console.log('配置更新成功:', data);
+    return data;
+  } else {
+    // 创建新配置
+    console.log('创建新配置');
+    const { data, error } = await supabase
+      .from('dingtalk_sync_config')
+      .insert({
+        app_key: config.app_key,
+        app_secret: config.app_secret,
+        agent_id: config.agent_id,
+        corp_id: config.corp_id,
+        sync_enabled: config.sync_enabled ?? true,
+        auto_sync_enabled: config.auto_sync_enabled ?? false,
+        sync_schedule: config.sync_schedule || 'daily',
+        sync_time: config.sync_time || '02:00:00',
+        conflict_strategy: config.conflict_strategy || 'dingtalk_first',
+        selected_departments: config.selected_departments || [],
+      })
+      .select()
+      .maybeSingle();
+    
+    if (error) {
+      console.error('创建配置失败:', error);
+      throw new Error('创建配置失败: ' + error.message);
+    }
+    console.log('配置创建成功:', data);
+    return data;
+  }
 }
 
 /**
  * 触发钉钉同步
  */
 export async function triggerDingTalkSync(params: {
-  sync_type?: 'manual' | 'auto' | 'incremental';
+  sync_type: 'manual' | 'auto' | 'incremental';
   selected_departments?: string[];
   conflict_strategy?: 'dingtalk_first' | 'local_first' | 'manual';
 }) {
-  try {
-    const result = await clientApi.triggerSync(params);
-    console.log('钉钉同步启动成功:', result);
-    return result;
-  } catch (error) {
-    console.error('钉钉同步失败:', error);
-    throw new Error('钉钉同步失败: ' + error.message);
+  const { data, error } = await supabase.functions.invoke('dingtalk-sync', {
+    body: JSON.stringify(params),
+  });
+
+  if (error) {
+    const errorMsg = await error?.context?.text();
+    console.error('钉钉同步 Edge Function 错误:', errorMsg);
+    throw new Error(errorMsg || '钉钉同步失败');
   }
+
+  return data;
 }
 
 /**
@@ -1058,21 +1130,26 @@ export async function getDingTalkSyncLogs(params?: {
   offset?: number;
   status?: 'pending' | 'running' | 'success' | 'failed' | 'partial';
 }) {
-  try {
-    const { limit = 20, offset = 0, status } = params || {};
+  const { limit = 20, offset = 0, status } = params || {};
 
-    const result = await clientApi.getSyncLogs({ limit, offset, status });
-    console.log('获取钉钉同步日志成功:', result);
+  let query = supabase
+    .from('dingtalk_sync_logs')
+    .select('*, created_by_profile:profiles!dingtalk_sync_logs_created_by_fkey(username, full_name)', { count: 'exact' })
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
 
-    // 转换API响应格式以匹配前端期望的格式
-    return {
-      data: Array.isArray(result.logs) ? result.logs : [],
-      count: result.total || 0,
-    };
-  } catch (error) {
-    console.error('获取钉钉同步日志失败:', error);
-    throw new Error('获取钉钉同步日志失败: ' + error.message);
+  if (status) {
+    query = query.eq('status', status);
   }
+
+  const { data, error, count } = await query;
+
+  if (error) throw error;
+
+  return {
+    data: Array.isArray(data) ? data : [],
+    count: count || 0,
+  };
 }
 
 /**

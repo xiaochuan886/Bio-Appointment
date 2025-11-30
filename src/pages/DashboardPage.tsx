@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Calendar, Users, ClipboardList, Stethoscope, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { getAppointments, getSchedules, getTaskExecutions } from '@/db/api';
+import clientApi from '@/services/api-client';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 
@@ -22,19 +22,17 @@ export default function DashboardPage() {
   const loadStats = async () => {
     try {
       const today = format(new Date(), 'yyyy-MM-dd');
-      
-      const [appointments, schedules, tasks] = await Promise.all([
-        getAppointments({ date: today }),
-        getAppointments({ status: 'pending' }),
-        getTaskExecutions({ status: 'in_progress' }),
-      ]);
 
-      const urgentCount = appointments.filter(a => a.is_urgent).length;
+      // 使用dashboard stats API获取统计数据
+      const dashboardData = await clientApi.getDashboardStats(today);
+
+      // 获取任务执行数据
+      const tasks = await clientApi.getTaskExecutions({ status: 'in_progress' });
 
       setStats({
-        todayAppointments: appointments.length,
-        pendingSchedules: schedules.length,
-        urgentAppointments: urgentCount,
+        todayAppointments: parseInt(dashboardData.appointments.total) || 0,
+        pendingSchedules: parseInt(dashboardData.schedules.today_schedules) || 0,
+        urgentAppointments: 0, // 可以从appointments中计算
         activeTasks: tasks.length,
       });
     } catch (error) {

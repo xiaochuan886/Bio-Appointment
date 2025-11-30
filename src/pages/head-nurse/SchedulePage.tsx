@@ -15,8 +15,8 @@ import { toast } from 'sonner';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { getAppointments, getSchedules, createSchedule, updateSchedule, updateAppointment, getAvailableNurses, getAvailableRooms } from '@/db/api';
-import type { AppointmentWithDetails, ScheduleWithDetails, Nurse, Room } from '@/types/types';
+import clientApi from '@/services/api-client';
+import type { Appointment, Schedule, Resource, Profile } from '@/services/api-client';
 import StatusBadge from '@/components/appointment/StatusBadge';
 import GanttChart from '@/components/appointment/GanttChart';
 import ViewSwitcher, { type ViewMode } from '@/components/appointment/ViewSwitcher';
@@ -44,12 +44,12 @@ export default function HeadNurseSchedulePage() {
   const [resourceFilters, setResourceFilters] = useState<ResourceFilterType[]>([]);
   const [selectedNurseIds, setSelectedNurseIds] = useState<string[]>([]);
   const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>([]);
-  const [pendingAppointments, setPendingAppointments] = useState<AppointmentWithDetails[]>([]);
-  const [schedules, setSchedules] = useState<ScheduleWithDetails[]>([]);
-  const [nurses, setNurses] = useState<Nurse[]>([]);
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [selectedAppointment, setSelectedAppointment] = useState<AppointmentWithDetails | null>(null);
-  const [selectedSchedule, setSelectedSchedule] = useState<ScheduleWithDetails | null>(null);
+  const [pendingAppointments, setPendingAppointments] = useState<Appointment[]>([]);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [nurses, setNurses] = useState<Profile[]>([]);
+  const [rooms, setRooms] = useState<Resource[]>([]);
+  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
+  const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
   const [isScheduleDialogOpen, setIsScheduleDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [resourceConflicts, setResourceConflicts] = useState<ResourceConflict[]>([]);
@@ -93,10 +93,10 @@ export default function HeadNurseSchedulePage() {
       }
       
       const [appointmentsData, schedulesData, nursesData, roomsData] = await Promise.all([
-        getAppointments({ status: 'pending' }),
-        getSchedules({ startDate, endDate }),
-        getAvailableNurses(),
-        getAvailableRooms(),
+        clientApi.getAppointments({ status: 'pending' }),
+        clientApi.getSchedules({ date: startDate }),
+        clientApi.getAvailableNurses(),
+        clientApi.getAvailableRooms(),
       ]);
 
       setPendingAppointments(appointmentsData);
@@ -190,7 +190,7 @@ export default function HeadNurseSchedulePage() {
       const dateStr = format(selectedDate, 'yyyy-MM-dd');
 
       if (selectedSchedule) {
-        await updateSchedule(selectedSchedule.id, {
+        await clientApi.updateSchedule(selectedSchedule.id, {
           scheduled_date: dateStr,
           scheduled_time_start: values.scheduled_time_start,
           scheduled_time_end: values.scheduled_time_end,
@@ -203,7 +203,7 @@ export default function HeadNurseSchedulePage() {
 
         toast.success(forceOverride ? '排班已强制更新（存在资源冲突）' : '排班已更新');
       } else {
-        await createSchedule({
+        await clientApi.createSchedule({
           appointment_id: selectedAppointment.id,
           scheduled_date: dateStr,
           scheduled_time_start: values.scheduled_time_start,
@@ -214,7 +214,7 @@ export default function HeadNurseSchedulePage() {
           adjustment_reason: values.adjustment_reason,
         });
 
-        await updateAppointment(selectedAppointment.id, {
+        await clientApi.updateAppointment(selectedAppointment.id, {
           status: 'scheduled',
         });
 
@@ -246,7 +246,7 @@ export default function HeadNurseSchedulePage() {
 
   const handlePublishSchedule = async (scheduleId: string) => {
     try {
-      await updateSchedule(scheduleId, { status: 'locked' });
+      await clientApi.updateSchedule(scheduleId, { status: 'locked' });
       toast.success('排班已锁定并发布');
       loadData();
     } catch (error: any) {

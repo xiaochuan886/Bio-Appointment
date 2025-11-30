@@ -31,6 +31,7 @@ export default function DingTalkSyncPanel() {
   const loadConfig = async () => {
     try {
       const data = await getDingTalkSyncConfig();
+      console.log('DingTalkSyncPanel: 加载的配置数据:', data);
       setConfig(data);
     } catch (error: any) {
       console.error('加载钉钉配置失败:', error);

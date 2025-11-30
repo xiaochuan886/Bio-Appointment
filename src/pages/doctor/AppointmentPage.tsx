@@ -13,8 +13,8 @@ import { toast } from 'sonner';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { getAppointments, updateAppointment } from '@/db/api';
-import type { AppointmentWithDetails } from '@/types/types';
+import clientApi from '@/services/api-client';
+import type { Appointment } from '@/services/api-client';
 import StatusBadge from '@/components/appointment/StatusBadge';
 
 const rejectFormSchema = z.object({
@@ -25,8 +25,8 @@ const rejectFormSchema = z.object({
 type RejectFormValues = z.infer<typeof rejectFormSchema>;
 
 export default function DoctorAppointmentPage() {
-  const [appointments, setAppointments] = useState<AppointmentWithDetails[]>([]);
-  const [selectedAppointment, setSelectedAppointment] = useState<AppointmentWithDetails | null>(null);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -42,7 +42,7 @@ export default function DoctorAppointmentPage() {
 
   const loadAppointments = async () => {
     try {
-      const data = await getAppointments({});
+      const data = await clientApi.getAppointments({});
       const doctorAppointments = data.filter(
         a => a.doctor_id && (a.doctor_status === 'pending' || a.doctor_status === 'accepted' || a.doctor_status === 'rejected')
       );
@@ -54,7 +54,7 @@ export default function DoctorAppointmentPage() {
 
   const handleAccept = async (appointment: AppointmentWithDetails) => {
     try {
-      await updateAppointment(appointment.id, {
+      await clientApi.updateAppointment(appointment.id, {
         doctor_status: 'accepted',
         status: 'confirmed',
       });
@@ -83,7 +83,7 @@ export default function DoctorAppointmentPage() {
         note += `\n建议改期至：${suggestedDateStr}`;
       }
 
-      await updateAppointment(selectedAppointment.id, {
+      await clientApi.updateAppointment(selectedAppointment.id, {
         doctor_status: 'rejected',
         doctor_note: note,
         status: 'cancelled',

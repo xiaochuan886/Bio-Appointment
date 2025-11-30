@@ -1,42 +1,276 @@
-## 介绍
+# Bio-Appointment 智能预约调度系统
 
-项目介绍
+基于React + TypeScript的智能预约调度系统，支持本地PostgreSQL数据库部署。
 
-## 目录结构
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20-green.svg)](https://nodejs.org/)
+[![Docker](https://img.shields.io/badge/docker-%3E%3D20-blue.svg)](https://www.docker.com/)
+
+## 🌟 项目特性
+
+- **智能预约管理**: 支持多角色预约流程，从销售发起到医生确认
+- **资源调度优化**: 智能排班系统，自动分配房间和护士资源
+- **实时数据同步**: 基于WebSocket的实时数据更新
+- **钉钉集成**: 支持钉钉登录、通讯录同步和消息推送
+- **权限管理**: 基于角色的访问控制系统(RBAC)
+- **本地部署**: 支持本地PostgreSQL数据库，数据完全可控
+
+## 🏗️ 系统架构
 
 ```
-├── README.md # 说明文档
-├── components.json # 组件库配置
-├── eslint.config.js # eslint 配置
-├── index.html # 入口文件
-├── package.json # 包管理
-├── postcss.config.js # postcss 配置
-├── public # 静态资源目录
-│   ├── favicon.png # 图标
-│   └── images # 图片资源
-├── src # 源码目录
-│   ├── App.tsx # 入口文件
-│   ├── components # 组件目录
-│   ├── context # 上下文目录
-│   ├── db # 数据库配置目录
-│   ├── hooks # 通用钩子函数目录
-│   ├── index.css # 全局样式
-│   ├── layout # 布局目录
-│   ├── lib # 工具库目录
-│   ├── main.tsx # 入口文件
-│   ├── routes.tsx # 路由配置
-│   ├── pages # 页面目录
-│   ├── services  # 数据库交互目录
-│   ├── types   # 类型定义目录
-├── tsconfig.app.json  # ts 前端配置文件
-├── tsconfig.json # ts 配置文件
-├── tsconfig.node.json # ts node端配置文件
-└── vite.config.ts # vite 配置文件
+Bio-Appointment System
+├── Frontend (React 18 + TypeScript)
+├── Database (Local PostgreSQL + Redis)
+├── Authentication (JWT + bcrypt)
+├── Real-time (WebSocket)
+└── Docker Compose Deployment
 ```
 
-## 技术栈
+## 🚀 快速开始
 
-Vite、TypeScript、React、Supabase
+### 环境要求
+
+- **Node.js** ≥ 20
+- **npm** ≥ 10
+- **Docker** 和 **Docker Compose**
+
+### 一键部署
+
+```bash
+# 1. 克隆项目
+git clone <repository-url>
+cd app-7u4xlrye46ip
+
+# 2. 启动数据库服务
+docker-compose up -d
+
+# 3. 初始化数据库
+./database/migrate.sh init
+
+# 4. 安装依赖
+npm install
+
+# 5. 启动应用
+npm run dev -- --host 127.0.0.1
+```
+
+访问 http://localhost:5173 开始使用！
+
+### 默认用户账户
+
+| 用户名 | 密码 | 角色 |
+|--------|------|------|
+| admin | admin123 | 超级管理员 |
+| sales1 | password123 | 销售人员 |
+| head_nurse1 | password123 | 护士长 |
+| nurse1 | password123 | 护士 |
+| doctor1 | password123 | 医生 |
+
+## 📋 目录结构
+
+```
+├── README.md                    # 项目说明文档
+├── DEPLOYMENT_GUIDE.md          # 部署指南
+├── docker-compose.yml           # Docker编排配置
+├── package.json                 # 项目依赖
+├── database/                    # 数据库相关
+│   ├── init/                   # 数据库初始化脚本
+│   └── migrate.sh              # 数据库管理脚本
+├── scripts/                    # 工具脚本
+│   └── migrate-from-supabase.ts # 数据迁移脚本
+├── src/                        # 源码目录
+│   ├── components/             # React组件
+│   │   ├── ui/               # 基础UI组件
+│   │   ├── auth/             # 认证相关组件
+│   │   └── appointment/      # 预约相关组件
+│   ├── pages/                 # 页面组件
+│   │   ├── auth/             # 认证页面
+│   │   ├── admin/            # 管理员页面
+│   │   ├── sales/            # 销售页面
+│   │   ├── head-nurse/       # 护士长页面
+│   │   ├── nurse/            # 护士页面
+│   │   └── doctor/           # 医生页面
+│   ├── contexts/             # React Context
+│   ├── services/             # 业务服务
+│   │   ├── auth.ts           # 认证服务
+│   │   ├── api.ts            # 数据API
+│   │   ├── realtime.ts       # 实时服务
+│   │   └── dataSync.ts       # 数据同步
+│   ├── db/                   # 数据库配置
+│   │   ├── connection.ts     # 数据库连接
+│   │   ├── database.ts       # 数据库管理
+│   │   └── supabase.ts       # Supabase兼容层
+│   ├── hooks/                # 自定义Hooks
+│   ├── types/                # TypeScript类型定义
+│   └── utils/                # 工具函数
+├── openspec/                 # OpenSpec规范
+└── .env.example             # 环境变量模板
+```
+
+## 🛠️ 技术栈
+
+### 前端技术
+- **React 18** - UI框架
+- **TypeScript 5.9** - 类型安全
+- **Vite 5.1** - 构建工具
+- **React Router v7** - 路由管理
+- **Tailwind CSS** - 样式框架
+- **shadcn/ui** - UI组件库
+
+### 后端技术
+- **PostgreSQL 15** - 主数据库
+- **Redis 7** - 缓存和会话存储
+- **JWT** - 身份认证
+- **WebSocket** - 实时通信
+
+### 开发工具
+- **Biome** - 代码检查和格式化
+- **ESLint** - 代码质量检查
+- **Docker Compose** - 容器编排
+- **TypeScript** - 类型检查
+
+## 📖 详细文档
+
+- [📋 部署指南](DEPLOYMENT_GUIDE.md) - 完整的部署和管理文档
+- [🔧 OpenSpec规范](openspec/) - 系统规范和变更管理
+- [🚀 快速参考](QUICK_START.md) - 开发者快速上手
+
+## 🔧 开发指南
+
+### 环境配置
+
+```bash
+# 复制环境配置
+cp .env.example .env.local
+
+# 配置数据库连接
+DATABASE_TYPE=local
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5437
+POSTGRES_DB=bio_appointment
+POSTGRES_USER=app_user
+POSTGRES_PASSWORD=secure_password_123
+
+# 配置JWT密钥
+JWT_SECRET=your-super-secret-jwt-key-change-in-production
+```
+
+### 开发命令
+
+```bash
+# 安装依赖
+npm install
+
+# 启动开发服务器
+npm run dev -- --host 127.0.0.1
+
+# 代码检查
+npm run lint
+
+# 构建项目
+npm run build
+```
+
+### 数据库管理
+
+```bash
+# 数据库状态
+./database/migrate.sh status
+
+# 创建备份
+./database/migrate.sh backup
+
+# 重置数据库
+./database/migrate.sh reset
+```
+
+## 🔄 数据迁移
+
+如果您需要从Supabase迁移数据：
+
+```bash
+# 设置Supabase环境变量
+export VITE_SUPABASE_URL="your-supabase-url"
+export VITE_SUPABASE_ANON_KEY="your-supabase-anon-key"
+
+# 运行迁移脚本
+npx ts-node scripts/migrate-from-supabase.ts
+```
+
+## 🐳 Docker部署
+
+### 生产环境
+
+```bash
+# 构建镜像
+docker-compose -f docker-compose.prod.yml build
+
+# 启动服务
+docker-compose -f docker-compose.prod.yml up -d
+
+# 查看日志
+docker-compose logs -f
+```
+
+### 开发环境
+
+```bash
+# 启动开发环境
+docker-compose up -d
+
+# 查看服务状态
+docker-compose ps
+```
+
+## 📊 系统监控
+
+### 数据库监控
+
+```bash
+# 连接数据库
+docker exec -it bio-appointment-postgres psql -U app_user -d bio_appointment
+
+# 查看连接数
+SELECT count(*) FROM pg_stat_activity;
+
+# 查看表大小
+SELECT schemaname,tablename,pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) AS size FROM pg_tables WHERE schemaname='public';
+```
+
+### 应用监控
+
+- **性能指标**: 响应时间、查询性能
+- **错误监控**: 异常日志和错误率
+- **用户行为**: 登录统计、功能使用情况
+
+## 🔐 安全特性
+
+- **数据加密**: 密码bcrypt加密，JWT token安全存储
+- **权限控制**: 基于角色的细粒度权限管理
+- **SQL注入防护**: 参数化查询防止SQL注入
+- **会话管理**: 安全的会话管理和超时控制
+
+## 🤝 贡献指南
+
+1. Fork 项目
+2. 创建功能分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 打开 Pull Request
+
+## 📄 许可证
+
+本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
+
+## 📞 支持
+
+- 📧 邮箱: support@example.com
+- 💬 问题反馈: [GitHub Issues](https://github.com/your-repo/issues)
+- 📖 文档: [项目Wiki](https://github.com/your-repo/wiki)
+
+---
+
+**注意**: 本项目由秒哒平台生成，采用现代化的技术栈和最佳实践。
 
 ## 本地开发
 

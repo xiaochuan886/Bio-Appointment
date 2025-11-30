@@ -9,13 +9,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { login } from '@/db/api';
 import { useAuth } from '@/contexts/AuthContext';
 
 const loginSchema = z.object({
-  username: z.string()
-    .min(3, '用户名至少3个字符')
-    .regex(/^[a-zA-Z0-9_]+$/, '用户名只能包含字母、数字和下划线'),
+  email: z.string().email('请输入有效的邮箱地址'),
   password: z.string().min(6, '密码至少6个字符'),
 });
 
@@ -23,51 +20,49 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { refreshUser } = useAuth();
+  const { login: authLogin } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
-      username: '',
-      password: '',
+      email: 'admin@test.com',
+      password: 'admin123',
     },
   });
 
   const onSubmit = async (values: LoginFormValues) => {
     console.log('=== 开始登录流程 ===');
-    console.log('表单值:', { username: values.username, password: '***' });
-    
+    console.log('表单值:', { email: values.email, password: '***' });
+
     setIsLoading(true);
     try {
-      console.log('1. 调用 login API...');
-      const result = await login({
-        username: values.username,
-        password: values.password,
-      });
-      
-      console.log('2. 登录 API 返回结果:', {
-        hasUser: !!result.user,
+      console.log('1. 调用认证登录...');
+      const result = await authLogin(values.email, values.password);
+
+      console.log('2. 认证登录结果:', {
+        success: result.success,
         hasSession: !!result.session,
         hasProfile: !!result.profile,
       });
-      
-      console.log('3. 刷新用户信息...');
-      await refreshUser();
-      
-      console.log('4. 显示成功提示...');
-      toast.success('登录成功');
-      
-      console.log('5. 跳转到首页...');
-      navigate('/');
-      
-      console.log('=== 登录流程完成 ===');
+  
+      if (result.success) {
+        console.log('3. 显示成功提示...');
+        toast.success('登录成功');
+
+        console.log('4. 跳转到首页...');
+        navigate('/');
+
+        console.log('=== 登录流程完成 ===');
+      } else {
+        throw new Error(result.error || '登录失败');
+      }
     } catch (error: any) {
       console.error('=== 登录失败 ===');
       console.error('错误详情:', error);
       console.error('错误消息:', error.message);
       console.error('错误堆栈:', error.stack);
-      
+
       toast.error(error.message || '登录失败，请检查用户名和密码');
     } finally {
       setIsLoading(false);
@@ -91,14 +86,15 @@ export default function LoginPage() {
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <FormField
                 control={form.control}
-                name="username"
+                name="email"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>用户名</FormLabel>
+                    <FormLabel>邮箱</FormLabel>
                     <FormControl>
                       <Input
-                        placeholder="请输入用户名"
-                        autoComplete="username"
+                        placeholder="请输入邮箱"
+                        type="email"
+                        autoComplete="email"
                         {...field}
                       />
                     </FormControl>
@@ -149,7 +145,9 @@ export default function LoginPage() {
 
           <div className="mt-6 p-4 bg-muted/50 rounded-lg">
             <p className="text-xs text-muted-foreground text-center">
-              💡 提示：第一个注册的用户将自动成为超级管理员
+              💡 测试账号：<br/>
+              邮箱: admin@test.com<br/>
+              密码: admin123
             </p>
           </div>
         </CardContent>
