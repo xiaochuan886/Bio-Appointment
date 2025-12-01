@@ -24,24 +24,6 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Simple in-memory storage for DingTalk configuration
-// In a real implementation, this would be stored in the database
-let dingTalkConfig = {
-  id: 'mock-config-id',
-  app_key: '',
-  app_secret: '',
-  agent_id: '',
-  corp_id: '',
-  sync_enabled: false,
-  auto_sync_enabled: false,
-  sync_schedule: 'daily',
-  sync_time: '02:00',
-  conflict_strategy: 'manual',
-  selected_departments: [],
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-};
-
 // Database health check
 async function checkDatabase() {
   try {
@@ -682,11 +664,36 @@ app.put('/api/task-executions/:id', async (req, res) => {
   }
 });
 
+// ==================== User Management Endpoints ====================
+
+// Get all users
+app.get('/api/users', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, username, email, full_name, role, department, status, 
+              created_at, updated_at, dingtalk_userid
+       FROM profiles
+       ORDER BY created_at DESC`
+    );
+    
+    console.log(`获取所有用户: ${result.rows.length} 条记录`);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Failed to fetch users:', error);
+    res.status(500).json({
+      error: 'Failed to fetch users',
+      message: error.message
+    });
+  }
+});
+
+// ==================== DingTalk Endpoints ====================
+
 // DingTalk Configuration endpoints
 // Get DingTalk configuration
 app.get('/api/dingtalk/config', async (req, res) => {
   try {
-    const result = await query(
+    const result = await pool.query(
       'SELECT * FROM dingtalk_sync_config ORDER BY created_at DESC LIMIT 1'
     );
     const config = result.rows[0] || null;
@@ -723,14 +730,14 @@ app.post('/api/dingtalk/config', async (req, res) => {
     console.log('保存钉钉配置:', { app_key, agent_id, corp_id, sync_enabled });
 
     // Check if config exists
-    const existingConfig = await query(
+    const existingConfig = await pool.query(
       'SELECT id FROM dingtalk_sync_config LIMIT 1'
     );
 
     let result;
     if (existingConfig.rows.length > 0) {
       // Update existing config
-      result = await query(
+      result = await pool.query(
         `UPDATE dingtalk_sync_config 
          SET app_key = $1, app_secret = $2, agent_id = $3, corp_id = $4,
              sync_enabled = $5, auto_sync_enabled = $6, sync_schedule = $7,
@@ -747,7 +754,7 @@ app.post('/api/dingtalk/config', async (req, res) => {
       );
     } else {
       // Insert new config
-      result = await query(
+      result = await pool.query(
         `INSERT INTO dingtalk_sync_config 
          (app_key, app_secret, agent_id, corp_id, sync_enabled, auto_sync_enabled,
           sync_schedule, sync_time, conflict_strategy, selected_departments)
@@ -786,7 +793,7 @@ app.post('/api/dingtalk/sync', async (req, res) => {
     console.log('开始钉钉同步:', { sync_type, selected_departments, conflict_strategy });
 
     // Get DingTalk config from database
-    const configResult = await query(
+    const configResult = await pool.query(
       'SELECT * FROM dingtalk_sync_config LIMIT 1'
     );
 
@@ -805,7 +812,7 @@ app.post('/api/dingtalk/sync', async (req, res) => {
     }
 
     // Create sync log
-    const logResult = await query(
+    const logResult = await pool.query(
       `INSERT INTO dingtalk_sync_logs 
        (sync_type, status, started_at)
        VALUES ($1, $2, CURRENT_TIMESTAMP)
@@ -850,7 +857,7 @@ app.post('/api/dingtalk/sync', async (req, res) => {
 
       // 3. Sync departments to department_mapping table
       for (const dept of deptData.result) {
-        await query(
+        await pool.query(
           `INSERT INTO dingtalk_department_mapping 
            (dingtalk_dept_id, dingtalk_dept_name, parent_id, order_num, enabled)
            VALUES ($1, $2, $3, $4, $5)
@@ -910,7 +917,7 @@ app.post('/api/dingtalk/sync', async (req, res) => {
           for (const user of users) {
             try {
               // Check if user exists
-              const existingUser = await query(
+              const existingUser = await pool.query(
                 'SELECT id, username, full_name FROM profiles WHERE username = $1',
                 [user.userid]
               );
@@ -922,7 +929,7 @@ app.post('/api/dingtalk/sync', async (req, res) => {
                 if (strategy === 'dingtalk_first') {
                   // Update with DingTalk data
                   const deptName = deptData.result?.find(d => d.dept_id === user.dept_id_list[0])?.name;
-                  await query(
+                  await pool.query(
                     `UPDATE profiles 
                      SET full_name = $1, department = $2, updated_at = CURRENT_TIMESTAMP
                      WHERE id = $3`,
@@ -943,10 +950,10 @@ app.post('/api/dingtalk/sync', async (req, res) => {
                 const deptName = deptData.result?.find(d => d.dept_id === user.dept_id_list[0])?.name;
 
                 // Create user account
-                await query(
+                await pool.query(
                   `INSERT INTO profiles 
-                   (username, email, full_name, role, department, status, password_hash)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                   (username, email, full_name, role, department, status, password_hash, dingtalk_userid)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
                   [
                     user.userid,
                     email,
@@ -954,7 +961,8 @@ app.post('/api/dingtalk/sync', async (req, res) => {
                     'sales', // Default role
                     deptName,
                     'active',
-                    password // Note: In production, this should be hashed
+                    password, // Note: In production, this should be hashed
+                    user.userid // DingTalk user ID
                   ]
                 );
 
@@ -979,7 +987,7 @@ app.post('/api/dingtalk/sync', async (req, res) => {
       // 6. Update sync log
       const status = failedCount === 0 ? 'success' : (successCount > 0 ? 'partial' : 'failed');
 
-      await query(
+      await pool.query(
         `UPDATE dingtalk_sync_logs 
          SET status = $1, total_users = $2, success_count = $3, 
              failed_count = $4, skipped_count = $5, 
@@ -1000,7 +1008,7 @@ app.post('/api/dingtalk/sync', async (req, res) => {
       );
 
       // 7. Update config last_sync_at
-      await query(
+      await pool.query(
         `UPDATE dingtalk_sync_config 
          SET last_sync_at = CURRENT_TIMESTAMP
          WHERE id = $1`,
@@ -1025,7 +1033,7 @@ app.post('/api/dingtalk/sync', async (req, res) => {
       console.error('Sync process error:', syncError);
 
       // Update sync log to failed
-      await query(
+      await pool.query(
         `UPDATE dingtalk_sync_logs 
          SET status = $1, error_message = $2, completed_at = CURRENT_TIMESTAMP
          WHERE id = $3`,
@@ -1063,14 +1071,14 @@ app.get('/api/dingtalk/sync/logs', async (req, res) => {
     queryText += ` ORDER BY l.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     params.push(limit, offset);
 
-    const result = await query(queryText, params);
+    const result = await pool.query(queryText, params);
 
     // Get total count
     const countQuery = status
       ? 'SELECT COUNT(*) FROM dingtalk_sync_logs WHERE status = $1'
       : 'SELECT COUNT(*) FROM dingtalk_sync_logs';
     const countParams = status ? [status] : [];
-    const countResult = await query(countQuery, countParams);
+    const countResult = await pool.query(countQuery, countParams);
 
     res.json({
       logs: result.rows,
@@ -1078,197 +1086,6 @@ app.get('/api/dingtalk/sync/logs', async (req, res) => {
     });
   } catch (error) {
     console.error('Failed to fetch sync logs:', error);
-    res.status(500).json({
-      error: 'Failed to fetch sync logs',
-      message: error.message
-    });
-  }
-});
-            });
-          }
-        } catch (error) {
-          console.warn(`获取用户${userId}详情失败:`, error.message);
-        }
-      }
-    }
-
-    return allUsers;
-  } catch (error) {
-    console.error('获取钉钉用户列表错误:', error);
-    throw new Error('获取钉钉用户列表失败: ' + error.message);
-  }
-}
-
-// Helper function to sync users to local database
-async function syncUsersToLocalDatabase(users, conflictStrategy) {
-  const summary = {
-    total_processed: 0,
-    created: 0,
-    updated: 0,
-    skipped: 0,
-    failed: 0
-  };
-  const details = [];
-  const started_at = new Date().toISOString();
-
-  try {
-    for (const user of users) {
-      summary.total_processed++;
-
-      try {
-        // Check if user already exists in database
-        const existingUser = await pool.query(
-          'SELECT * FROM profiles WHERE email = $1 OR phone = $2 LIMIT 1',
-          [user.email, user.mobile]
-        );
-
-        if (existingUser.rows.length === 0) {
-          // Create new user
-          const role = determineUserRole(user.department);
-          await pool.query(
-            `INSERT INTO profiles (email, full_name, role, phone, department, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-            [
-              user.email || `${user.dingtalk_userId}@dingtalk.local`,
-              user.name,
-              role,
-              user.mobile,
-              user.department
-            ]
-          );
-          summary.created++;
-          details.push({
-            action: 'created',
-            dingtalk_userId: user.dingtalk_userId,
-            name: user.name,
-            email: user.email || `${user.dingtalk_userId}@dingtalk.local`,
-            department: user.department,
-            role
-          });
-        } else {
-          // Handle conflict based on strategy
-          const localUser = existingUser.rows[0];
-
-          if (conflictStrategy === 'dingtalk_first') {
-            // Update with DingTalk data
-            const role = determineUserRole(user.department);
-            await pool.query(
-              `UPDATE profiles
-               SET full_name = $1, role = $2, phone = $3, department = $4, updated_at = CURRENT_TIMESTAMP
-               WHERE id = $5`,
-              [user.name, role, user.mobile, user.department, localUser.id]
-            );
-            summary.updated++;
-            details.push({
-              action: 'updated',
-              dingtalk_userId: user.dingtalk_userId,
-              name: user.name,
-              email: user.email || localUser.email,
-              department: user.department,
-              role
-            });
-          } else {
-            // Keep local data, skip
-            summary.skipped++;
-            details.push({
-              action: 'skipped',
-              dingtalk_userId: user.dingtalk_userId,
-              name: user.name,
-              reason: '保留本地数据'
-            });
-          }
-        }
-      } catch (error) {
-        summary.failed++;
-        details.push({
-          action: 'failed',
-          dingtalk_userId: user.dingtalk_userId,
-          name: user.name,
-          error: error.message
-        });
-        console.error(`同步用户${user.name}失败:`, error);
-      }
-    }
-
-    return { started_at, summary, details };
-  } catch (error) {
-    throw new Error('同步用户到本地数据库失败: ' + error.message);
-  }
-}
-
-// Helper function to determine user role based on department
-function determineUserRole(department) {
-  const deptName = (department || '').toLowerCase();
-
-  if (deptName.includes('护理') || deptName.includes('护士')) {
-    return 'nurse';
-  } else if (deptName.includes('医疗') || deptName.includes('医生')) {
-    return 'doctor';
-  } else if (deptName.includes('销售') || deptName.includes('市场')) {
-    return 'sales';
-  } else if (deptName.includes('管理') || deptName.includes('行政')) {
-    return 'super_admin';
-  } else {
-    return 'nurse'; // Default role
-  }
-}
-
-// Get sync logs
-app.get('/api/dingtalk/sync/logs', async (req, res) => {
-  try {
-    const { limit = 20, offset = 0, status } = req.query;
-
-    // Mock sync logs
-    const mockLogs = [
-      {
-        id: 'sync-1',
-        sync_type: 'manual',
-        status: 'success',
-        started_at: '2024-01-15T10:30:00Z',
-        completed_at: '2024-01-15T10:32:15Z',
-        summary: {
-          total_processed: 15,
-          created: 5,
-          updated: 8,
-          skipped: 2,
-          failed: 0
-        },
-        error_message: null
-      },
-      {
-        id: 'sync-2',
-        sync_type: 'auto',
-        status: 'failed',
-        started_at: '2024-01-15T02:00:00Z',
-        completed_at: '2024-01-15T02:01:30Z',
-        summary: {
-          total_processed: 0,
-          created: 0,
-          updated: 0,
-          skipped: 0,
-          failed: 1
-        },
-        error_message: '钉钉API调用失败：Invalid access token'
-      }
-    ];
-
-    // Filter by status if provided
-    let filteredLogs = mockLogs;
-    if (status) {
-      filteredLogs = mockLogs.filter(log => log.status === status);
-    }
-
-    // Apply pagination
-    const paginatedLogs = filteredLogs.slice(parseInt(offset), parseInt(offset) + parseInt(limit));
-
-    res.json({
-      logs: paginatedLogs,
-      total: filteredLogs.length,
-      limit: parseInt(limit),
-      offset: parseInt(offset)
-    });
-  } catch (error) {
-    console.error('Get sync logs error:', error);
     res.status(500).json({
       error: 'Failed to fetch sync logs',
       message: error.message

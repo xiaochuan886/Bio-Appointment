@@ -211,13 +211,25 @@ export function onAuthStateChange(callback: (event: string, session: any) => voi
  * 获取所有用户列表（仅管理员）
  */
 export async function getAllUsers() {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('*')
-    .order('created_at', { ascending: false });
-  
-  if (error) throw error;
-  return Array.isArray(data) ? data : [];
+  try {
+    const response = await fetch('http://localhost:3001/api/users');
+    if (!response.ok) {
+      throw new Error('Failed to fetch users');
+    }
+    const data = await response.json();
+    console.log(`getAllUsers: 获取到 ${data.length} 个用户`);
+    return Array.isArray(data) ? data : [];
+  } catch (error: any) {
+    console.error('获取用户列表失败:', error);
+    // 如果本地API失败，尝试使用Supabase
+    const { data, error: supabaseError } = await supabase
+      .from('profiles')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (supabaseError) throw supabaseError;
+    return Array.isArray(data) ? data : [];
+  }
 }
 
 /**
@@ -995,13 +1007,14 @@ export async function deleteRoom(id: string) {
  * 获取钉钉同步配置
  */
 export async function getDingTalkSyncConfig() {
-  const { data, error } = await supabase
-    .from('dingtalk_sync_config')
-    .select('*')
-    .maybeSingle();
-  
-  if (error) throw error;
-  return data;
+  try {
+    const result = await clientApi.getDingTalkConfig();
+    console.log('获取钉钉配置成功:', result);
+    return result;
+  } catch (error) {
+    console.error('获取钉钉配置失败:', error);
+    throw error;
+  }
 }
 
 /**
@@ -1026,7 +1039,7 @@ export async function upsertDingTalkSyncConfig(config: {
     const result = await clientApi.saveDingTalkConfig(config);
     console.log('钉钉配置保存成功:', result);
     return result;
-  } catch (error) {
+  } catch (error: any) {
     console.error('保存钉钉配置失败:', error);
     throw new Error('保存钉钉配置失败: ' + error.message);
   }
@@ -1044,7 +1057,7 @@ export async function triggerDingTalkSync(params: {
     const result = await clientApi.triggerSync(params);
     console.log('钉钉同步启动成功:', result);
     return result;
-  } catch (error) {
+  } catch (error: any) {
     console.error('钉钉同步失败:', error);
     throw new Error('钉钉同步失败: ' + error.message);
   }
@@ -1069,7 +1082,7 @@ export async function getDingTalkSyncLogs(params?: {
       data: Array.isArray(result.logs) ? result.logs : [],
       count: result.total || 0,
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error('获取钉钉同步日志失败:', error);
     throw new Error('获取钉钉同步日志失败: ' + error.message);
   }
@@ -1130,9 +1143,24 @@ export async function updateDingTalkDepartmentMapping(
  * 获取同步统计信息
  */
 export async function getSyncStatistics() {
-  const { data, error } = await supabase.rpc('get_sync_statistics');
-
-  if (error) throw error;
-  return data;
+  try {
+    // 暂时返回模拟数据，因为RPC函数需要在后端实现
+    return {
+      total_syncs: 0,
+      success_count: 0,
+      failed_count: 0,
+      last_sync: null,
+      total_users_synced: 0
+    };
+  } catch (error) {
+    console.error('获取同步统计失败:', error);
+    return {
+      total_syncs: 0,
+      success_count: 0,
+      failed_count: 0,
+      last_sync: null,
+      total_users_synced: 0
+    };
+  }
 }
 

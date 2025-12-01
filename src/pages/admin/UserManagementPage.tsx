@@ -477,7 +477,7 @@ export default function UserManagementPage() {
         </TabsContent>
 
         <TabsContent value="dingtalk" className="mt-6">
-          <DingTalkSyncPanel />
+          <DingTalkSyncPanel onSyncComplete={loadUsers} />
         </TabsContent>
       </Tabs>
 

@@ -14,7 +14,11 @@ import {
 import DingTalkConfigDialog from './DingTalkConfigDialog';
 import DingTalkSyncLogsTable from './DingTalkSyncLogsTable';
 
-export default function DingTalkSyncPanel() {
+interface DingTalkSyncPanelProps {
+  onSyncComplete?: () => void | Promise<void>;
+}
+
+export default function DingTalkSyncPanel({ onSyncComplete }: DingTalkSyncPanelProps) {
   const [config, setConfig] = useState<any>(null);
   const [statistics, setStatistics] = useState<any>(null);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -83,6 +87,10 @@ export default function DingTalkSyncPanel() {
         toast.success(`同步完成！成功: ${result.data.success_count}, 失败: ${result.data.failed_count}, 跳过: ${result.data.skipped_count}`);
         loadStatistics();
         loadLogs();
+        // 刷新用户列表
+        if (onSyncComplete) {
+          await onSyncComplete();
+        }
       } else {
         toast.error(result.error || '同步失败');
       }
