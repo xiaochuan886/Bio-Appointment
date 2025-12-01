@@ -137,8 +137,36 @@ setup_environment() {
 }
 
 start_development_server() {
-    print_status "启动开发服务器..."
-    print_status "访问地址: http://127.0.0.1:5173"
+    print_status "启动 API 服务器..."
+    
+    # 检查 API 服务器是否已运行
+    if pgrep -f "node server/api-server.cjs" > /dev/null; then
+        print_warning "API 服务器已在运行，正在重启..."
+        pkill -f "node server/api-server.cjs"
+        sleep 1
+    fi
+    
+    # 启动 API 服务器（后台运行）
+    nohup node server/api-server.cjs > /tmp/api-server.log 2>&1 &
+    API_PID=$!
+    print_success "API 服务器已启动 (PID: $API_PID)"
+    print_status "API 服务器日志: /tmp/api-server.log"
+    
+    # 等待 API 服务器启动
+    print_status "等待 API 服务器启动..."
+    sleep 3
+    
+    # 检查 API 服务器健康状态
+    if curl -s http://localhost:3001/api/health > /dev/null 2>&1; then
+        print_success "API 服务器健康检查通过"
+    else
+        print_warning "API 服务器可能未完全启动，请检查日志"
+    fi
+    
+    echo ""
+    print_status "启动前端开发服务器..."
+    print_status "前端访问地址: http://127.0.0.1:5173"
+    print_status "API 服务器地址: http://localhost:3001"
     print_status ""
     print_status "默认用户账户:"
     echo "┌─────────────────┬──────────┬─────────────┐"
@@ -152,7 +180,7 @@ start_development_server() {
     echo "└─────────────────┴──────────┴─────────────┘"
     echo ""
 
-    # 启动开发服务器
+    # 启动前端开发服务器
     if npm run dev; then
         print_success "开发服务器启动成功"
     else
@@ -212,6 +240,21 @@ show_status() {
         echo "  ❌ Redis 连接失败"
     fi
     echo ""
+    
+    # API 服务器状态
+    echo "🚀 API 服务器:"
+    if pgrep -f "node server/api-server.cjs" > /dev/null; then
+        API_PID=$(pgrep -f "node server/api-server.cjs")
+        echo "  ✅ 运行中 (PID: $API_PID)"
+        if curl -s http://localhost:3001/api/health > /dev/null 2>&1; then
+            echo "  ✅ 健康检查通过"
+        else
+            echo "  ⚠️ 健康检查失败"
+        fi
+    else
+        echo "  ❌ 未运行"
+    fi
+    echo ""
 
     # Node.js 版本
     echo "📦 Node.js:"
@@ -222,9 +265,15 @@ show_status() {
     # 端口占用
     echo "🌐 端口占用:"
     if lsof -i :5173 2>/dev/null | grep -q LISTEN; then
-        echo "  ✅ 5173 (开发服务器) - 已占用"
+        echo "  ✅ 5173 (前端开发服务器) - 已占用"
     else
-        echo "  ❌ 5173 (开发服务器) - 未占用"
+        echo "  ❌ 5173 (前端开发服务器) - 未占用"
+    fi
+    
+    if lsof -i :3001 2>/dev/null | grep -q LISTEN; then
+        echo "  ✅ 3001 (API 服务器) - 已占用"
+    else
+        echo "  ❌ 3001 (API 服务器) - 未占用"
     fi
 
     if lsof -i :5437 2>/dev/null | grep -q LISTEN; then
@@ -244,6 +293,14 @@ show_status() {
 stop_services() {
     print_status "停止所有服务..."
 
+    # 停止 API 服务器
+    if pgrep -f "node server/api-server.cjs" > /dev/null; then
+        print_status "停止 API 服务器..."
+        pkill -f "node server/api-server.cjs"
+        print_success "API 服务器已停止"
+    fi
+    
+    # 停止 Docker 容器
     docker-compose down
     print_success "所有服务已停止"
 }
