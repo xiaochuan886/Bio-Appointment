@@ -750,6 +750,277 @@ app.get('/api/dingtalk/sync/logs', async (req, res) => {
   }
 });
 
+// ==================== User Management APIs ====================
+
+// Get all users (admin only)
+app.get('/api/users', async (req, res) => {
+  try {
+    await ensureDatabase();
+    
+    // Verify user is super_admin
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const userResult = await query(
+      'SELECT role FROM profiles WHERE id = $1',
+      [userId]
+    );
+
+    if (!userResult.rows[0] || userResult.rows[0].role !== 'super_admin') {
+      return res.status(403).json({
+        error: 'Permission denied: Only super admins can view users'
+      });
+    }
+
+    console.log('🔍 [DEBUG] 获取所有用户列表，请求者:', userId);
+    
+    const result = await query(
+      'SELECT * FROM profiles ORDER BY created_at DESC'
+    );
+    
+    console.log(`🔍 [DEBUG] 返回 ${result.rows.length} 个用户`);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Failed to fetch users:', error);
+    res.status(500).json({
+      error: 'Failed to fetch users',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Update user (admin only)
+app.put('/api/users/:id', async (req, res) => {
+  try {
+    await ensureDatabase();
+    
+    // Verify user is super_admin
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const userResult = await query(
+      'SELECT role FROM profiles WHERE id = $1',
+      [userId]
+    );
+
+    if (!userResult.rows[0] || userResult.rows[0].role !== 'super_admin') {
+      return res.status(403).json({
+        error: 'Permission denied: Only super admins can update users'
+      });
+    }
+
+    const { id } = req.params;
+    const { full_name, role, department, status } = req.body;
+    
+    console.log('🔍 [DEBUG] 更新用户请求:', {
+      targetUserId: id,
+      requesterId: userId,
+      updates: { full_name, role, department, status },
+      timestamp: new Date().toISOString()
+    });
+
+    // Check if user exists
+    const existingUser = await query(
+      'SELECT * FROM profiles WHERE id = $1',
+      [id]
+    );
+
+    if (existingUser.rows.length === 0) {
+      console.log('🔍 [DEBUG] 用户不存在:', id);
+      return res.status(404).json({
+        error: 'User not found'
+      });
+    }
+
+    console.log('🔍 [DEBUG] 原用户数据:', existingUser.rows[0]);
+
+    // Build update query
+    const updateFields: string[] = [];
+    const updateValues: any[] = [];
+    let paramIndex = 1;
+
+    if (full_name !== undefined) {
+      updateFields.push(`full_name = $${paramIndex++}`);
+      updateValues.push(full_name);
+    }
+    if (role !== undefined) {
+      updateFields.push(`role = $${paramIndex++}`);
+      updateValues.push(role);
+    }
+    if (department !== undefined) {
+      updateFields.push(`department = $${paramIndex++}`);
+      updateValues.push(department);
+    }
+    if (status !== undefined) {
+      updateFields.push(`status = $${paramIndex++}`);
+      updateValues.push(status);
+    }
+
+    if (updateFields.length === 0) {
+      return res.status(400).json({
+        error: 'No fields to update'
+      });
+    }
+
+    updateFields.push(`updated_at = CURRENT_TIMESTAMP`);
+    updateValues.push(id);
+
+    const updateQuery = `
+      UPDATE profiles
+      SET ${updateFields.join(', ')}
+      WHERE id = $${paramIndex}
+      RETURNING *
+    `;
+
+    console.log('🔍 [DEBUG] 执行更新查询:', updateQuery);
+    console.log('🔍 [DEBUG] 查询参数:', updateValues);
+
+    const result = await query(updateQuery, updateValues);
+    
+    if (result.rows.length === 0) {
+      console.log('🔍 [DEBUG] 更新失败，未找到用户');
+      return res.status(404).json({
+        error: 'User not found'
+      });
+    }
+
+    console.log('🔍 [DEBUG] 更新成功，新数据:', result.rows[0]);
+    console.log('🔍 [DEBUG] 特别是用户角色:', result.rows[0].role);
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('🔍 [DEBUG] 更新用户失败:', error);
+    res.status(500).json({
+      error: 'Failed to update user',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Create user (admin only)
+app.post('/api/users', async (req, res) => {
+  try {
+    await ensureDatabase();
+    
+    // Verify user is super_admin
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const userResult = await query(
+      'SELECT role FROM profiles WHERE id = $1',
+      [userId]
+    );
+
+    if (!userResult.rows[0] || userResult.rows[0].role !== 'super_admin') {
+      return res.status(403).json({
+        error: 'Permission denied: Only super admins can create users'
+      });
+    }
+
+    const { username, password, full_name, role, department } = req.body;
+    
+    console.log('🔍 [DEBUG] 创建用户请求:', {
+      username,
+      full_name,
+      role,
+      department,
+      requesterId: userId
+    });
+
+    // Check if username exists
+    const existingUser = await query(
+      'SELECT id FROM profiles WHERE username = $1',
+      [username]
+    );
+
+    if (existingUser.rows.length > 0) {
+      return res.status(400).json({
+        error: 'Username already exists'
+      });
+    }
+
+    // Create user (in production, hash the password)
+    const result = await query(
+      `INSERT INTO profiles (username, password_hash, full_name, role, department, status)
+       VALUES ($1, $2, $3, $4, $5, 'active')
+       RETURNING *`,
+      [username, password, full_name, role, department]
+    );
+
+    console.log('🔍 [DEBUG] 用户创建成功:', result.rows[0]);
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Failed to create user:', error);
+    res.status(500).json({
+      error: 'Failed to create user',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Delete user (admin only) - soft delete
+app.delete('/api/users/:id', async (req, res) => {
+  try {
+    await ensureDatabase();
+    
+    // Verify user is super_admin
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const userResult = await query(
+      'SELECT role FROM profiles WHERE id = $1',
+      [userId]
+    );
+
+    if (!userResult.rows[0] || userResult.rows[0].role !== 'super_admin') {
+      return res.status(403).json({
+        error: 'Permission denied: Only super admins can delete users'
+      });
+    }
+
+    const { id } = req.params;
+    
+    // Prevent self-deletion
+    if (id === userId) {
+      return res.status(400).json({
+        error: 'Cannot delete your own account'
+      });
+    }
+
+    // Soft delete: set status to 'disabled'
+    const result = await query(
+      `UPDATE profiles
+       SET status = 'disabled', updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1
+       RETURNING *`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: 'User not found'
+      });
+    }
+
+    console.log('🔍 [DEBUG] 用户已软删除:', result.rows[0]);
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Failed to delete user:', error);
+    res.status(500).json({
+      error: 'Failed to delete user',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
 // Start server
 app.listen(PORT, async () => {
   console.log(`🚀 API Server running on http://localhost:${PORT}`);

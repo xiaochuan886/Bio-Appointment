@@ -1,6 +1,4 @@
-// Bio-Appointment数据库API封装
-import { supabase } from './supabase';
-import clientApi from '../services/api-client';
+// Bio-Appointment数据库API封装 - 本地PostgreSQL版本
 import type {
   Profile,
   Service,
@@ -46,51 +44,24 @@ export async function login(credentials: LoginCredentials) {
     
     console.log('开始登录流程，用户名:', username);
     
-    // 将用户名转换为邮箱格式（username@miaoda.com）
-    const email = `${username}@miaoda.com`;
-    
-    console.log('尝试使用邮箱登录:', email);
-    
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
+    // 使用本地API进行登录
+    const response = await fetch('http://localhost:3001/api/auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ username, password }),
     });
-    
-    if (error) {
-      console.error('Supabase 登录错误:', error);
-      throw new Error(error.message || '登录失败');
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || '登录失败');
     }
+
+    const data = await response.json();
+    console.log('登录成功:', data);
     
-    if (!data.user) {
-      console.error('登录成功但未返回用户信息');
-      throw new Error('登录失败：未获取到用户信息');
-    }
-    
-    console.log('登录成功，用户 ID:', data.user.id);
-    
-    // 获取用户的 profile 信息
-    try {
-      const profile = await getProfileById(data.user.id);
-      console.log('获取 profile 成功:', profile);
-      
-      if (!profile) {
-        console.warn('用户没有 profile 记录');
-      }
-      
-      return {
-        user: data.user,
-        session: data.session,
-        profile,
-      };
-    } catch (profileError) {
-      console.error('获取 profile 失败:', profileError);
-      // 即使 profile 获取失败，也返回用户信息
-      return {
-        user: data.user,
-        session: data.session,
-        profile: null,
-      };
-    }
+    return data;
   } catch (error: any) {
     console.error('登录过程出错:', error);
     throw error;
@@ -108,33 +79,22 @@ export async function register(credentials: RegisterCredentials) {
     
     console.log('开始注册流程，用户名:', username);
     
-    // 验证用户名格式（只允许字母、数字和下划线）
-    if (!/^[a-zA-Z0-9_]+$/.test(username)) {
-      throw new Error('用户名只能包含字母、数字和下划线');
-    }
-    
-    // 将用户名转换为邮箱格式
-    const email = `${username}@miaoda.com`;
-    
-    console.log('尝试使用邮箱注册:', email);
-    
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          username,
-          full_name: full_name || username,
-        },
+    // 使用本地API进行注册
+    const response = await fetch('http://localhost:3001/api/auth/register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
       },
+      body: JSON.stringify({ username, password, full_name }),
     });
-    
-    if (error) {
-      console.error('Supabase 注册错误:', error);
-      throw new Error(error.message || '注册失败');
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || '注册失败');
     }
-    
-    console.log('注册成功，用户 ID:', data.user?.id);
+
+    const data = await response.json();
+    console.log('注册成功:', data);
     
     return data;
   } catch (error: any) {
@@ -147,8 +107,24 @@ export async function register(credentials: RegisterCredentials) {
  * 用户登出
  */
 export async function logout() {
-  const { error } = await supabase.auth.signOut();
-  if (error) throw error;
+  try {
+    const response = await fetch('http://localhost:3001/api/auth/logout', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || '登出失败');
+    }
+
+    console.log('登出成功');
+  } catch (error: any) {
+    console.error('登出过程出错:', error);
+    throw error;
+  }
 }
 
 /**
@@ -157,32 +133,27 @@ export async function logout() {
  */
 export async function getCurrentUser() {
   try {
-    const { data: { user }, error } = await supabase.auth.getUser();
-    
-    if (error) {
-      console.error('获取认证用户失败:', error);
-      throw error;
+    // 从localStorage获取token
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      return null;
     }
-    
-    if (user) {
-      try {
-        const profile = await getProfileById(user.id);
-        return {
-          user,
-          profile,
-        };
-      } catch (profileError) {
-        console.error('获取用户 profile 失败:', profileError);
-        // 即使 profile 获取失败，也返回用户信息
-        return {
-          user,
-          profile: null,
-        };
-      }
+
+    const response = await fetch('http://localhost:3001/api/auth/user', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      return null;
     }
-    
-    return null;
-  } catch (error) {
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
     console.error('getCurrentUser 错误:', error);
     return null;
   }
@@ -192,17 +163,30 @@ export async function getCurrentUser() {
  * 获取当前用户的 session
  */
 export async function getSession() {
-  const { data: { session }, error } = await supabase.auth.getSession();
-  if (error) throw error;
-  return session;
-}
+  try {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      return null;
+    }
 
-/**
- * 监听认证状态变化
- * @param callback 状态变化回调函数
- */
-export function onAuthStateChange(callback: (event: string, session: any) => void) {
-  return supabase.auth.onAuthStateChange(callback);
+    const response = await fetch('http://localhost:3001/api/auth/session', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
+    console.error('getSession 错误:', error);
+    return null;
+  }
 }
 
 // ==================== 用户管理 API ====================
@@ -211,118 +195,30 @@ export function onAuthStateChange(callback: (event: string, session: any) => voi
  * 获取所有用户列表（仅管理员）
  */
 export async function getAllUsers() {
+  console.log('🔍 [DEBUG] getAllUsers 被调用，尝试获取用户列表');
+  
   try {
-    const response = await fetch('http://localhost:3001/api/users');
+    console.log('🔍 [DEBUG] 尝试从本地 API 获取用户: http://localhost:3001/api/users');
+    const response = await fetch('http://localhost:3001/api/users', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+    
     if (!response.ok) {
+      console.error('🔍 [DEBUG] 本地 API 调用失败:', response.status, response.statusText);
       throw new Error('Failed to fetch users');
     }
+    
     const data = await response.json();
-    console.log(`getAllUsers: 获取到 ${data.length} 个用户`);
+    console.log(`🔍 [DEBUG] 本地 API 成功返回 ${data.length} 个用户`);
     return Array.isArray(data) ? data : [];
   } catch (error: any) {
-    console.error('获取用户列表失败:', error);
-    // 如果本地API失败，尝试使用Supabase
-    const { data, error: supabaseError } = await supabase
-      .from('profiles')
-      .select('*')
-      .order('created_at', { ascending: false });
-    
-    if (supabaseError) throw supabaseError;
-    return Array.isArray(data) ? data : [];
+    console.error('🔍 [DEBUG] 获取用户列表失败:', error);
+    throw error;
   }
-}
-
-/**
- * 更新用户角色（仅管理员）
- */
-export async function updateUserRole(input: UpdateUserRoleInput) {
-  const { user_id, role } = input;
-  
-  const { data, error } = await supabase
-    .from('profiles')
-    .update({ role })
-    .eq('id', user_id)
-    .select()
-    .maybeSingle();
-  
-  if (error) throw error;
-  return data;
-}
-
-/**
- * 更新用户状态（仅管理员）
- */
-export async function updateUserStatus(input: UpdateUserStatusInput) {
-  const { user_id, status } = input;
-  
-  const { data, error } = await supabase
-    .from('profiles')
-    .update({ status })
-    .eq('id', user_id)
-    .select()
-    .maybeSingle();
-  
-  if (error) throw error;
-  return data;
-}
-
-/**
- * 创建新用户（仅管理员）
- */
-export async function createUser(input: CreateUserInput) {
-  const { username, password, full_name, role, department } = input;
-  
-  // 验证用户名格式
-  if (!/^[a-zA-Z0-9_]+$/.test(username)) {
-    throw new Error('用户名只能包含字母、数字和下划线');
-  }
-  
-  // 检查用户名是否已存在
-  const { data: existingUser } = await supabase
-    .from('profiles')
-    .select('username')
-    .eq('username', username)
-    .maybeSingle();
-  
-  if (existingUser) {
-    throw new Error('用户名已存在');
-  }
-  
-  // 将用户名转换为邮箱格式
-  const email = `${username}@miaoda.com`;
-  
-  // 创建 auth 用户
-  const { data: authData, error: authError } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: {
-        username,
-        full_name,
-      },
-    },
-  });
-  
-  if (authError) throw authError;
-  if (!authData.user) throw new Error('创建用户失败');
-  
-  // 更新 profile 信息
-  const { data: profileData, error: profileError } = await supabase
-    .from('profiles')
-    .update({
-      username,
-      full_name,
-      role,
-      department,
-      status: 'active',
-    })
-    .eq('id', authData.user.id)
-    .select()
-    .maybeSingle();
-  
-  if (profileError) throw profileError;
-  
-  return profileData;
 }
 
 /**
@@ -331,21 +227,85 @@ export async function createUser(input: CreateUserInput) {
 export async function updateUser(input: UpdateUserInput) {
   const { user_id, full_name, role, department, status } = input;
   
+  console.log('🔍 [DEBUG] updateUser 被调用，参数:', {
+    user_id,
+    full_name,
+    role,
+    department,
+    status,
+    timestamp: new Date().toISOString()
+  });
+  
   const updateData: Partial<Profile> = {};
   if (full_name !== undefined) updateData.full_name = full_name;
   if (role !== undefined) updateData.role = role;
   if (department !== undefined) updateData.department = department;
   if (status !== undefined) updateData.status = status;
   
-  const { data, error } = await supabase
-    .from('profiles')
-    .update(updateData)
-    .eq('id', user_id)
-    .select()
-    .maybeSingle();
+  console.log('🔍 [DEBUG] 准备通过后端 API 更新数据:', updateData);
   
-  if (error) throw error;
-  return data;
+  try {
+    // 使用后端 API
+    const response = await fetch(`http://localhost:3001/api/users/${user_id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+      body: JSON.stringify(updateData)
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('🔍 [DEBUG] 后端 API 更新失败:', errorData);
+      throw new Error(errorData.message || 'Failed to update user');
+    }
+    
+    const data = await response.json();
+    console.log('🔍 [DEBUG] 后端 API 更新成功，返回数据:', data);
+    return data;
+  } catch (error: any) {
+    console.error('🔍 [DEBUG] updateUser 完整错误:', error);
+    throw error;
+  }
+}
+
+/**
+ * 创建新用户（仅管理员）
+ */
+export async function createUser(input: CreateUserInput) {
+  const { username, password, full_name, role, department } = input;
+  
+  console.log('🔍 [DEBUG] createUser 被调用，参数:', {
+    username,
+    full_name,
+    role,
+    department
+  });
+
+  try {
+    const response = await fetch('http://localhost:3001/api/users', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+      body: JSON.stringify({ username, password, full_name, role, department })
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('🔍 [DEBUG] 创建用户失败:', errorData);
+      throw new Error(errorData.message || 'Failed to create user');
+    }
+    
+    const data = await response.json();
+    console.log('🔍 [DEBUG] 用户创建成功:', data);
+    return data;
+  } catch (error: any) {
+    console.error('🔍 [DEBUG] createUser 完整错误:', error);
+    throw error;
+  }
 }
 
 /**
@@ -355,152 +315,272 @@ export async function updateUser(input: UpdateUserInput) {
 export async function deleteUser(input: DeleteUserInput) {
   const { user_id } = input;
   
-  // 软删除：将用户状态设置为 disabled
-  const { data, error } = await supabase
-    .from('profiles')
-    .update({ status: 'disabled' })
-    .eq('id', user_id)
-    .select()
-    .maybeSingle();
-  
-  if (error) throw error;
-  return data;
+  console.log('🔍 [DEBUG] deleteUser 被调用，参数:', { user_id });
+
+  try {
+    const response = await fetch(`http://localhost:3001/api/users/${user_id}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('🔍 [DEBUG] 删除用户失败:', errorData);
+      throw new Error(errorData.message || 'Failed to delete user');
+    }
+    
+    const data = await response.json();
+    console.log('🔍 [DEBUG] 用户删除成功:', data);
+    return data;
+  } catch (error: any) {
+    console.error('🔍 [DEBUG] deleteUser 完整错误:', error);
+    throw error;
+  }
 }
 
 /**
  * 更新当前用户的个人信息
  */
 export async function updateCurrentUserProfile(input: UpdateProfileInput) {
-  const { data: { user } } = await supabase.auth.getUser();
+  console.log('🔍 [DEBUG] updateCurrentUserProfile 被调用，参数:', input);
   
-  if (!user) throw new Error('未登录');
-  
-  const { data, error } = await supabase
-    .from('profiles')
-    .update(input)
-    .eq('id', user.id)
-    .select()
-    .maybeSingle();
-  
-  if (error) throw error;
-  return data;
+  try {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      throw new Error('未登录');
+    }
+
+    const response = await fetch('http://localhost:3001/api/profile/current', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(input)
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('🔍 [DEBUG] 更新当前用户信息失败:', errorData);
+      throw new Error(errorData.message || 'Failed to update current user profile');
+    }
+    
+    const data = await response.json();
+    console.log('🔍 [DEBUG] 当前用户信息更新成功:', data);
+    return data;
+  } catch (error: any) {
+    console.error('🔍 [DEBUG] updateCurrentUserProfile 完整错误:', error);
+    throw error;
+  }
 }
 
 // ==================== Profiles ====================
 
 export async function getProfiles() {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('*')
-    .order('created_at', { ascending: false });
-  
-  if (error) throw error;
-  return Array.isArray(data) ? data : [];
+  try {
+    const response = await fetch('http://localhost:3001/api/profiles', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch profiles');
+    }
+
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (error: any) {
+    console.error('获取 profiles 失败:', error);
+    throw error;
+  }
 }
 
 export async function getProfilesByRole(role: string) {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('role', role)
-    .eq('status', 'active')
-    .order('username', { ascending: true });
-  
-  if (error) throw error;
-  return Array.isArray(data) ? data : [];
+  try {
+    const response = await fetch(`http://localhost:3001/api/profiles?role=${role}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch profiles by role');
+    }
+
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (error: any) {
+    console.error('按角色获取 profiles 失败:', error);
+    throw error;
+  }
 }
 
 export async function getProfileById(id: string) {
   try {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', id)
-      .maybeSingle();
-    
-    if (error) {
-      console.error('查询 profile 失败:', error);
-      throw error;
+    const response = await fetch(`http://localhost:3001/api/profiles/${id}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch profile');
     }
-    
+
+    const data = await response.json();
     return data;
-  } catch (error) {
+  } catch (error: any) {
     console.error('getProfileById 错误:', error);
     throw error;
   }
 }
 
 export async function updateProfile(id: string, updates: Partial<Profile>) {
-  const { data, error } = await supabase
-    .from('profiles')
-    .update(updates)
-    .eq('id', id)
-    .select()
-    .maybeSingle();
-  
-  if (error) throw error;
-  return data;
+  try {
+    const response = await fetch(`http://localhost:3001/api/profiles/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+      body: JSON.stringify(updates)
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to update profile');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
+    console.error('updateProfile 错误:', error);
+    throw error;
+  }
 }
 
 // ==================== Services ====================
 
 export async function getServices() {
-  const { data, error } = await supabase
-    .from('services')
-    .select('*')
-    .eq('is_active', true)
-    .order('category', { ascending: true });
-  
-  if (error) throw error;
-  return Array.isArray(data) ? data : [];
+  try {
+    const response = await fetch('http://localhost:3001/api/services', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch services');
+    }
+
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (error: any) {
+    console.error('获取 services 失败:', error);
+    throw error;
+  }
 }
 
 export async function getServiceById(id: string) {
-  const { data, error } = await supabase
-    .from('services')
-    .select('*')
-    .eq('id', id)
-    .maybeSingle();
-  
-  if (error) throw error;
-  return data;
+  try {
+    const response = await fetch(`http://localhost:3001/api/services/${id}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch service');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
+    console.error('getServiceById 错误:', error);
+    throw error;
+  }
 }
 
 // ==================== Resources ====================
 
 export async function getResources() {
-  const { data, error } = await supabase
-    .from('resources')
-    .select('*')
-    .order('type', { ascending: true })
-    .order('name', { ascending: true });
-  
-  if (error) throw error;
-  return Array.isArray(data) ? data : [];
+  try {
+    const response = await fetch('http://localhost:3001/api/resources', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch resources');
+    }
+
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (error: any) {
+    console.error('获取 resources 失败:', error);
+    throw error;
+  }
 }
 
 export async function getResourcesByType(type: string) {
-  const { data, error } = await supabase
-    .from('resources')
-    .select('*')
-    .eq('type', type)
-    .eq('status', 'available')
-    .order('name', { ascending: true });
-  
-  if (error) throw error;
-  return Array.isArray(data) ? data : [];
+  try {
+    const response = await fetch(`http://localhost:3001/api/resources?type=${type}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch resources by type');
+    }
+
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (error: any) {
+    console.error('按类型获取 resources 失败:', error);
+    throw error;
+  }
 }
 
 export async function updateResource(id: string, updates: Partial<Resource>) {
-  const { data, error } = await supabase
-    .from('resources')
-    .update(updates)
-    .eq('id', id)
-    .select()
-    .maybeSingle();
-  
-  if (error) throw error;
-  return data;
+  try {
+    const response = await fetch(`http://localhost:3001/api/resources/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+      body: JSON.stringify(updates)
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to update resource');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
+    console.error('updateResource 错误:', error);
+    throw error;
+  }
 }
 
 // ==================== Appointments ====================
@@ -511,108 +591,118 @@ export async function getAppointments(filters?: {
   sales_id?: string;
   doctor_id?: string;
 }) {
-  let query = supabase
-    .from('appointments')
-    .select(`
-      *,
-      service:services(*),
-      sales:profiles!appointments_sales_id_fkey(id, name, role),
-      doctor:profiles!appointments_doctor_id_fkey(id, name, role)
-    `);
-  
-  if (filters?.status) {
-    query = query.eq('status', filters.status);
+  try {
+    const params = new URLSearchParams();
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.date) params.append('date', filters.date);
+    if (filters?.sales_id) params.append('sales_id', filters.sales_id);
+    if (filters?.doctor_id) params.append('doctor_id', filters.doctor_id);
+
+    const response = await fetch(`http://localhost:3001/api/appointments?${params.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch appointments');
+    }
+
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (error: any) {
+    console.error('获取 appointments 失败:', error);
+    throw error;
   }
-  if (filters?.date) {
-    query = query.eq('requested_date', filters.date);
-  }
-  if (filters?.sales_id) {
-    query = query.eq('sales_id', filters.sales_id);
-  }
-  if (filters?.doctor_id) {
-    query = query.eq('doctor_id', filters.doctor_id);
-  }
-  
-  query = query.order('requested_date', { ascending: false })
-    .order('created_at', { ascending: false });
-  
-  const { data, error } = await query;
-  
-  if (error) throw error;
-  return Array.isArray(data) ? data : [];
 }
 
 export async function getAppointmentById(id: string): Promise<AppointmentWithDetails | null> {
-  const { data, error } = await supabase
-    .from('appointments')
-    .select(`
-      *,
-      service:services(*),
-      sales:profiles!appointments_sales_id_fkey(id, name, role),
-      doctor:profiles!appointments_doctor_id_fkey(id, name, role)
-    `)
-    .eq('id', id)
-    .maybeSingle();
-  
-  if (error) throw error;
-  return data;
+  try {
+    const response = await fetch(`http://localhost:3001/api/appointments/${id}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch appointment');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
+    console.error('getAppointmentById 错误:', error);
+    throw error;
+  }
 }
 
 export async function createAppointment(input: CreateAppointmentInput) {
-  const totalPeople = 1 + (input.companion_names?.length || 0);
-  
-  const { data: serviceData } = await supabase
-    .from('services')
-    .select('base_duration')
-    .eq('id', input.service_id)
-    .maybeSingle();
-  
-  const estimatedDuration = serviceData?.base_duration || 60;
-  
-  const { data, error } = await supabase
-    .from('appointments')
-    .insert({
-      customer_name: input.customer_name,
-      companion_names: input.companion_names || [],
-      total_people: totalPeople,
-      service_id: input.service_id,
-      requested_date: input.requested_date,
-      requested_time_start: input.requested_time_start,
-      requested_time_end: input.requested_time_end,
-      estimated_duration: estimatedDuration,
-      is_urgent: input.is_urgent || false,
-      status: 'pending',
-      sales_id: input.sales_id,
-      doctor_id: input.doctor_id,
-      doctor_status: input.doctor_id ? 'pending' : undefined,
-      created_by: input.sales_id,
-    })
-    .select()
-    .maybeSingle();
-  
-  if (error) throw error;
-  return data;
+  try {
+    const response = await fetch('http://localhost:3001/api/appointments', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+      body: JSON.stringify(input)
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to create appointment');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
+    console.error('createAppointment 错误:', error);
+    throw error;
+  }
 }
 
 export async function updateAppointment(id: string, updates: Partial<Appointment>) {
-  const { data, error } = await supabase
-    .from('appointments')
-    .update(updates)
-    .eq('id', id)
-    .select()
-    .maybeSingle();
-  
-  if (error) throw error;
-  return data;
+  try {
+    const response = await fetch(`http://localhost:3001/api/appointments/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+      body: JSON.stringify(updates)
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to update appointment');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
+    console.error('updateAppointment 错误:', error);
+    throw error;
+  }
 }
 
 export async function deleteAppointment(id: string) {
-  const { error } = await supabase
-    .from('appointments')
-    .delete()
-    .eq('id', id);
-  
-  if (error) throw error;
+  try {
+    const response = await fetch(`http://localhost:3001/api/appointments/${id}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to delete appointment');
+    }
+  } catch (error: any) {
+    console.error('deleteAppointment 错误:', error);
+    throw error;
+  }
 }
 
 // ==================== Schedules ====================
@@ -624,117 +714,119 @@ export async function getSchedules(filters?: {
   status?: string;
   appointment_id?: string;
 }) {
-  let query = supabase
-    .from('schedules')
-    .select(`
-      *,
-      appointment:appointments(
-        *,
-        service:services(*),
-        sales:profiles!appointments_sales_id_fkey(id, name, role),
-        doctor:profiles!appointments_doctor_id_fkey(id, name, role)
-      ),
-      room:rooms(id, name, room_type),
-      nurse:nurses(id, name, skill_level),
-      created_by_profile:profiles!schedules_created_by_fkey(id, name, role)
-    `);
-  
-  // 支持单日查询
-  if (filters?.date) {
-    query = query.eq('scheduled_date', filters.date);
+  try {
+    const params = new URLSearchParams();
+    if (filters?.date) params.append('date', filters.date);
+    if (filters?.startDate) params.append('startDate', filters.startDate);
+    if (filters?.endDate) params.append('endDate', filters.endDate);
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.appointment_id) params.append('appointment_id', filters.appointment_id);
+
+    const response = await fetch(`http://localhost:3001/api/schedules?${params.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch schedules');
+    }
+
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (error: any) {
+    console.error('获取 schedules 失败:', error);
+    throw error;
   }
-  // 支持日期范围查询
-  else if (filters?.startDate && filters?.endDate) {
-    query = query.gte('scheduled_date', filters.startDate)
-      .lte('scheduled_date', filters.endDate);
-  }
-  // 如果只有startDate，查询该日期及之后
-  else if (filters?.startDate) {
-    query = query.gte('scheduled_date', filters.startDate);
-  }
-  // 如果只有endDate，查询该日期及之前
-  else if (filters?.endDate) {
-    query = query.lte('scheduled_date', filters.endDate);
-  }
-  
-  if (filters?.status) {
-    query = query.eq('status', filters.status);
-  }
-  if (filters?.appointment_id) {
-    query = query.eq('appointment_id', filters.appointment_id);
-  }
-  
-  query = query.order('scheduled_date', { ascending: true })
-    .order('scheduled_time_start', { ascending: true });
-  
-  const { data, error } = await query;
-  
-  if (error) throw error;
-  return Array.isArray(data) ? data : [];
 }
 
 export async function getScheduleById(id: string): Promise<ScheduleWithDetails | null> {
-  const { data, error } = await supabase
-    .from('schedules')
-    .select(`
-      *,
-      appointment:appointments(
-        *,
-        service:services(*),
-        sales:profiles!appointments_sales_id_fkey(id, name, role),
-        doctor:profiles!appointments_doctor_id_fkey(id, name, role)
-      ),
-      room:rooms(id, name, room_type),
-      nurse:nurses(id, name, skill_level),
-      created_by_profile:profiles!schedules_created_by_fkey(id, name, role)
-    `)
-    .eq('id', id)
-    .maybeSingle();
-  
-  if (error) throw error;
-  return data;
+  try {
+    const response = await fetch(`http://localhost:3001/api/schedules/${id}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch schedule');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
+    console.error('getScheduleById 错误:', error);
+    throw error;
+  }
 }
 
 export async function createSchedule(input: CreateScheduleInput) {
-  const { data, error } = await supabase
-    .from('schedules')
-    .insert({
-      appointment_id: input.appointment_id,
-      scheduled_date: input.scheduled_date,
-      scheduled_time_start: input.scheduled_time_start,
-      scheduled_time_end: input.scheduled_time_end,
-      room_id: input.room_id,
-      nurse_id: input.nurse_id,
-      adjusted_duration: input.adjusted_duration,
-      adjustment_reason: input.adjustment_reason,
-      status: 'draft',
-    })
-    .select()
-    .maybeSingle();
-  
-  if (error) throw error;
-  return data;
+  try {
+    const response = await fetch('http://localhost:3001/api/schedules', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+      body: JSON.stringify(input)
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to create schedule');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
+    console.error('createSchedule 错误:', error);
+    throw error;
+  }
 }
 
 export async function updateSchedule(id: string, updates: UpdateScheduleInput) {
-  const { data, error } = await supabase
-    .from('schedules')
-    .update(updates)
-    .eq('id', id)
-    .select()
-    .maybeSingle();
-  
-  if (error) throw error;
-  return data;
+  try {
+    const response = await fetch(`http://localhost:3001/api/schedules/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+      body: JSON.stringify(updates)
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to update schedule');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
+    console.error('updateSchedule 错误:', error);
+    throw error;
+  }
 }
 
 export async function deleteSchedule(id: string) {
-  const { error } = await supabase
-    .from('schedules')
-    .delete()
-    .eq('id', id);
-  
-  if (error) throw error;
+  try {
+    const response = await fetch(`http://localhost:3001/api/schedules/${id}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to delete schedule');
+    }
+  } catch (error: any) {
+    console.error('deleteSchedule 错误:', error);
+    throw error;
+  }
 }
 
 // ==================== Task Executions ====================
@@ -744,73 +836,75 @@ export async function getTaskExecutions(filters?: {
   status?: string;
   date?: string;
 }) {
-  let query = supabase
-    .from('task_executions')
-    .select(`
-      *,
-      schedule:schedules(
-        *,
-        appointment:appointments(
-          *,
-          service:services(*)
-        ),
-        room:room_id(id, name),
-        nurse:nurse_id(id, name)
-      ),
-      nurse_profile:nurse_id(id, name, role)
-    `);
-  
-  if (filters?.nurse_id) {
-    query = query.eq('nurse_id', filters.nurse_id);
+  try {
+    const params = new URLSearchParams();
+    if (filters?.nurse_id) params.append('nurse_id', filters.nurse_id);
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.date) params.append('date', filters.date);
+
+    const response = await fetch(`http://localhost:3001/api/task-executions?${params.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch task executions');
+    }
+
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (error: any) {
+    console.error('获取 task executions 失败:', error);
+    throw error;
   }
-  if (filters?.status) {
-    query = query.eq('status', filters.status);
-  }
-  if (filters?.date) {
-    query = query.eq('schedule.scheduled_date', filters.date);
-  }
-  
-  query = query.order('created_at', { ascending: false });
-  
-  const { data, error } = await query;
-  
-  if (error) throw error;
-  return Array.isArray(data) ? data : [];
 }
 
 export async function getTaskExecutionById(id: string): Promise<TaskExecutionWithDetails | null> {
-  const { data, error } = await supabase
-    .from('task_executions')
-    .select(`
-      *,
-      schedule:schedules(
-        *,
-        appointment:appointments(
-          *,
-          service:services(*)
-        ),
-        room:room_id(id, name),
-        nurse:nurse_id(id, name)
-      ),
-      nurse_profile:nurse_id(id, name, role)
-    `)
-    .eq('id', id)
-    .maybeSingle();
-  
-  if (error) throw error;
-  return data;
+  try {
+    const response = await fetch(`http://localhost:3001/api/task-executions/${id}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch task execution');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
+    console.error('getTaskExecutionById 错误:', error);
+    throw error;
+  }
 }
 
 export async function updateTaskExecution(id: string, updates: UpdateTaskExecutionInput) {
-  const { data, error } = await supabase
-    .from('task_executions')
-    .update(updates)
-    .eq('id', id)
-    .select()
-    .maybeSingle();
-  
-  if (error) throw error;
-  return data;
+  try {
+    const response = await fetch(`http://localhost:3001/api/task-executions/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+      body: JSON.stringify(updates)
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to update task execution');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
+    console.error('updateTaskExecution 错误:', error);
+    throw error;
+  }
 }
 
 // ==================== RPC Functions ====================
@@ -821,184 +915,170 @@ export async function checkResourceAvailability(
   timeEnd: string,
   excludeScheduleId?: string
 ): Promise<ResourceAvailability> {
-  const { data, error } = await supabase.rpc('check_resource_availability', {
-    p_date: date,
-    p_time_start: timeStart,
-    p_time_end: timeEnd,
-    p_exclude_schedule_id: excludeScheduleId || null,
-  });
-  
-  if (error) throw error;
-  
-  return {
-    available_rooms: data?.[0]?.available_rooms || [],
-    available_nurses: data?.[0]?.available_nurses || [],
-  };
+  try {
+    const params = new URLSearchParams({
+      date,
+      time_start: timeStart,
+      time_end: timeEnd,
+      ...(excludeScheduleId && { exclude_schedule_id: excludeScheduleId })
+    });
+
+    const response = await fetch(`http://localhost:3001/api/resources/availability?${params.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to check resource availability');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
+    console.error('checkResourceAvailability 错误:', error);
+    throw error;
+  }
 }
 
 // ==================== Nurses ====================
 
 export async function getNurses() {
-  const { data, error } = await supabase
-    .from('nurses')
-    .select('*')
-    .order('name', { ascending: true });
-  
-  if (error) throw error;
-  return Array.isArray(data) ? data : [];
+  try {
+    const response = await fetch('http://localhost:3001/api/profiles/nurses/available', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch nurses');
+    }
+
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (error: any) {
+    console.error('获取 nurses 失败:', error);
+    throw error;
+  }
 }
 
 export async function getAvailableNurses() {
-  const { data, error } = await supabase
-    .from('nurses')
-    .select('*')
-    .eq('is_available', true)
-    .order('name', { ascending: true });
-  
-  if (error) throw error;
-  return Array.isArray(data) ? data : [];
-}
+  try {
+    const response = await fetch('http://localhost:3001/api/profiles/nurses/available', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
 
-export async function createNurse(nurse: { name: string; skill_level: SkillLevel; is_available: boolean }) {
-  const { data, error } = await supabase
-    .from('nurses')
-    .insert([nurse])
-    .select()
-    .maybeSingle();
-  
-  if (error) throw error;
-  return data;
-}
+    if (!response.ok) {
+      throw new Error('Failed to fetch available nurses');
+    }
 
-export async function updateNurse(id: string, nurse: Partial<Omit<Nurse, 'id' | 'created_at'>>) {
-  const { data, error } = await supabase
-    .from('nurses')
-    .update(nurse)
-    .eq('id', id)
-    .select()
-    .maybeSingle();
-  
-  if (error) throw error;
-  return data;
-}
-
-export async function deleteNurse(id: string) {
-  const { error } = await supabase
-    .from('nurses')
-    .delete()
-    .eq('id', id);
-  
-  if (error) throw error;
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (error: any) {
+    console.error('获取 available nurses 失败:', error);
+    throw error;
+  }
 }
 
 // ==================== Doctors ====================
 
 export async function getDoctors() {
-  const { data, error } = await supabase
-    .from('doctors')
-    .select('*')
-    .order('name', { ascending: true });
-  
-  if (error) throw error;
-  return Array.isArray(data) ? data : [];
+  try {
+    const response = await fetch('http://localhost:3001/api/doctors', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch doctors');
+    }
+
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (error: any) {
+    console.error('获取 doctors 失败:', error);
+    throw error;
+  }
 }
 
 export async function getAvailableDoctors() {
-  const { data, error } = await supabase
-    .from('doctors')
-    .select('*')
-    .eq('is_available', true)
-    .order('name', { ascending: true });
-  
-  if (error) throw error;
-  return Array.isArray(data) ? data : [];
-}
+  try {
+    const response = await fetch('http://localhost:3001/api/doctors/available', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
 
-export async function createDoctor(doctor: { name: string; specialty: string; is_available: boolean }) {
-  const { data, error } = await supabase
-    .from('doctors')
-    .insert([doctor])
-    .select()
-    .maybeSingle();
-  
-  if (error) throw error;
-  return data;
-}
+    if (!response.ok) {
+      throw new Error('Failed to fetch available doctors');
+    }
 
-export async function updateDoctor(id: string, doctor: Partial<Omit<Doctor, 'id' | 'created_at'>>) {
-  const { data, error } = await supabase
-    .from('doctors')
-    .update(doctor)
-    .eq('id', id)
-    .select()
-    .maybeSingle();
-  
-  if (error) throw error;
-  return data;
-}
-
-export async function deleteDoctor(id: string) {
-  const { error } = await supabase
-    .from('doctors')
-    .delete()
-    .eq('id', id);
-  
-  if (error) throw error;
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (error: any) {
+    console.error('获取 available doctors 失败:', error);
+    throw error;
+  }
 }
 
 // ==================== Rooms ====================
 
 export async function getRooms() {
-  const { data, error } = await supabase
-    .from('rooms')
-    .select('*')
-    .order('name', { ascending: true });
-  
-  if (error) throw error;
-  return Array.isArray(data) ? data : [];
+  try {
+    const response = await fetch('http://localhost:3001/api/resources/rooms/available', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch rooms');
+    }
+
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (error: any) {
+    console.error('获取 rooms 失败:', error);
+    throw error;
+  }
 }
 
 export async function getAvailableRooms() {
-  const { data, error } = await supabase
-    .from('rooms')
-    .select('*')
-    .eq('is_available', true)
-    .order('name', { ascending: true });
-  
-  if (error) throw error;
-  return Array.isArray(data) ? data : [];
-}
+  try {
+    const response = await fetch('http://localhost:3001/api/resources/rooms/available', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
 
-export async function createRoom(room: { name: string; room_type: RoomType; is_available: boolean }) {
-  const { data, error } = await supabase
-    .from('rooms')
-    .insert([room])
-    .select()
-    .maybeSingle();
-  
-  if (error) throw error;
-  return data;
-}
+    if (!response.ok) {
+      throw new Error('Failed to fetch available rooms');
+    }
 
-export async function updateRoom(id: string, room: Partial<Omit<Room, 'id' | 'created_at'>>) {
-  const { data, error } = await supabase
-    .from('rooms')
-    .update(room)
-    .eq('id', id)
-    .select()
-    .maybeSingle();
-  
-  if (error) throw error;
-  return data;
-}
-
-export async function deleteRoom(id: string) {
-  const { error } = await supabase
-    .from('rooms')
-    .delete()
-    .eq('id', id);
-  
-  if (error) throw error;
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (error: any) {
+    console.error('获取 available rooms 失败:', error);
+    throw error;
+  }
 }
 
 // ==================== 钉钉同步相关 API ====================
@@ -1008,10 +1088,22 @@ export async function deleteRoom(id: string) {
  */
 export async function getDingTalkSyncConfig() {
   try {
-    const result = await clientApi.getDingTalkConfig();
-    console.log('获取钉钉配置成功:', result);
-    return result;
-  } catch (error) {
+    const response = await fetch('http://localhost:3001/api/dingtalk/config', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch DingTalk config');
+    }
+
+    const data = await response.json();
+    console.log('获取钉钉配置成功:', data);
+    return data;
+  } catch (error: any) {
     console.error('获取钉钉配置失败:', error);
     throw error;
   }
@@ -1035,13 +1127,26 @@ export async function upsertDingTalkSyncConfig(config: {
   console.log('开始保存钉钉配置...', { ...config, app_secret: '***' });
 
   try {
-    // 使用新的API客户端保存钉钉配置
-    const result = await clientApi.saveDingTalkConfig(config);
-    console.log('钉钉配置保存成功:', result);
-    return result;
+    const response = await fetch('http://localhost:3001/api/dingtalk/config', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+      body: JSON.stringify(config)
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error('保存钉钉配置失败: ' + errorData.message);
+    }
+
+    const data = await response.json();
+    console.log('钉钉配置保存成功:', data);
+    return data;
   } catch (error: any) {
     console.error('保存钉钉配置失败:', error);
-    throw new Error('保存钉钉配置失败: ' + error.message);
+    throw error;
   }
 }
 
@@ -1054,12 +1159,26 @@ export async function triggerDingTalkSync(params: {
   conflict_strategy?: 'dingtalk_first' | 'local_first' | 'manual';
 }) {
   try {
-    const result = await clientApi.triggerSync(params);
-    console.log('钉钉同步启动成功:', result);
-    return result;
+    const response = await fetch('http://localhost:3001/api/dingtalk/sync', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+      body: JSON.stringify(params)
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error('钉钉同步失败: ' + errorData.message);
+    }
+
+    const data = await response.json();
+    console.log('钉钉同步启动成功:', data);
+    return data;
   } catch (error: any) {
     console.error('钉钉同步失败:', error);
-    throw new Error('钉钉同步失败: ' + error.message);
+    throw error;
   }
 }
 
@@ -1072,19 +1191,34 @@ export async function getDingTalkSyncLogs(params?: {
   status?: 'pending' | 'running' | 'success' | 'failed' | 'partial';
 }) {
   try {
-    const { limit = 20, offset = 0, status } = params || {};
+    const queryParams = new URLSearchParams();
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.offset) queryParams.append('offset', params.offset.toString());
+    if (params?.status) queryParams.append('status', params.status);
 
-    const result = await clientApi.getSyncLogs({ limit, offset, status });
-    console.log('获取钉钉同步日志成功:', result);
+    const response = await fetch(`http://localhost:3001/api/dingtalk/sync/logs?${queryParams.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('获取钉钉同步日志失败: ' + (await response.text()));
+    }
+
+    const data = await response.json();
+    console.log('获取钉钉同步日志成功:', data);
 
     // 转换API响应格式以匹配前端期望的格式
     return {
-      data: Array.isArray(result.logs) ? result.logs : [],
-      count: result.total || 0,
+      data: Array.isArray(data.logs) ? data.logs : [],
+      count: data.total || 0,
     };
   } catch (error: any) {
     console.error('获取钉钉同步日志失败:', error);
-    throw new Error('获取钉钉同步日志失败: ' + error.message);
+    throw error;
   }
 }
 
@@ -1092,27 +1226,50 @@ export async function getDingTalkSyncLogs(params?: {
  * 获取单个同步日志详情
  */
 export async function getDingTalkSyncLogById(id: string) {
-  const { data, error } = await supabase
-    .from('dingtalk_sync_logs')
-    .select('*, created_by_profile:profiles!dingtalk_sync_logs_created_by_fkey(username, full_name)')
-    .eq('id', id)
-    .maybeSingle();
+  try {
+    const response = await fetch(`http://localhost:3001/api/dingtalk/sync/logs/${id}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
 
-  if (error) throw error;
-  return data;
+    if (!response.ok) {
+      throw new Error('Failed to fetch sync log');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
+    console.error('getDingTalkSyncLogById 错误:', error);
+    throw error;
+  }
 }
 
 /**
  * 获取钉钉部门映射列表
  */
 export async function getDingTalkDepartmentMappings() {
-  const { data, error } = await supabase
-    .from('dingtalk_department_mapping')
-    .select('*')
-    .order('order_num', { ascending: true });
+  try {
+    const response = await fetch('http://localhost:3001/api/dingtalk/departments', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
 
-  if (error) throw error;
-  return Array.isArray(data) ? data : [];
+    if (!response.ok) {
+      throw new Error('Failed to fetch department mappings');
+    }
+
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (error: any) {
+    console.error('getDingTalkDepartmentMappings 错误:', error);
+    throw error;
+  }
 }
 
 /**
@@ -1125,18 +1282,26 @@ export async function updateDingTalkDepartmentMapping(
     enabled?: boolean;
   }
 ) {
-  const { data, error } = await supabase
-    .from('dingtalk_department_mapping')
-    .update({
-      ...updates,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', id)
-    .select()
-    .single();
+  try {
+    const response = await fetch(`http://localhost:3001/api/dingtalk/departments/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+      body: JSON.stringify(updates)
+    });
 
-  if (error) throw error;
-  return data;
+    if (!response.ok) {
+      throw new Error('Failed to update department mapping');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
+    console.error('updateDingTalkDepartmentMapping 错误:', error);
+    throw error;
+  }
 }
 
 /**
@@ -1144,15 +1309,21 @@ export async function updateDingTalkDepartmentMapping(
  */
 export async function getSyncStatistics() {
   try {
-    // 暂时返回模拟数据，因为RPC函数需要在后端实现
-    return {
-      total_syncs: 0,
-      success_count: 0,
-      failed_count: 0,
-      last_sync: null,
-      total_users_synced: 0
-    };
-  } catch (error) {
+    const response = await fetch('http://localhost:3001/api/dingtalk/statistics', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch sync statistics');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
     console.error('获取同步统计失败:', error);
     return {
       total_syncs: 0,
@@ -1163,4 +1334,3 @@ export async function getSyncStatistics() {
     };
   }
 }
-

@@ -687,6 +687,96 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
+// Update user
+app.put('/api/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { full_name, role, department, status } = req.body;
+    
+    console.log('🔍 [DEBUG] 更新用户请求:', {
+      targetUserId: id,
+      updates: { full_name, role, department, status },
+      timestamp: new Date().toISOString()
+    });
+
+    // Check if user exists
+    const existingUser = await pool.query(
+      'SELECT * FROM profiles WHERE id = $1',
+      [id]
+    );
+
+    if (existingUser.rows.length === 0) {
+      console.log('🔍 [DEBUG] 用户不存在:', id);
+      return res.status(404).json({
+        error: 'User not found'
+      });
+    }
+
+    console.log('🔍 [DEBUG] 原用户数据:', existingUser.rows[0]);
+
+    // Build update query
+    const updateFields = [];
+    const updateValues = [];
+    let paramIndex = 1;
+
+    if (full_name !== undefined) {
+      updateFields.push(`full_name = $${paramIndex++}`);
+      updateValues.push(full_name);
+    }
+    if (role !== undefined) {
+      updateFields.push(`role = $${paramIndex++}`);
+      updateValues.push(role);
+    }
+    if (department !== undefined) {
+      updateFields.push(`department = $${paramIndex++}`);
+      updateValues.push(department);
+    }
+    if (status !== undefined) {
+      updateFields.push(`status = $${paramIndex++}`);
+      updateValues.push(status);
+    }
+
+    if (updateFields.length === 0) {
+      return res.status(400).json({
+        error: 'No fields to update'
+      });
+    }
+
+    updateFields.push(`updated_at = CURRENT_TIMESTAMP`);
+    updateValues.push(id);
+
+    const updateQuery = `
+      UPDATE profiles
+      SET ${updateFields.join(', ')}
+      WHERE id = $${paramIndex}
+      RETURNING *
+    `;
+
+    console.log('🔍 [DEBUG] 执行更新查询:', updateQuery);
+    console.log('🔍 [DEBUG] 查询参数:', updateValues);
+
+    const result = await pool.query(updateQuery, updateValues);
+    
+    if (result.rows.length === 0) {
+      console.log('🔍 [DEBUG] 更新失败，未找到用户');
+      return res.status(404).json({
+        error: 'User not found'
+      });
+    }
+
+    console.log('🔍 [DEBUG] 更新成功，新数据:', result.rows[0]);
+    console.log('🔍 [DEBUG] 特别是用户角色:', result.rows[0].role);
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('🔍 [DEBUG] 更新用户失败:', error);
+    res.status(500).json({
+      error: 'Failed to update user',
+      message: error.message
+    });
+  }
+});
+
 // ==================== DingTalk Endpoints ====================
 
 // DingTalk Configuration endpoints
