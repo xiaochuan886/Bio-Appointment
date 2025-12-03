@@ -172,24 +172,9 @@ class ApiService {
             params.push(filters.scheduled_date);
             paramIndex++;
         }
-        if (filters.date) {
-            whereClause += ` AND scheduled_date = $${paramIndex}`;
-            params.push(filters.date);
-            paramIndex++;
-        }
-        if (filters.start_date) {
-            whereClause += ` AND scheduled_date >= $${paramIndex}`;
-            params.push(filters.start_date);
-            paramIndex++;
-        }
         if (filters.scheduled_date_from) {
             whereClause += ` AND scheduled_date >= $${paramIndex}`;
             params.push(filters.scheduled_date_from);
-            paramIndex++;
-        }
-        if (filters.end_date) {
-            whereClause += ` AND scheduled_date <= $${paramIndex}`;
-            params.push(filters.end_date);
             paramIndex++;
         }
         if (filters.scheduled_date_to) {
@@ -214,15 +199,13 @@ class ApiService {
         }
         const queryText = `
       SELECT s.*,
-             a.customer_name, a.service_id, a.estimated_duration, a.is_urgent,
+             a.customer_name, a.service_id, a.estimated_duration,
              r.name as room_name, r.type as room_type,
-             p.full_name as nurse_name,
-             svc.name as service_name
+             p.full_name as nurse_name
       FROM schedules s
       LEFT JOIN appointments a ON s.appointment_id = a.id
       LEFT JOIN resources r ON s.room_id = r.id
       LEFT JOIN profiles p ON s.nurse_id = p.id
-      LEFT JOIN services svc ON a.service_id = svc.id
       WHERE ${whereClause}
       ORDER BY scheduled_date, scheduled_time_start
     `;

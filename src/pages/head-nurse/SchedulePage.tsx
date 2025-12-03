@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
-import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
-import { zhCN } from 'date-fns/locale';
-import { Plus, AlertCircle, Clock, Users } from 'lucide-react';
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
+import { AlertCircle, Clock, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -10,13 +9,11 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import clientApi from '@/services/api-client';
-import type { Appointment, Schedule, Resource, Profile } from '@/services/api-client';
 import StatusBadge from '@/components/appointment/StatusBadge';
 import GanttChart from '@/components/appointment/GanttChart';
 import ViewSwitcher, { type ViewMode } from '@/components/appointment/ViewSwitcher';
@@ -24,7 +21,6 @@ import DateRangePicker from '@/components/appointment/DateRangePicker';
 import ResourceConflictDialog from '@/components/appointment/ResourceConflictDialog';
 import ResourceFilter, { type ResourceFilterType } from '@/components/appointment/ResourceFilter';
 import CompactFilterBar from '@/components/appointment/CompactFilterBar';
-import ResourceLegend from '@/components/appointment/ResourceLegend';
 import { detectResourceConflicts, type ResourceConflict } from '@/utils/scheduleUtils';
 
 const scheduleFormSchema = z.object({
@@ -44,12 +40,12 @@ export default function HeadNurseSchedulePage() {
   const [resourceFilters, setResourceFilters] = useState<ResourceFilterType[]>([]);
   const [selectedNurseIds, setSelectedNurseIds] = useState<string[]>([]);
   const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>([]);
-  const [pendingAppointments, setPendingAppointments] = useState<Appointment[]>([]);
-  const [schedules, setSchedules] = useState<Schedule[]>([]);
-  const [nurses, setNurses] = useState<Profile[]>([]);
-  const [rooms, setRooms] = useState<Resource[]>([]);
-  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
-  const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
+  const [pendingAppointments, setPendingAppointments] = useState<any[]>([]);
+  const [schedules, setSchedules] = useState<any[]>([]);
+  const [nurses, setNurses] = useState<any[]>([]);
+  const [rooms, setRooms] = useState<any[]>([]);
+  const [selectedAppointment, setSelectedAppointment] = useState<any | null>(null);
+  const [selectedSchedule, setSelectedSchedule] = useState<any | null>(null);
   const [isScheduleDialogOpen, setIsScheduleDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [resourceConflicts, setResourceConflicts] = useState<ResourceConflict[]>([]);
@@ -91,13 +87,26 @@ export default function HeadNurseSchedulePage() {
         default:
           startDate = endDate = format(selectedDate, 'yyyy-MM-dd');
       }
+
+      console.log('🔍 [DEBUG] 视图模式:', viewMode);
+      console.log('🔍 [DEBUG] 日期范围:', { startDate, endDate });
       
       const [appointmentsData, schedulesData, nursesData, roomsData] = await Promise.all([
-        clientApi.getAppointments({ status: 'pending' }),
-        clientApi.getSchedules({ date: startDate }),
+        clientApi.getAppointments({ status: 'pending', requested_date_from: startDate, requested_date_to: endDate }),
+        clientApi.getSchedules({
+          date: viewMode === 'day' ? startDate : undefined,
+          start_date: viewMode !== 'day' ? startDate : undefined,
+          end_date: viewMode !== 'day' ? endDate : undefined
+        }),
         clientApi.getAvailableNurses(),
         clientApi.getAvailableRooms(),
       ]);
+
+      console.log('🔍 [DEBUG] 获取到的待排班预约数据:', appointmentsData);
+      console.log('🔍 [DEBUG] 预约状态分布:', appointmentsData.reduce((acc: Record<string, number>, apt) => {
+        acc[apt.status] = (acc[apt.status] || 0) + 1;
+        return acc;
+      }, {}));
 
       setPendingAppointments(appointmentsData);
       setSchedules(schedulesData);
@@ -115,7 +124,7 @@ export default function HeadNurseSchedulePage() {
     setSelectedRoomIds([]);
   };
 
-  const handleCreateSchedule = (appointment: AppointmentWithDetails) => {
+  const handleCreateSchedule = (appointment: any) => {
     setSelectedAppointment(appointment);
     setSelectedSchedule(null);
     
@@ -139,7 +148,7 @@ export default function HeadNurseSchedulePage() {
     setIsScheduleDialogOpen(true);
   };
 
-  const handleEditSchedule = (schedule: ScheduleWithDetails) => {
+  const handleEditSchedule = (schedule: any) => {
     setSelectedSchedule(schedule);
     setSelectedAppointment(schedule.appointment || null);
 
@@ -196,8 +205,6 @@ export default function HeadNurseSchedulePage() {
           scheduled_time_end: values.scheduled_time_end,
           room_id: values.room_id,
           nurse_id: values.nurse_id,
-          adjusted_duration: values.adjusted_duration,
-          adjustment_reason: values.adjustment_reason,
           status: 'published',
         });
 
@@ -210,8 +217,6 @@ export default function HeadNurseSchedulePage() {
           scheduled_time_end: values.scheduled_time_end,
           room_id: values.room_id,
           nurse_id: values.nurse_id,
-          adjusted_duration: values.adjusted_duration,
-          adjustment_reason: values.adjustment_reason,
         });
 
         await clientApi.updateAppointment(selectedAppointment.id, {
@@ -244,16 +249,36 @@ export default function HeadNurseSchedulePage() {
     setPendingScheduleData(null);
   };
 
-  const handlePublishSchedule = async (scheduleId: string) => {
+  const handleRejectAppointment = async () => {
+    if (!selectedAppointment) return;
+
+    setIsLoading(true);
     try {
-      await clientApi.updateSchedule(scheduleId, { status: 'locked' });
-      toast.success('排班已锁定并发布');
-      loadData();
+      console.log('🔍 [DEBUG] 拒绝预约ID:', selectedAppointment.id);
+      console.log('🔍 [DEBUG] 拒绝前状态:', selectedAppointment.status);
+      
+      const updatedAppointment = await clientApi.updateAppointment(selectedAppointment.id, {
+        status: 'rejected',
+      });
+      
+      console.log('🔍 [DEBUG] 拒绝后状态:', updatedAppointment.status);
+
+      toast.success('预约已拒绝');
+      setIsScheduleDialogOpen(false);
+      
+      // 延迟一下再刷新数据，确保数据库更新完成
+      setTimeout(() => {
+        loadData();
+      }, 500);
     } catch (error: any) {
-      toast.error(error.message || '发布失败');
+      console.error('🔍 [DEBUG] 拒绝预约失败:', error);
+      toast.error(error.message || '拒绝预约失败');
+    } finally {
+      setIsLoading(false);
     }
   };
 
+  
   const urgentAppointments = pendingAppointments.filter(a => a.is_urgent);
   const normalAppointments = pendingAppointments.filter(a => !a.is_urgent);
   const lockedSchedules = schedules.filter(s => s.status === 'locked');
@@ -635,9 +660,18 @@ export default function HeadNurseSchedulePage() {
                 >
                   取消
                 </Button>
-                <Button 
-                  type="submit" 
-                  className="min-w-32 bg-primary hover:bg-primary/90" 
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={handleRejectAppointment}
+                  className="min-w-24"
+                  disabled={isLoading}
+                >
+                  {isLoading ? '处理中...' : '✗ 拒绝预约'}
+                </Button>
+                <Button
+                  type="submit"
+                  className="min-w-32 bg-primary hover:bg-primary/90"
                   disabled={isLoading}
                 >
                   {isLoading ? '保存中...' : '✓ 确认排班'}

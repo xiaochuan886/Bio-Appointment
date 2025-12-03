@@ -947,7 +947,7 @@ export async function checkResourceAvailability(
 
 export async function getNurses() {
   try {
-    const response = await fetch('http://localhost:3001/api/profiles/nurses/available', {
+    const response = await fetch('http://localhost:3001/api/nurses', {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -1035,11 +1035,206 @@ export async function getAvailableDoctors() {
   }
 }
 
+export async function createDoctor(doctor: { name: string; specialty: string; is_available: boolean }) {
+  try {
+    const response = await fetch('http://localhost:3001/api/doctors', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+      body: JSON.stringify(doctor)
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to create doctor');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
+    console.error('createDoctor 错误:', error);
+    throw error;
+  }
+}
+
+export async function updateDoctor(id: string, updates: Partial<Doctor>) {
+  try {
+    const response = await fetch(`http://localhost:3001/api/doctors/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+      body: JSON.stringify(updates)
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to update doctor');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
+    console.error('updateDoctor 错误:', error);
+    throw error;
+  }
+}
+
+export async function deleteDoctor(id: string) {
+  try {
+    const response = await fetch(`http://localhost:3001/api/doctors/${id}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to delete doctor');
+    }
+  } catch (error: any) {
+    console.error('deleteDoctor 错误:', error);
+    throw error;
+  }
+}
+
+export async function createNurse(nurse: { name: string; skill_level: string; is_available: boolean }) {
+  try {
+    const response = await fetch('http://localhost:3001/api/nurses', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+      body: JSON.stringify(nurse)
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to create nurse');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
+    console.error('createNurse 错误:', error);
+    throw error;
+  }
+}
+
+export async function updateNurse(id: string, updates: Partial<Nurse>) {
+  try {
+    const response = await fetch(`http://localhost:3001/api/nurses/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+      body: JSON.stringify(updates)
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to update nurse');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
+    console.error('updateNurse 错误:', error);
+    throw error;
+  }
+}
+
+export async function deleteNurse(id: string) {
+  try {
+    const response = await fetch(`http://localhost:3001/api/nurses/${id}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to delete nurse');
+    }
+  } catch (error: any) {
+    console.error('deleteNurse 错误:', error);
+    throw error;
+  }
+}
+
 // ==================== Rooms ====================
+
+export async function createRoom(room: { name: string; type: string; is_available: boolean }) {
+  try {
+    const response = await fetch('http://localhost:3001/api/rooms', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+      body: JSON.stringify(room)
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to create room');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
+    console.error('createRoom 错误:', error);
+    throw error;
+  }
+}
+
+export async function updateRoom(id: string, updates: Partial<Room>) {
+  try {
+    const response = await fetch(`http://localhost:3001/api/rooms/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+      body: JSON.stringify(updates)
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to update room');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
+    console.error('updateRoom 错误:', error);
+    throw error;
+  }
+}
+
+export async function deleteRoom(id: string) {
+  try {
+    const response = await fetch(`http://localhost:3001/api/rooms/${id}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to delete room');
+    }
+  } catch (error: any) {
+    console.error('deleteRoom 错误:', error);
+    throw error;
+  }
+}
 
 export async function getRooms() {
   try {
-    const response = await fetch('http://localhost:3001/api/resources/rooms/available', {
+    const response = await fetch('http://localhost:3001/api/rooms', {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',

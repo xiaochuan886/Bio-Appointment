@@ -19,7 +19,7 @@ const pool = new Pool({
 
 // Middleware
 app.use(cors({
-  origin: ['http://127.0.0.1:5173', 'http://127.0.0.1:5174', 'http://localhost:5173', 'http://localhost:5174'],
+  origin: ['http://127.0.0.1:5173', 'http://127.0.0.1:5174', 'http://127.0.0.1:5175', 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175'],
   credentials: true,
 }));
 app.use(express.json());
@@ -287,26 +287,100 @@ app.get('/api/resources', async (req, res) => {
 // Get schedules
 app.get('/api/schedules', async (req, res) => {
   try {
-    const { date, nurse_id } = req.query;
-    let query = 'SELECT * FROM schedules ORDER BY scheduled_date, scheduled_time_start';
+    const { date, start_date, end_date, nurse_id } = req.query;
+    console.log('🔍 [DEBUG] 排班查询参数:', { date, start_date, end_date, nurse_id });
+    
+    let query = `
+      SELECT
+        s.*,
+        a.customer_name,
+        a.service_id,
+        a.estimated_duration,
+        a.is_urgent,
+        srv.name as service_name,
+        srv.category as service_category,
+        r.name as room_name,
+        r.type as room_type,
+        r.status as room_status,
+        p.full_name as nurse_name,
+        p.role as nurse_role,
+        p.department as nurse_department
+      FROM schedules s
+      LEFT JOIN appointments a ON s.appointment_id = a.id
+      LEFT JOIN services srv ON a.service_id = srv.id
+      LEFT JOIN resources r ON s.room_id = r.id
+      LEFT JOIN profiles p ON s.nurse_id = p.id
+    `;
     let params = [];
+    const conditions = [];
 
-    if (date || nurse_id) {
-      const conditions = [];
-      if (date) {
-        conditions.push(`scheduled_date = $${params.length + 1}`);
-        params.push(date);
-      }
-      if (nurse_id) {
-        conditions.push(`nurse_id = $${params.length + 1}`);
-        params.push(nurse_id);
-      }
-      query = `SELECT * FROM schedules WHERE ${conditions.join(' AND ')} ORDER BY scheduled_date, scheduled_time_start`;
+    // 构建查询条件
+    if (date) {
+      conditions.push(`DATE(s.scheduled_date) = $${params.length + 1}`);
+      params.push(date);
+    } else if (start_date && end_date) {
+      conditions.push(`DATE(s.scheduled_date) >= $${params.length + 1}`);
+      params.push(start_date);
+      conditions.push(`DATE(s.scheduled_date) <= $${params.length + 1}`);
+      params.push(end_date);
+    } else if (start_date) {
+      conditions.push(`DATE(s.scheduled_date) >= $${params.length + 1}`);
+      params.push(start_date);
+    } else if (end_date) {
+      conditions.push(`DATE(s.scheduled_date) <= $${params.length + 1}`);
+      params.push(end_date);
     }
 
+    if (nurse_id) {
+      conditions.push(`s.nurse_id = $${params.length + 1}`);
+      params.push(nurse_id);
+    }
+
+    // 如果有条件，添加WHERE子句
+    if (conditions.length > 0) {
+      query += ` WHERE ${conditions.join(' AND ')}`;
+    }
+
+    query += ` ORDER BY s.scheduled_date, s.scheduled_time_start`;
+
+    console.log('🔍 [DEBUG] 排班查询SQL:', query);
+    console.log('🔍 [DEBUG] 排班查询参数:', params);
+
     const result = await pool.query(query, params);
-    res.json(result.rows);
+    console.log('🔍 [DEBUG] 返回排班数量:', result.rows.length);
+    
+    // Transform the data to match frontend expected format
+    const schedules = result.rows.map(row => ({
+      ...row,
+      appointment: row.appointment_id ? {
+        id: row.appointment_id,
+        customer_name: row.customer_name,
+        service_id: row.service_id,
+        estimated_duration: row.estimated_duration,
+        is_urgent: row.is_urgent,
+        service: row.service_id ? {
+          id: row.service_id,
+          name: row.service_name,
+          category: row.service_category
+        } : null
+      } : null,
+      room: row.room_id ? {
+        id: row.room_id,
+        name: row.room_name,
+        type: row.room_type,
+        status: row.room_status
+      } : null,
+      nurse: row.nurse_id ? {
+        id: row.nurse_id,
+        name: row.nurse_name,
+        role: row.nurse_role,
+        department: row.nurse_department
+      } : null
+    }));
+
+    res.json(schedules);
   } catch (error) {
+    console.error('Failed to fetch schedules:', error);
     res.status(500).json({
       error: 'Failed to fetch schedules',
       message: error.message
@@ -381,11 +455,91 @@ app.post('/api/appointments', async (req, res) => {
 // Get appointments
 app.get('/api/appointments', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM appointments ORDER BY requested_date DESC');
+    const { status, customer_name, requested_date } = req.query;
+    let query = 'SELECT * FROM appointments';
+    let params = [];
+    const conditions = [];
+
+    // Build WHERE clause based on filters
+    if (status) {
+      conditions.push(`status = $${params.length + 1}`);
+      params.push(status);
+    }
+    if (customer_name) {
+      conditions.push(`customer_name ILIKE $${params.length + 1}`);
+      params.push(`%${customer_name}%`);
+    }
+    if (requested_date) {
+      conditions.push(`requested_date = $${params.length + 1}`);
+      params.push(requested_date);
+    }
+
+    if (conditions.length > 0) {
+      query += ' WHERE ' + conditions.join(' AND ');
+    }
+
+    query += ' ORDER BY requested_date DESC';
+
+    console.log(`🔍 [DEBUG] 获取预约查询: ${query}`);
+    console.log(`🔍 [DEBUG] 查询参数:`, params);
+
+    const result = await pool.query(query, params);
+    console.log(`🔍 [DEBUG] 返回预约数量: ${result.rows.length}`);
+    
     res.json(result.rows);
   } catch (error) {
+    console.error('Failed to fetch appointments:', error);
     res.status(500).json({
       error: 'Failed to fetch appointments',
+      message: error.message
+    });
+  }
+});
+
+// Update appointment
+app.put('/api/appointments/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+
+    // Build dynamic update query
+    const updateFields = [];
+    const values = [];
+    let paramIndex = 1;
+
+    for (const [key, value] of Object.entries(updates)) {
+      if (value !== undefined) {
+        updateFields.push(`${key} = $${paramIndex}`);
+        values.push(value);
+        paramIndex++;
+      }
+    }
+
+    if (updateFields.length === 0) {
+      return res.status(400).json({
+        error: 'No valid fields to update'
+      });
+    }
+
+    values.push(id);
+
+    const result = await pool.query(
+      `UPDATE appointments SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $${paramIndex}
+       RETURNING *`,
+      values
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Appointment not found'
+      });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to update appointment',
       message: error.message
     });
   }
@@ -505,6 +659,108 @@ app.get('/api/profiles/nurses/available', async (req, res) => {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to fetch available nurses',
+      message: error.message
+    });
+  }
+});
+
+// Get doctors
+app.get('/api/doctors', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT id, username, full_name, department, status FROM profiles WHERE role = $1 ORDER BY full_name',
+      ['doctor']
+    );
+    
+    // Transform to match frontend expected format
+    const doctors = result.rows.map(profile => ({
+      id: profile.id,
+      name: profile.full_name,
+      specialty: profile.department || '全科', // Use department as specialty
+      is_available: profile.status === 'active',
+      created_at: profile.created_at || new Date().toISOString()
+    }));
+    
+    res.json(doctors);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch doctors',
+      message: error.message
+    });
+  }
+});
+
+app.get('/api/doctors/available', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT id, username, full_name, department FROM profiles WHERE role = $1 AND status = $2 ORDER BY full_name',
+      ['doctor', 'active']
+    );
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch available doctors',
+      message: error.message
+    });
+  }
+});
+
+// Get nurses for system config
+app.get('/api/nurses', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT id, username, full_name, role, department, status FROM profiles WHERE role IN ($1, $2) ORDER BY role, full_name',
+      ['nurse', 'head_nurse']
+    );
+    
+    // Transform to match frontend expected format
+    const nurses = result.rows.map(profile => ({
+      id: profile.id,
+      name: profile.full_name,
+      skill_level: profile.role === 'head_nurse' ? 'senior' : 'intermediate', // Head nurses get senior level
+      is_available: profile.status === 'active',
+      created_at: profile.created_at || new Date().toISOString()
+    }));
+    
+    res.json(nurses);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch nurses',
+      message: error.message
+    });
+  }
+});
+
+// Get rooms for system config
+app.get('/api/rooms', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT DISTINCT ON (name) id, name, type, status FROM resources WHERE type = $1 ORDER BY name',
+      ['room']
+    );
+    
+    // Transform to match frontend expected format
+    const rooms = result.rows.map(resource => {
+      let room_type = 'treatment'; // default
+      if (resource.name.includes('VIP')) {
+        room_type = 'vip';
+      } else if (resource.name.includes('咨询')) {
+        room_type = 'consultation';
+      }
+      
+      return {
+        id: resource.id,
+        name: resource.name,
+        room_type: room_type,
+        is_available: resource.status === 'available',
+        created_at: resource.created_at || new Date().toISOString()
+      };
+    });
+    
+    res.json(rooms);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch rooms',
       message: error.message
     });
   }

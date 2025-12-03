@@ -250,6 +250,158 @@ app.post('/api/appointments', async (req, res) => {
   }
 });
 
+// Nurses
+app.get('/api/profiles/nurses/available', async (req, res) => {
+  try {
+    await ensureDatabase();
+    const result = await query(
+      'SELECT id, username, full_name, department FROM profiles WHERE role = $1 AND status = $2 ORDER BY full_name',
+      ['nurse', 'active']
+    );
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch nurses',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+app.get('/api/nurses', async (req, res) => {
+  try {
+    await ensureDatabase();
+    const result = await query(
+      'SELECT id, name, skill_level, is_available FROM nurses ORDER BY name'
+    );
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch nurses',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+app.post('/api/nurses', async (req, res) => {
+  try {
+    await ensureDatabase();
+    const { name, skill_level, is_available } = req.body;
+    
+    const result = await query(
+      'INSERT INTO nurses (name, skill_level, is_available) VALUES ($1, $2, $3) RETURNING *',
+      [name, skill_level, is_available]
+    );
+    
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to create nurse',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Doctors
+app.get('/api/doctors', async (req, res) => {
+  try {
+    await ensureDatabase();
+    const result = await query(
+      'SELECT id, name, specialty, is_available FROM doctors ORDER BY name'
+    );
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch doctors',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+app.get('/api/doctors/available', async (req, res) => {
+  try {
+    await ensureDatabase();
+    const result = await query(
+      'SELECT id, username, full_name, department FROM profiles WHERE role = $1 AND status = $2 ORDER BY full_name',
+      ['doctor', 'active']
+    );
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch available doctors',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+app.post('/api/doctors', async (req, res) => {
+  try {
+    await ensureDatabase();
+    const { name, specialty, is_available } = req.body;
+    
+    const result = await query(
+      'INSERT INTO doctors (name, specialty, is_available) VALUES ($1, $2, $3) RETURNING *',
+      [name, specialty, is_available]
+    );
+    
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to create doctor',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Rooms
+app.get('/api/resources/rooms/available', async (req, res) => {
+  try {
+    await ensureDatabase();
+    const result = await query(
+      'SELECT id, name, type, is_available FROM rooms WHERE is_available = true ORDER BY name'
+    );
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch available rooms',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+app.get('/api/rooms', async (req, res) => {
+  try {
+    await ensureDatabase();
+    const result = await query(
+      'SELECT id, name, type, is_available FROM rooms ORDER BY name'
+    );
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch rooms',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+app.post('/api/rooms', async (req, res) => {
+  try {
+    await ensureDatabase();
+    const { name, type, is_available } = req.body;
+    
+    const result = await query(
+      'INSERT INTO rooms (name, type, is_available) VALUES ($1, $2, $3) RETURNING *',
+      [name, type, is_available]
+    );
+    
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to create room',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
 // Schedules
 app.get('/api/schedules', async (req, res) => {
   try {

@@ -225,9 +225,16 @@ export const clientApi = {
   },
 
   // Schedules
-  async getSchedules(filters?: { date?: string; nurse_id?: string }): Promise<Schedule[]> {
+  async getSchedules(filters?: {
+    date?: string;
+    start_date?: string;
+    end_date?: string;
+    nurse_id?: string
+  }): Promise<Schedule[]> {
     const params = new URLSearchParams();
     if (filters?.date) params.append('date', filters.date);
+    if (filters?.start_date) params.append('start_date', filters.start_date);
+    if (filters?.end_date) params.append('end_date', filters.end_date);
     if (filters?.nurse_id) params.append('nurse_id', filters.nurse_id);
     const query = params.toString() ? `?${params.toString()}` : '';
     return apiCall(`/schedules${query}`);
@@ -314,11 +321,11 @@ export const clientApi = {
 
   // Helper functions for specific needs
   async getAvailableNurses() {
-    return authenticatedApiCall('/profiles/nurses/available');
+    return apiCall('/nurses');
   },
 
   async getAvailableRooms() {
-    return apiCall('/resources/rooms/available');
+    return apiCall('/rooms');
   },
 
   // DingTalk Configuration

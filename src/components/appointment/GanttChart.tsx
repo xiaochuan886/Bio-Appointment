@@ -219,7 +219,7 @@ export default function GanttChart({
                 {schedule.appointment?.customer_name || ''}
               </div>
               <div className="text-xs truncate opacity-90 drop-shadow-sm">
-                {schedule.appointment?.service?.name}
+                {schedule.appointment?.service?.name || ''}
               </div>
             </div>
           </TooltipTrigger>
