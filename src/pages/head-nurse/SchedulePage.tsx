@@ -103,6 +103,14 @@ export default function HeadNurseSchedulePage() {
 
 
 
+      // 调试信息：打印获取的预约数据结构
+      console.log('=== 调试：获取的预约数据 ===');
+      console.log('数据数量:', appointmentsData.length);
+      if (appointmentsData.length > 0) {
+        console.log('第一条数据:', appointmentsData[0]);
+        console.log('第一条数据的服务信息:', appointmentsData[0].service);
+        console.log('第一条数据的服务名称:', appointmentsData[0].service?.name);
+      }
       setPendingAppointments(appointmentsData);
       setSchedules(schedulesData);
       setNurses(nursesData);

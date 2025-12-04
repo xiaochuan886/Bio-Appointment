@@ -16,14 +16,26 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import { getNurses, createNurse, updateNurse, deleteNurse, getDoctors, createDoctor, updateDoctor, deleteDoctor, getRooms, createRoom, updateRoom, deleteRoom } from '@/db/api';
+import clientApi from '@/services/api-client';
 import type { Nurse, Doctor, Room } from '@/types/types';
+import type { Service } from '@/services/api-client';
+
+// 服务项目表单Schema
+const serviceSchema = z.object({
+  name: z.string().min(1, '请输入服务项目名称'),
+  description: z.string().min(1, '请输入服务项目描述'),
+  category: z.enum(['nursing', 'consultation', 'report']),
+  base_duration: z.number().min(15, '基础时长至少15分钟').max(480, '基础时长不能超过8小时'),
+  requires_doctor: z.boolean().default(false),
+  allow_companions: z.boolean().default(true),
+  max_companions: z.number().min(0, '最大同行人数不能为负数').max(10, '最大同行人数不能超过10人'),
+  is_active: z.boolean().default(true),
+});
 
 // 护士表单Schema
 const nurseSchema = z.object({
   name: z.string().min(1, '请输入护士姓名'),
-  skill_level: z.enum(['junior', 'intermediate', 'senior'], {
-    required_error: '请选择技能等级',
-  }),
+  skill_level: z.enum(['junior', 'intermediate', 'senior']),
   is_available: z.boolean().default(true),
 });
 
@@ -37,34 +49,50 @@ const doctorSchema = z.object({
 // 房间表单Schema
 const roomSchema = z.object({
   name: z.string().min(1, '请输入房间名称'),
-  room_type: z.enum(['vip', 'treatment', 'consultation'], {
-    required_error: '请选择房间类型',
-  }),
+  room_type: z.enum(['vip', 'treatment', 'consultation']),
   is_available: z.boolean().default(true),
 });
 
+type ServiceFormValues = z.infer<typeof serviceSchema>;
 type NurseFormValues = z.infer<typeof nurseSchema>;
 type DoctorFormValues = z.infer<typeof doctorSchema>;
 type RoomFormValues = z.infer<typeof roomSchema>;
 
 export default function SystemConfigPage() {
-  const [activeTab, setActiveTab] = useState('nurses');
+  const [activeTab, setActiveTab] = useState('services');
+  const [services, setServices] = useState<Service[]>([]);
   const [nurses, setNurses] = useState<Nurse[]>([]);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   // 对话框状态
+  const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
   const [nurseDialogOpen, setNurseDialogOpen] = useState(false);
   const [doctorDialogOpen, setDoctorDialogOpen] = useState(false);
   const [roomDialogOpen, setRoomDialogOpen] = useState(false);
 
   // 编辑状态
+  const [editingService, setEditingService] = useState<Service | null>(null);
   const [editingNurse, setEditingNurse] = useState<Nurse | null>(null);
   const [editingDoctor, setEditingDoctor] = useState<Doctor | null>(null);
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
 
   // 表单
+  const serviceForm = useForm<ServiceFormValues>({
+    resolver: zodResolver(serviceSchema),
+    defaultValues: {
+      name: '',
+      description: '',
+      category: 'nursing',
+      base_duration: 60,
+      requires_doctor: false,
+      allow_companions: true,
+      max_companions: 5,
+      is_active: true,
+    },
+  });
+
   const nurseForm = useForm<NurseFormValues>({
     resolver: zodResolver(nurseSchema),
     defaultValues: {
@@ -98,16 +126,81 @@ export default function SystemConfigPage() {
 
   const loadData = async () => {
     try {
-      const [nursesData, doctorsData, roomsData] = await Promise.all([
+      const [servicesData, nursesData, doctorsData, roomsData] = await Promise.all([
+        clientApi.getServices(),
         getNurses(),
         getDoctors(),
         getRooms(),
       ]);
+      setServices(servicesData);
       setNurses(nursesData);
       setDoctors(doctorsData);
       setRooms(roomsData);
     } catch (error) {
       toast.error('加载数据失败');
+    }
+  };
+
+  // ==================== 服务项目管理 ====================
+
+  const handleAddService = () => {
+    setEditingService(null);
+    serviceForm.reset({
+      name: '',
+      description: '',
+      category: 'nursing',
+      base_duration: 60,
+      requires_doctor: false,
+      allow_companions: true,
+      max_companions: 5,
+      is_active: true,
+    });
+    setServiceDialogOpen(true);
+  };
+
+  const handleEditService = (service: Service) => {
+    setEditingService(service);
+    serviceForm.reset({
+      name: service.name,
+      description: service.description,
+      category: service.category as 'nursing' | 'consultation' | 'report',
+      base_duration: service.base_duration,
+      requires_doctor: service.requires_doctor,
+      allow_companions: service.allow_companions,
+      max_companions: service.max_companions || 5,
+      is_active: service.is_active,
+    });
+    setServiceDialogOpen(true);
+  };
+
+  const handleDeleteService = async (id: string) => {
+    if (!confirm('确定要删除这个服务项目吗？删除后无法恢复。')) return;
+
+    try {
+      await clientApi.deleteService(id);
+      toast.success('删除成功');
+      loadData();
+    } catch (error: any) {
+      toast.error(error.message || '删除失败');
+    }
+  };
+
+  const onSubmitService = async (values: ServiceFormValues) => {
+    setIsLoading(true);
+    try {
+      if (editingService) {
+        await clientApi.updateService(editingService.id, values);
+        toast.success('更新成功');
+      } else {
+        await clientApi.createService(values);
+        toast.success('添加成功');
+      }
+      setServiceDialogOpen(false);
+      loadData();
+    } catch (error: any) {
+      toast.error(error.message || '操作失败');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -258,7 +351,11 @@ export default function SystemConfigPage() {
         await updateRoom(editingRoom.id, values);
         toast.success('更新成功');
       } else {
-        await createRoom(values as { name: string; room_type: 'vip' | 'treatment' | 'consultation'; is_available: boolean });
+        await createRoom({
+          name: values.name,
+          type: values.room_type,
+          is_available: values.is_available
+        });
         toast.success('添加成功');
       }
       setRoomDialogOpen(false);
@@ -290,11 +387,20 @@ export default function SystemConfigPage() {
     return labels[type] || type;
   };
 
+  const getServiceCategoryLabel = (category: string) => {
+    const labels: Record<string, string> = {
+      nursing: '护理服务',
+      consultation: '咨询服务',
+      report: '报告解读',
+    };
+    return labels[category] || category;
+  };
+
   return (
     <div className="container mx-auto py-8 px-4">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-foreground mb-2">系统配置</h1>
-        <p className="text-muted-foreground">管理系统资源：护士、医生、房间</p>
+        <p className="text-muted-foreground">管理系统资源：服务项目、护士、医生、房间</p>
       </div>
 
       <Alert className="mb-6">
@@ -305,11 +411,286 @@ export default function SystemConfigPage() {
       </Alert>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="services">服务项目</TabsTrigger>
           <TabsTrigger value="nurses">护士管理</TabsTrigger>
           <TabsTrigger value="doctors">医生管理</TabsTrigger>
           <TabsTrigger value="rooms">房间管理</TabsTrigger>
         </TabsList>
+
+        {/* ==================== 服务项目管理 ==================== */}
+        <TabsContent value="services">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>服务项目列表</CardTitle>
+                  <CardDescription>管理系统提供的各种服务项目</CardDescription>
+                </div>
+                <Dialog open={serviceDialogOpen} onOpenChange={setServiceDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button onClick={handleAddService}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      添加服务项目
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                      <DialogTitle>{editingService ? '编辑服务项目' : '添加服务项目'}</DialogTitle>
+                      <DialogDescription>
+                        配置服务项目的详细信息，包括时长、是否需要医生等参数
+                      </DialogDescription>
+                    </DialogHeader>
+                    <Form {...serviceForm}>
+                      <form onSubmit={serviceForm.handleSubmit(onSubmitService)} className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <FormField
+                            control={serviceForm.control}
+                            name="name"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>服务名称 *</FormLabel>
+                                <FormControl>
+                                  <Input placeholder="例如：基础回输" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={serviceForm.control}
+                            name="category"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>服务类别 *</FormLabel>
+                                <Select onValueChange={field.onChange} value={field.value}>
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="选择服务类别" />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    <SelectItem value="nursing">护理服务</SelectItem>
+                                    <SelectItem value="consultation">咨询服务</SelectItem>
+                                    <SelectItem value="report">报告解读</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <FormDescription>
+                                  服务类别影响预约流程和资源分配
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+
+                        <FormField
+                          control={serviceForm.control}
+                          name="description"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>服务描述 *</FormLabel>
+                              <FormControl>
+                                <Input placeholder="详细描述服务内容" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <FormField
+                            control={serviceForm.control}
+                            name="base_duration"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>基础时长 (分钟) *</FormLabel>
+                                <FormControl>
+                                  <Input 
+                                    type="number" 
+                                    placeholder="60" 
+                                    {...field}
+                                    onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                                  />
+                                </FormControl>
+                                <FormDescription>
+                                  单人服务的基础时长（分钟）
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={serviceForm.control}
+                            name="max_companions"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>最大同行人数</FormLabel>
+                                <FormControl>
+                                  <Input 
+                                    type="number" 
+                                    placeholder="5" 
+                                    {...field}
+                                    onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                                  />
+                                </FormControl>
+                                <FormDescription>
+                                  允许的最多同行客户数量
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <FormField
+                            control={serviceForm.control}
+                            name="requires_doctor"
+                            render={({ field }) => (
+                              <FormItem className="flex items-center justify-between rounded-lg border p-4">
+                                <div className="space-y-0.5">
+                                  <FormLabel className="text-base">需要医生</FormLabel>
+                                  <FormDescription>
+                                    该服务是否需要医生参与
+                                  </FormDescription>
+                                </div>
+                                <FormControl>
+                                  <Switch
+                                    checked={field.value}
+                                    onCheckedChange={field.onChange}
+                                  />
+                                </FormControl>
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={serviceForm.control}
+                            name="allow_companions"
+                            render={({ field }) => (
+                              <FormItem className="flex items-center justify-between rounded-lg border p-4">
+                                <div className="space-y-0.5">
+                                  <FormLabel className="text-base">允许同行</FormLabel>
+                                  <FormDescription>
+                                    是否允许客户携带同行人员
+                                  </FormDescription>
+                                </div>
+                                <FormControl>
+                                  <Switch
+                                    checked={field.value}
+                                    onCheckedChange={field.onChange}
+                                  />
+                                </FormControl>
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+
+                        <FormField
+                          control={serviceForm.control}
+                          name="is_active"
+                          render={({ field }) => (
+                            <FormItem className="flex items-center justify-between rounded-lg border p-4">
+                              <div className="space-y-0.5">
+                                <FormLabel className="text-base">启用状态</FormLabel>
+                                <FormDescription>
+                                  关闭后该服务将不会出现在预约选择中
+                                </FormDescription>
+                              </div>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value}
+                                  onCheckedChange={field.onChange}
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+
+                        <DialogFooter>
+                          <Button type="button" variant="outline" onClick={() => setServiceDialogOpen(false)}>
+                            取消
+                          </Button>
+                          <Button type="submit" disabled={isLoading}>
+                            {isLoading ? '保存中...' : '保存'}
+                          </Button>
+                        </DialogFooter>
+                      </form>
+                    </Form>
+                  </DialogContent>
+                </Dialog>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>服务名称</TableHead>
+                    <TableHead>类别</TableHead>
+                    <TableHead>基础时长</TableHead>
+                    <TableHead>特殊要求</TableHead>
+                    <TableHead>状态</TableHead>
+                    <TableHead className="text-right">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {services.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                        暂无服务项目数据，请点击"添加服务项目"按钮添加
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    services.map((service) => (
+                      <TableRow key={service.id}>
+                        <TableCell className="font-medium">{service.name}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{getServiceCategoryLabel(service.category)}</Badge>
+                        </TableCell>
+                        <TableCell>{service.base_duration} 分钟</TableCell>
+                        <TableCell>
+                          <div className="flex gap-1">
+                            {service.requires_doctor && <Badge variant="secondary">需要医生</Badge>}
+                            {service.allow_companions && <Badge variant="secondary">允许同行</Badge>}
+                            {service.max_companions && service.max_companions > 0 && (
+                              <Badge variant="outline">最多{service.max_companions}人</Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={service.is_active ? 'default' : 'secondary'}>
+                            {service.is_active ? '启用' : '禁用'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleEditService(service)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteService(service.id)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         {/* ==================== 护士管理 ==================== */}
         <TabsContent value="nurses">

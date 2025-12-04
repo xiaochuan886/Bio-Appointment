@@ -120,6 +120,7 @@ export interface Appointment {
   companion_names?: string[];
   total_people: number;
   service_id: string;
+  service?: Service | null;
   requested_date: string;
   requested_time_start?: string;
   requested_time_end?: string;

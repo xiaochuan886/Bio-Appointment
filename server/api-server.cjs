@@ -254,6 +254,124 @@ app.get('/api/services', async (req, res) => {
   }
 });
 
+// Create service
+app.post('/api/services', async (req, res) => {
+  try {
+    const {
+      name,
+      description,
+      category,
+      base_duration,
+      requires_doctor = false,
+      allow_companions = true,
+      max_companions = 5,
+      is_active = true
+    } = req.body;
+
+    const result = await pool.query(
+      `INSERT INTO services (name, description, category, base_duration, requires_doctor, allow_companions, max_companions, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [name, description, category, base_duration, requires_doctor, allow_companions, max_companions, is_active]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Create service error:', error);
+    res.status(500).json({
+      error: 'Failed to create service',
+      message: error.message
+    });
+  }
+});
+
+// Update service
+app.put('/api/services/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+
+    // Build dynamic update query
+    const updateFields = [];
+    const values = [];
+    let paramIndex = 1;
+
+    for (const [key, value] of Object.entries(updates)) {
+      if (value !== undefined) {
+        updateFields.push(`${key} = $${paramIndex}`);
+        values.push(value);
+        paramIndex++;
+      }
+    }
+
+    if (updateFields.length === 0) {
+      return res.status(400).json({
+        error: 'No valid fields to update'
+      });
+    }
+
+    values.push(id);
+
+    const result = await pool.query(
+      `UPDATE services SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $${paramIndex}
+       RETURNING *`,
+      values
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Service not found'
+      });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to update service',
+      message: error.message
+    });
+  }
+});
+
+// Delete service
+app.delete('/api/services/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check if service is being used by any appointments
+    const appointmentCheck = await pool.query(
+      'SELECT COUNT(*) as count FROM appointments WHERE service_id = $1',
+      [id]
+    );
+
+    if (parseInt(appointmentCheck.rows[0].count) > 0) {
+      return res.status(400).json({
+        error: 'Cannot delete service',
+        message: 'Service is being used by existing appointments'
+      });
+    }
+
+    const result = await pool.query(
+      'DELETE FROM services WHERE id = $1 RETURNING *',
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Service not found'
+      });
+    }
+
+    res.json({ message: 'Service deleted successfully' });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to delete service',
+      message: error.message
+    });
+  }
+});
+
 // Get resources
 app.get('/api/resources', async (req, res) => {
   try {
@@ -456,7 +574,7 @@ app.post('/api/appointments', async (req, res) => {
 app.get('/api/appointments', async (req, res) => {
   try {
     const { status, customer_name, requested_date } = req.query;
-    let query = 'SELECT * FROM appointments';
+    let query = 'SELECT a.*, s.name as service_name, s.category as service_category, s.base_duration as service_base_duration, s.requires_doctor as service_requires_doctor, s.allow_companions as service_allow_companions, s.is_active as service_is_active FROM appointments a LEFT JOIN services s ON a.service_id = s.id';
     let params = [];
     const conditions = [];
 
@@ -486,7 +604,22 @@ app.get('/api/appointments', async (req, res) => {
     const result = await pool.query(query, params);
     console.log(`🔍 [DEBUG] 返回预约数量: ${result.rows.length}`);
     
-    res.json(result.rows);
+    // Map flat result to include service object
+    const mappedRows = result.rows.map(row => ({
+      ...row,
+      service: row.service_name ? {
+        id: row.service_id,
+        name: row.service_name,
+        category: row.service_category,
+        base_duration: row.service_base_duration,
+        requires_doctor: row.service_requires_doctor,
+        allow_companions: row.service_allow_companions,
+        is_active: row.service_is_active
+      } : null
+    }));
+    
+    console.log(`🔍 [DEBUG] 映射后第一条数据服务: ${mappedRows[0]?.service?.name}`);
+    res.json(mappedRows);
   } catch (error) {
     console.error('Failed to fetch appointments:', error);
     res.status(500).json({

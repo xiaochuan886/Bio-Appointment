@@ -62,6 +62,7 @@ export interface Appointment {
   customer_name: string;
   customer_phone: string;
   service_id: string;
+  service?: Service | null;
   requested_date: string;
   requested_time_start: string;
   requested_time_end: string;
@@ -213,6 +214,35 @@ export const clientApi = {
   async getServices(category?: string): Promise<Service[]> {
     const query = category ? `?category=${category}` : '';
     return apiCall(`/services${query}`);
+  },
+
+  async createService(data: {
+    name: string;
+    description: string;
+    category: string;
+    base_duration: number;
+    requires_doctor?: boolean;
+    allow_companions?: boolean;
+    max_companions?: number;
+    is_active?: boolean;
+  }): Promise<Service> {
+    return apiCall('/services', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateService(id: string, data: Partial<Service>): Promise<Service> {
+    return apiCall(`/services/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteService(id: string): Promise<void> {
+    return apiCall(`/services/${id}`, {
+      method: 'DELETE',
+    });
   },
 
   // Resources
