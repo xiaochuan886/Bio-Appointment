@@ -88,8 +88,7 @@ export default function HeadNurseSchedulePage() {
           startDate = endDate = format(selectedDate, 'yyyy-MM-dd');
       }
 
-      console.log('🔍 [DEBUG] 视图模式:', viewMode);
-      console.log('🔍 [DEBUG] 日期范围:', { startDate, endDate });
+
       
       const [appointmentsData, schedulesData, nursesData, roomsData] = await Promise.all([
         clientApi.getAppointments({ status: 'pending', requested_date_from: startDate, requested_date_to: endDate }),
@@ -102,11 +101,7 @@ export default function HeadNurseSchedulePage() {
         clientApi.getAvailableRooms(),
       ]);
 
-      console.log('🔍 [DEBUG] 获取到的待排班预约数据:', appointmentsData);
-      console.log('🔍 [DEBUG] 预约状态分布:', appointmentsData.reduce((acc: Record<string, number>, apt) => {
-        acc[apt.status] = (acc[apt.status] || 0) + 1;
-        return acc;
-      }, {}));
+
 
       setPendingAppointments(appointmentsData);
       setSchedules(schedulesData);
@@ -196,7 +191,10 @@ export default function HeadNurseSchedulePage() {
 
     setIsLoading(true);
     try {
-      const dateStr = format(selectedDate, 'yyyy-MM-dd');
+      // 使用预约的requested_date作为排班日期，而不是甘特图当前选中的日期
+      const dateStr = selectedAppointment.requested_date 
+        ? format(new Date(selectedAppointment.requested_date), 'yyyy-MM-dd')
+        : format(selectedDate, 'yyyy-MM-dd'); // 备用方案：如果没有requested_date才使用selectedDate
 
       if (selectedSchedule) {
         await clientApi.updateSchedule(selectedSchedule.id, {
@@ -254,14 +252,9 @@ export default function HeadNurseSchedulePage() {
 
     setIsLoading(true);
     try {
-      console.log('🔍 [DEBUG] 拒绝预约ID:', selectedAppointment.id);
-      console.log('🔍 [DEBUG] 拒绝前状态:', selectedAppointment.status);
-      
       const updatedAppointment = await clientApi.updateAppointment(selectedAppointment.id, {
         status: 'rejected',
       });
-      
-      console.log('🔍 [DEBUG] 拒绝后状态:', updatedAppointment.status);
 
       toast.success('预约已拒绝');
       setIsScheduleDialogOpen(false);
@@ -271,7 +264,6 @@ export default function HeadNurseSchedulePage() {
         loadData();
       }, 500);
     } catch (error: any) {
-      console.error('🔍 [DEBUG] 拒绝预约失败:', error);
       toast.error(error.message || '拒绝预约失败');
     } finally {
       setIsLoading(false);
@@ -369,6 +361,11 @@ export default function HeadNurseSchedulePage() {
                         <div className="text-xs text-muted-foreground mt-1">
                           {appointment.service?.name}
                         </div>
+                        {appointment.requested_date && (
+                          <div className="text-xs text-primary font-medium mt-1">
+                            📅 {format(new Date(appointment.requested_date), 'yyyy-MM-dd')}
+                          </div>
+                        )}
                       </div>
                       <StatusBadge status="pending" isUrgent={true} />
                     </div>
@@ -395,6 +392,11 @@ export default function HeadNurseSchedulePage() {
                         <div className="text-xs text-muted-foreground mt-1">
                           {appointment.service?.name}
                         </div>
+                        {appointment.requested_date && (
+                          <div className="text-xs text-primary font-medium mt-1">
+                            📅 {format(new Date(appointment.requested_date), 'yyyy-MM-dd')}
+                          </div>
+                        )}
                       </div>
                       <StatusBadge status="pending" />
                     </div>
@@ -504,10 +506,24 @@ export default function HeadNurseSchedulePage() {
                   <div>
                     <span className="text-muted-foreground">客户：</span>
                     <span className="font-medium ml-2">{selectedAppointment.customer_name}</span>
+                    {selectedAppointment.companion_names && selectedAppointment.companion_names.length > 0 && (
+                      <div className="text-xs text-muted-foreground mt-1 ml-2">
+                        同行: {selectedAppointment.companion_names.join(', ')}
+                      </div>
+                    )}
                   </div>
                   <div>
                     <span className="text-muted-foreground">服务：</span>
                     <span className="font-medium ml-2">{selectedAppointment.service?.name}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">预约日期：</span>
+                    <span className="font-medium ml-2">
+                      {selectedAppointment.requested_date 
+                        ? format(new Date(selectedAppointment.requested_date), 'yyyy-MM-dd')
+                        : '未指定'
+                      }
+                    </span>
                   </div>
                   <div>
                     <span className="text-muted-foreground">人数：</span>

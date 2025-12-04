@@ -35,6 +35,7 @@ export default function GanttChart({
   selectedRoomIds = [],
   onScheduleClick 
 }: GanttChartProps) {
+
   // 对话框状态
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedSchedules, setSelectedSchedules] = useState<ScheduleWithDetails[]>([]);
@@ -67,8 +68,8 @@ export default function GanttChart({
 
   if (selectedNurseIds.length > 0 || selectedRoomIds.length > 0) {
     visibleSchedules = schedules.filter(schedule => {
-      const nurseMatch = selectedNurseIds.length === 0 || selectedNurseIds.includes(schedule.nurse_id);
-      const roomMatch = selectedRoomIds.length === 0 || selectedRoomIds.includes(schedule.room_id);
+      const nurseMatch = selectedNurseIds.length === 0 || (schedule.nurse_id && selectedNurseIds.includes(schedule.nurse_id));
+      const roomMatch = selectedRoomIds.length === 0 || (schedule.room_id && selectedRoomIds.includes(schedule.room_id));
       
       // 同时满足护士和房间的筛选条件（如果有的话）
       return nurseMatch && roomMatch;
@@ -107,7 +108,7 @@ export default function GanttChart({
     resourceType: 'room' | 'nurse'
   ) => {
     const cellSchedules = visibleSchedules.filter(
-      s => s.scheduled_date === date && 
+      s => format(parseISO(s.scheduled_date), 'yyyy-MM-dd') === date && 
       (resourceType === 'room' ? s.room_id === resourceId : s.nurse_id === resourceId)
     );
     
@@ -122,7 +123,7 @@ export default function GanttChart({
 
   // 月视图点击处理（不区分资源）
   const handleMonthCellClick = (date: string) => {
-    const cellSchedules = visibleSchedules.filter(s => s.scheduled_date === date);
+    const cellSchedules = visibleSchedules.filter(s => format(parseISO(s.scheduled_date), 'yyyy-MM-dd') === date);
     
     if (cellSchedules.length > 0) {
       setSelectedSchedules(cellSchedules);
@@ -158,8 +159,8 @@ export default function GanttChart({
 
   // 获取排班卡片的组合颜色样式
   const getScheduleCardStyle = (schedule: ScheduleWithDetails) => {
-    const nurseColor = getNurseColor(schedule.nurse_id, nurses);
-    const roomColor = getRoomColor(schedule.room_id, rooms);
+    const nurseColor = getNurseColor(schedule.nurse_id || '', nurses);
+    const roomColor = getRoomColor(schedule.room_id || '', rooms);
     
     // 使用渐变色展示护士-房间组合
     const gradient = getCombinedGradient(nurseColor.bg, roomColor.bg);
@@ -196,8 +197,8 @@ export default function GanttChart({
 
   // 渲染排班卡片（带颜色编码和悬停提示）
   const renderScheduleCard = (schedule: ScheduleWithDetails, position: { left: string; width: string }) => {
-    const nurseColor = getNurseColor(schedule.nurse_id, nurses);
-    const roomColor = getRoomColor(schedule.room_id, rooms);
+    const nurseColor = getNurseColor(schedule.nurse_id || '', nurses);
+    const roomColor = getRoomColor(schedule.room_id || '', rooms);
     const nurse = nurses.find(n => n.id === schedule.nurse_id);
     const room = rooms.find(r => r.id === schedule.room_id);
     
@@ -259,13 +260,30 @@ export default function GanttChart({
     );
   };
 
-  const getSchedulesForResource = (resourceId: string, resourceType: 'room' | 'nurse') => {
-    return visibleSchedules.filter(schedule => {
+  const getSchedulesForResource = (resourceId: string, resourceType: 'room' | 'nurse', dateFilter?: string) => {
+    const filtered = visibleSchedules.filter(schedule => {
+      // 日期过滤（日视图需要）
+      if (dateFilter) {
+        // 🔧 修复：将 UTC 时间转换为本地时间后再提取日期
+        // 问题：后端返回 "2025-12-03T16:00:00.000Z" (UTC)
+        // 北京时间：2025-12-04 00:00 (UTC+8)
+        // 前端过滤："2025-12-04"
+        // 正确方法：使用 date-fns 的 parseISO + format 进行时区转换
+        const scheduleDate = format(parseISO(schedule.scheduled_date), 'yyyy-MM-dd');
+        
+        if (scheduleDate !== dateFilter) {
+          return false;
+        }
+      }
+      
+      // 资源过滤
       if (resourceType === 'room') {
         return schedule.room_id === resourceId;
       }
       return schedule.nurse_id === resourceId;
     });
+
+    return filtered;
   };
 
   // 检测时间段是否重叠
@@ -320,7 +338,7 @@ export default function GanttChart({
   // 获取指定日期的排班数量
   const getScheduleCountForDate = (date: Date) => {
     const dateStr = format(date, 'yyyy-MM-dd');
-    return visibleSchedules.filter(s => s.scheduled_date === dateStr).length;
+    return visibleSchedules.filter(s => format(parseISO(s.scheduled_date), 'yyyy-MM-dd') === dateStr).length;
   };
 
   // 周视图渲染
@@ -330,10 +348,11 @@ export default function GanttChart({
     const weekEnd = endOfWeek(currentDate, { weekStartsOn: 1 });
     const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd });
 
+
     return (
       <div className="space-y-6">
         {/* 房间排班 */}
-        {visibleRooms.length > 0 && (
+        {filteredRooms.length > 0 && (
           <div>
             <h3 className="text-lg font-semibold mb-4">周视图 - 房间排班</h3>
             <Card className="p-4">
@@ -348,7 +367,7 @@ export default function GanttChart({
                 ))}
 
                 {/* 房间行 */}
-                {visibleRooms.map(room => {
+                {filteredRooms.map(room => {
                   const roomColor = getRoomColor(room.id, rooms);
                   return (
                   <div key={room.id} className="contents">
@@ -367,7 +386,7 @@ export default function GanttChart({
                   {weekDays.map(day => {
                     const dateStr = format(day, 'yyyy-MM-dd');
                     const daySchedules = visibleSchedules.filter(
-                      s => s.scheduled_date === dateStr && s.room_id === room.id
+                      s => format(parseISO(s.scheduled_date), 'yyyy-MM-dd') === dateStr && s.room_id === room.id
                     );
                     const isToday = isSameDay(day, currentDate);
 
@@ -443,7 +462,7 @@ export default function GanttChart({
         )}
 
         {/* 护士排班 */}
-        {visibleNurses.length > 0 && (
+        {filteredNurses.length > 0 && (
           <div>
             <h3 className="text-lg font-semibold mb-4">周视图 - 护士排班</h3>
             <Card className="p-4">
@@ -458,7 +477,7 @@ export default function GanttChart({
                 ))}
 
                 {/* 护士行 */}
-                {visibleNurses.map(nurse => {
+                {filteredNurses.map(nurse => {
                   const nurseColor = getNurseColor(nurse.id, nurses);
                   return (
                   <div key={nurse.id} className="contents">
@@ -474,7 +493,7 @@ export default function GanttChart({
                   {weekDays.map(day => {
                     const dateStr = format(day, 'yyyy-MM-dd');
                     const daySchedules = visibleSchedules.filter(
-                      s => s.scheduled_date === dateStr && s.nurse_id === nurse.id
+                      s => format(parseISO(s.scheduled_date), 'yyyy-MM-dd') === dateStr && s.nurse_id === nurse.id
                     );
                     const isToday = isSameDay(day, currentDate);
 
@@ -550,7 +569,7 @@ export default function GanttChart({
         )}
 
         {/* 无筛选结果提示 */}
-        {visibleRooms.length === 0 && visibleNurses.length === 0 && (
+        {filteredRooms.length === 0 && filteredNurses.length === 0 && (
           <Card className="p-8">
             <div className="text-center text-muted-foreground">
               <p className="text-lg mb-2">暂无符合筛选条件的资源</p>
@@ -581,6 +600,7 @@ export default function GanttChart({
 
     // 月视图显示所有排班的汇总，不区分资源类型
     const hasActiveFilter = resourceFilters.length > 0 && resourceFilters.length < 2;
+
 
     // 按周分组
     const weeks: Date[][] = [];
@@ -643,7 +663,7 @@ export default function GanttChart({
                     const isValid = day.getTime() > 0;
                     const isToday = isValid && isSameDay(day, currentDate);
                     const dateStr = isValid ? format(day, 'yyyy-MM-dd') : '';
-                    const daySchedules = isValid ? visibleSchedules.filter(s => s.scheduled_date === dateStr) : [];
+                    const daySchedules = isValid ? visibleSchedules.filter(s => format(parseISO(s.scheduled_date), 'yyyy-MM-dd') === dateStr) : [];
                     const scheduleCount = daySchedules.length;
 
                     // 获取客户姓名列表
@@ -736,7 +756,7 @@ export default function GanttChart({
   return (
     <div className="space-y-6">
       {/* 房间排班 */}
-      {visibleRooms.length > 0 && (
+      {filteredRooms.length > 0 && (
         <div>
           <h3 className="text-lg font-semibold mb-4">房间排班</h3>
           <Card className="p-4">
@@ -753,8 +773,8 @@ export default function GanttChart({
                   </div>
                 </div>
 
-                {visibleRooms.map(room => {
-                const roomSchedules = getSchedulesForResource(room.id, 'room');
+                {filteredRooms.map(room => {
+                const roomSchedules = getSchedulesForResource(room.id, 'room', selectedDate);
                 const scheduleRows = arrangeSchedulesInRows(roomSchedules);
                 const rowHeight = 48; // 每行高度
                 const totalHeight = Math.max(scheduleRows.length * rowHeight, rowHeight);
@@ -810,7 +830,7 @@ export default function GanttChart({
       )}
 
       {/* 护士排班 */}
-      {visibleNurses.length > 0 && (
+      {filteredNurses.length > 0 && (
         <div>
           <h3 className="text-lg font-semibold mb-4">护士排班</h3>
           <Card className="p-4">
@@ -827,8 +847,8 @@ export default function GanttChart({
                   </div>
                 </div>
 
-                {visibleNurses.map(nurse => {
-                const nurseSchedules = getSchedulesForResource(nurse.id, 'nurse');
+                {filteredNurses.map(nurse => {
+                const nurseSchedules = getSchedulesForResource(nurse.id, 'nurse', selectedDate);
                 const scheduleRows = arrangeSchedulesInRows(nurseSchedules);
                 const rowHeight = 48;
                 const totalHeight = Math.max(scheduleRows.length * rowHeight, rowHeight);
@@ -883,7 +903,7 @@ export default function GanttChart({
       )}
 
       {/* 无筛选结果提示 */}
-      {visibleRooms.length === 0 && visibleNurses.length === 0 && (
+      {filteredRooms.length === 0 && filteredNurses.length === 0 && (
         <Card className="p-8">
           <div className="text-center text-muted-foreground">
             <p className="text-lg mb-2">暂无符合筛选条件的资源</p>
