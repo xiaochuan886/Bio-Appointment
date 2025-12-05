@@ -166,8 +166,13 @@ export default function SalesAppointmentPage() {
     try {
       const validCompanions = companions.filter(c => c.trim() !== '');
 
-      if (isUrgent && selectedService?.category !== 'nursing') {
-        toast.error('急单仅允许预约护理类服务');
+      // 急单仅允许预约【静脉采血】服务
+      // PRD要求：[HM-03] 急单预约...仅限抽血服务
+      // 注意：虽然基础回输也是 nursing 类，但在急单模式下必须严格限制为采血
+      const isBloodTest = selectedService?.name?.includes('采血');
+      
+      if (isUrgent && !isBloodTest) {
+        toast.error('急单仅允许预约【静脉采血】服务，其他服务请选择明日');
         setIsLoading(false);
         return;
       }

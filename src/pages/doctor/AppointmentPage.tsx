@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
+import { useAuth } from '@/contexts/AuthContext';
 import clientApi from '@/services/api-client';
 import type { Appointment } from '@/services/api-client';
 import StatusBadge from '@/components/appointment/StatusBadge';
@@ -25,6 +26,7 @@ const rejectFormSchema = z.object({
 type RejectFormValues = z.infer<typeof rejectFormSchema>;
 
 export default function DoctorAppointmentPage() {
+  const { user } = useAuth();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false);
@@ -35,26 +37,45 @@ export default function DoctorAppointmentPage() {
   });
 
   useEffect(() => {
-    loadAppointments();
-    const interval = setInterval(loadAppointments, 30000);
-    return () => clearInterval(interval);
-  }, []);
+    if (user) {
+      loadAppointments();
+      const interval = setInterval(loadAppointments, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [user]);
 
   const loadAppointments = async () => {
     try {
+      if (!user) return;
+      
       const data = await clientApi.getAppointments({});
-      const doctorAppointments = data.filter(
-        a => a.doctor_id && (a.doctor_status === 'pending' || a.doctor_status === 'accepted' || a.doctor_status === 'rejected')
-      );
+      const doctorAppointments = data.filter(a => {
+        // 1. 已分配给当前医生的预约
+        if (a.doctor_id === user.id) {
+          return true;
+        }
+        
+        // 2. 未分配医生，但需要医生确认的预约（抢单池）
+        // 服务类型为咨询类(consultation)或标记为需要医生(requires_doctor)
+        if (!a.doctor_id && (a.service?.category === 'consultation' || a.service?.requires_doctor)) {
+          // 仅显示待处理或已处理状态（理论上未分配的通常是 pending）
+          return a.doctor_status === 'pending';
+        }
+        
+        return false;
+      });
       setAppointments(doctorAppointments);
     } catch (error) {
       console.error('加载预约失败:', error);
     }
   };
 
-  const handleAccept = async (appointment: AppointmentWithDetails) => {
+  const handleAccept = async (appointment: Appointment) => {
+    if (!user) return;
+    
     try {
       await clientApi.updateAppointment(appointment.id, {
+        doctor_id: user.id, // 抢单：将当前医生设为负责人
         doctor_status: 'accepted',
         status: 'confirmed',
       });
@@ -66,7 +87,7 @@ export default function DoctorAppointmentPage() {
     }
   };
 
-  const handleReject = (appointment: AppointmentWithDetails) => {
+  const handleReject = (appointment: Appointment) => {
     setSelectedAppointment(appointment);
     form.reset({ doctor_note: '', suggested_date: undefined });
     setIsRejectDialogOpen(true);

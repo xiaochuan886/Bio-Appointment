@@ -352,7 +352,7 @@ app.post('/api/doctors', async (req, res) => {
 app.get('/api/resources/rooms/available', async (req, res) => {
     try {
         await ensureDatabase();
-        const result = await (0, connection_1.query)('SELECT id, name, type, is_available FROM rooms WHERE is_available = true ORDER BY name');
+        const result = await (0, connection_1.query)('SELECT id, name, type as room_type, is_available FROM rooms WHERE is_available = true ORDER BY name');
         res.json(result.rows);
     }
     catch (error) {
@@ -365,7 +365,7 @@ app.get('/api/resources/rooms/available', async (req, res) => {
 app.get('/api/rooms', async (req, res) => {
     try {
         await ensureDatabase();
-        const result = await (0, connection_1.query)('SELECT id, name, type, is_available FROM rooms ORDER BY name');
+        const result = await (0, connection_1.query)('SELECT id, name, type as room_type, is_available FROM rooms ORDER BY name');
         res.json(result.rows);
     }
     catch (error) {
@@ -379,7 +379,7 @@ app.post('/api/rooms', async (req, res) => {
     try {
         await ensureDatabase();
         const { name, type, is_available } = req.body;
-        const result = await (0, connection_1.query)('INSERT INTO rooms (name, type, is_available) VALUES ($1, $2, $3) RETURNING *', [name, type, is_available]);
+        const result = await (0, connection_1.query)('INSERT INTO rooms (name, type, is_available) VALUES ($1, $2, $3) RETURNING id, name, type as room_type, is_available', [name, type, is_available]);
         res.status(201).json(result.rows[0]);
     }
     catch (error) {

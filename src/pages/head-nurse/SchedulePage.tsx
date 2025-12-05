@@ -1,14 +1,26 @@
 import { useState, useEffect } from 'react';
 import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
-import { AlertCircle, Clock, Users } from 'lucide-react';
+import { AlertCircle, Clock, Users, Calendar, MapPin, Pencil, X, Trash2, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { toast } from 'sonner';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -47,10 +59,12 @@ export default function HeadNurseSchedulePage() {
   const [selectedAppointment, setSelectedAppointment] = useState<any | null>(null);
   const [selectedSchedule, setSelectedSchedule] = useState<any | null>(null);
   const [isScheduleDialogOpen, setIsScheduleDialogOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false); // 控制查看/编辑模式
   const [isLoading, setIsLoading] = useState(false);
   const [resourceConflicts, setResourceConflicts] = useState<ResourceConflict[]>([]);
   const [isConflictDialogOpen, setIsConflictDialogOpen] = useState(false);
   const [pendingScheduleData, setPendingScheduleData] = useState<ScheduleFormValues | null>(null);
+  const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
 
   const form = useForm<ScheduleFormValues>({
     resolver: zodResolver(scheduleFormSchema),
@@ -88,10 +102,8 @@ export default function HeadNurseSchedulePage() {
           startDate = endDate = format(selectedDate, 'yyyy-MM-dd');
       }
 
-
-      
       const [appointmentsData, schedulesData, nursesData, roomsData] = await Promise.all([
-        clientApi.getAppointments({ status: 'pending', requested_date_from: startDate, requested_date_to: endDate }),
+        clientApi.getAppointments({ status: 'pending,confirmed', requested_date_from: startDate, requested_date_to: endDate }),
         clientApi.getSchedules({
           date: viewMode === 'day' ? startDate : undefined,
           start_date: viewMode !== 'day' ? startDate : undefined,
@@ -101,16 +113,6 @@ export default function HeadNurseSchedulePage() {
         clientApi.getAvailableRooms(),
       ]);
 
-
-
-      // 调试信息：打印获取的预约数据结构
-      console.log('=== 调试：获取的预约数据 ===');
-      console.log('数据数量:', appointmentsData.length);
-      if (appointmentsData.length > 0) {
-        console.log('第一条数据:', appointmentsData[0]);
-        console.log('第一条数据的服务信息:', appointmentsData[0].service);
-        console.log('第一条数据的服务名称:', appointmentsData[0].service?.name);
-      }
       setPendingAppointments(appointmentsData);
       setSchedules(schedulesData);
       setNurses(nursesData);
@@ -130,9 +132,11 @@ export default function HeadNurseSchedulePage() {
   const handleCreateSchedule = (appointment: any) => {
     setSelectedAppointment(appointment);
     setSelectedSchedule(null);
+    setIsEditing(true); // 新建时默认为编辑模式
     
     const estimatedDuration = appointment.estimated_duration || 60;
     const startTime = appointment.requested_time_start || '09:00:00';
+    // 处理时间计算
     const [hour, minute] = startTime.split(':').map(Number);
     const endMinutes = hour * 60 + minute + estimatedDuration;
     const endHour = Math.floor(endMinutes / 60);
@@ -154,13 +158,31 @@ export default function HeadNurseSchedulePage() {
   const handleEditSchedule = (schedule: any) => {
     setSelectedSchedule(schedule);
     setSelectedAppointment(schedule.appointment || null);
+    setIsEditing(false); // 查看现有排班时默认为查看详情模式
+
+    // 尝试匹配正确的房间ID
+    let roomId = schedule.room_id || '';
+    // 检查当前房间ID是否存在于房间列表中
+    const roomExists = rooms.some(r => r.id === roomId);
+    if (!roomExists) {
+      // 如果ID不匹配，尝试用名称匹配
+      // schedule.room 可能是后端关联查询返回的对象，或者我们尝试从其他属性获取
+      const roomName = schedule.room?.name || schedule.room_name;
+      if (roomName) {
+        const matchedRoom = rooms.find(r => r.name === roomName);
+        if (matchedRoom) {
+          roomId = matchedRoom.id;
+          console.log(`[DEBUG] 房间ID自动修正: ${schedule.room_id} -> ${roomId} (${roomName})`);
+        }
+      }
+    }
 
     form.reset({
       scheduled_time_start: schedule.scheduled_time_start,
       scheduled_time_end: schedule.scheduled_time_end,
-      room_id: schedule.room_id || '',
+      room_id: roomId,
       nurse_id: schedule.nurse_id || '',
-      adjusted_duration: schedule.adjusted_duration || undefined,
+      adjusted_duration: schedule.adjusted_duration || schedule.appointment?.estimated_duration || 60,
       adjustment_reason: schedule.adjustment_reason || '',
     });
 
@@ -199,10 +221,10 @@ export default function HeadNurseSchedulePage() {
 
     setIsLoading(true);
     try {
-      // 使用预约的requested_date作为排班日期，而不是甘特图当前选中的日期
+      // 使用预约的requested_date作为排班日期
       const dateStr = selectedAppointment.requested_date 
         ? format(new Date(selectedAppointment.requested_date), 'yyyy-MM-dd')
-        : format(selectedDate, 'yyyy-MM-dd'); // 备用方案：如果没有requested_date才使用selectedDate
+        : format(selectedDate, 'yyyy-MM-dd');
 
       if (selectedSchedule) {
         await clientApi.updateSchedule(selectedSchedule.id, {
@@ -213,7 +235,7 @@ export default function HeadNurseSchedulePage() {
           nurse_id: values.nurse_id,
           status: 'published',
         });
-
+        console.log(`[操作日志] 更新排班: ID ${selectedSchedule.id}, 预约人 ${selectedAppointment.customer_name}`);
         toast.success(forceOverride ? '排班已强制更新（存在资源冲突）' : '排班已更新');
       } else {
         await clientApi.createSchedule({
@@ -224,11 +246,10 @@ export default function HeadNurseSchedulePage() {
           room_id: values.room_id,
           nurse_id: values.nurse_id,
         });
-
         await clientApi.updateAppointment(selectedAppointment.id, {
           status: 'scheduled',
         });
-
+        console.log(`[操作日志] 创建排班: 预约ID ${selectedAppointment.id}, 预约人 ${selectedAppointment.customer_name}`);
         toast.success(forceOverride ? '排班已强制创建（存在资源冲突）' : '排班已创建');
       }
 
@@ -255,30 +276,68 @@ export default function HeadNurseSchedulePage() {
     setPendingScheduleData(null);
   };
 
-  const handleRejectAppointment = async () => {
+  const handleCancelAppointment = async () => {
     if (!selectedAppointment) return;
 
     setIsLoading(true);
     try {
-      const updatedAppointment = await clientApi.updateAppointment(selectedAppointment.id, {
-        status: 'rejected',
-      });
+      // 1. 如果是已排班的预约，先删除排班记录
+      if (selectedSchedule) {
+        await clientApi.deleteSchedule(selectedSchedule.id);
+        console.log(`[操作日志] 删除排班: ID ${selectedSchedule.id}`);
+      }
 
-      toast.success('预约已拒绝');
+      // 2. 更新预约状态为 'cancelled'
+      await clientApi.updateAppointment(selectedAppointment.id, {
+        status: 'cancelled',
+      });
+      console.log(`[操作日志] 取消预约: ID ${selectedAppointment.id}, 客户 ${selectedAppointment.customer_name}`);
+
+      toast.success('预约已手动取消');
+      setIsCancelDialogOpen(false);
       setIsScheduleDialogOpen(false);
       
-      // 延迟一下再刷新数据，确保数据库更新完成
       setTimeout(() => {
         loadData();
       }, 500);
     } catch (error: any) {
-      toast.error(error.message || '拒绝预约失败');
+      console.error('取消预约失败:', error);
+      toast.error(error.message || '取消预约失败');
     } finally {
       setIsLoading(false);
     }
   };
 
-  
+  const getRoomDetails = (roomId: string) => {
+    // 首先尝试通过ID匹配
+    let room = rooms.find(r => r.id === roomId);
+
+    // 如果ID匹配失败，尝试通过排班数据中的room_name来匹配
+    if (!room) {
+      // 从排班数据中查找该房间ID对应的房间名称
+      const scheduleWithRoom = schedules.find(s => s.room_id === roomId);
+      if (scheduleWithRoom && scheduleWithRoom.room_name) {
+        room = rooms.find(r => r.name === scheduleWithRoom.room_name);
+        if (room) {
+          console.log(`[DEBUG] getRoomDetails: 通过名称匹配成功 - ID ${roomId} -> ${room.name} (${room.id})`);
+        }
+      }
+    }
+
+    if (!room) return '未知房间';
+    const typeMap: Record<string, string> = {
+      'vip': 'VIP室',
+      'treatment': '治疗室',
+      'consultation': '咨询室',
+    };
+    return `${room.name} (${typeMap[room.room_type] || room.room_type})`;
+  };
+
+  const getNurseName = (nurseId: string) => {
+    const nurse = nurses.find(n => n.id === nurseId);
+    return nurse ? nurse.name : '未分配';
+  };
+
   const urgentAppointments = pendingAppointments.filter(a => a.is_urgent);
   const normalAppointments = pendingAppointments.filter(a => !a.is_urgent);
   const lockedSchedules = schedules.filter(s => s.status === 'locked');
@@ -330,7 +389,7 @@ export default function HeadNurseSchedulePage() {
         </Card>
       </div>
 
-      {/* 筛选栏 - 放在资源看板上方 */}
+      {/* 筛选栏 */}
       <div className="mb-4">
         <CompactFilterBar
           nurses={nurses}
@@ -345,9 +404,8 @@ export default function HeadNurseSchedulePage() {
         />
       </div>
 
-      {/* 排班待办 + 图例 - 横向布局，放在资源看板上方 */}
+      {/* 排班待办 */}
       <div className="grid gap-4 xl:grid-cols-[1fr_auto] mb-4">
-        {/* 排班待办 */}
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
@@ -435,7 +493,6 @@ export default function HeadNurseSchedulePage() {
           </CardContent>
         </Card>
 
-        {/* 图例说明 - 紧凑横向显示 */}
         <Card className="xl:w-[280px]">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm">图例说明</CardTitle>
@@ -460,7 +517,7 @@ export default function HeadNurseSchedulePage() {
         </Card>
       </div>
 
-      {/* 主内容区域 - 资源看板（全宽） */}
+      {/* 资源看板 */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -495,76 +552,211 @@ export default function HeadNurseSchedulePage() {
         </CardContent>
       </Card>
 
-      {/* 排班编辑对话框 */}
+      {/* 排班详情/编辑对话框 */}
       <Dialog open={isScheduleDialogOpen} onOpenChange={setIsScheduleDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {selectedSchedule ? '编辑排班' : '创建排班'}
+              {isEditing ? (selectedSchedule ? '编辑排班' : '创建排班') : '排班详情'}
             </DialogTitle>
             <DialogDescription>
-              为预约分配医疗资源并确认时间
+              {isEditing ? '为预约分配医疗资源并确认时间' : '查看预约及资源分配详情'}
             </DialogDescription>
           </DialogHeader>
 
-          {selectedAppointment && (
-            <Alert>
-              <AlertDescription>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">客户：</span>
-                    <span className="font-medium ml-2">{selectedAppointment.customer_name}</span>
-                    {selectedAppointment.companion_names && selectedAppointment.companion_names.length > 0 && (
-                      <div className="text-xs text-muted-foreground mt-1 ml-2">
-                        同行: {selectedAppointment.companion_names.join(', ')}
+          {/* 查看模式 - 详情展示 */}
+          {!isEditing && selectedSchedule && selectedAppointment && (
+            <div className="space-y-6">
+              <div className="border rounded-lg p-6 bg-card text-card-foreground shadow-sm">
+                  {/* Title Row */}
+                  <div className="flex items-start justify-between mb-6">
+                      <div className="flex items-center gap-3">
+                          <Users className="w-6 h-6 text-primary" />
+                          <span className="font-bold text-xl">
+                              {selectedAppointment.customer_name}
+                          </span>
+                          <StatusBadge status={selectedSchedule.status} />
                       </div>
-                    )}
                   </div>
-                  <div>
-                    <span className="text-muted-foreground">服务：</span>
-                    <span className="font-medium ml-2">{selectedAppointment.service?.name}</span>
+
+                  {/* Time Info */}
+                  <div className="grid grid-cols-2 gap-6 mb-6">
+                      <div className="flex items-center gap-2 text-sm">
+                          <Clock className="w-5 h-5 text-muted-foreground" />
+                          <span className="text-muted-foreground text-base">时间:</span>
+                          <span className="font-medium text-lg">
+                              {(() => {
+                                  if (!selectedSchedule.scheduled_time_start) return '未设定';
+                                  const start = selectedSchedule.scheduled_time_start.slice(0, 5);
+                                  const duration = selectedSchedule.adjusted_duration || selectedAppointment.estimated_duration || 0;
+                                  const [startH, startM] = start.split(':').map(Number);
+                                  const endMinutes = startH * 60 + startM + duration;
+                                  const endH = Math.floor(endMinutes / 60) % 24;
+                                  const endM = endMinutes % 60;
+                                  const end = `${endH.toString().padStart(2, '0')}:${endM.toString().padStart(2, '0')}`;
+                                  return `${start} - ${end}`;
+                              })()}
+                          </span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm">
+                          <Clock className="w-5 h-5 text-muted-foreground" />
+                          <span className="text-muted-foreground text-base">时长:</span>
+                          <span className="font-medium text-lg">
+                              {selectedSchedule.adjusted_duration || selectedAppointment.estimated_duration} 分钟
+                          </span>
+                      </div>
                   </div>
-                  <div>
-                    <span className="text-muted-foreground">预约日期：</span>
-                    <span className="font-medium ml-2">
-                      {selectedAppointment.requested_date 
-                        ? format(new Date(selectedAppointment.requested_date), 'yyyy-MM-dd')
-                        : '未指定'
-                      }
-                    </span>
+
+                  {/* Service Info */}
+                  <div className="space-y-4 mb-6">
+                       <div className="flex items-start gap-2 text-sm">
+                           <Info className="w-5 h-5 text-muted-foreground mt-0.5" />
+                           <div>
+                               <span className="text-muted-foreground text-base">服务项目:</span>
+                               <span className="ml-2 font-medium text-lg">
+                                   {selectedAppointment.service?.name}
+                               </span>
+                           </div>
+                       </div>
                   </div>
-                  <div>
-                    <span className="text-muted-foreground">人数：</span>
-                    <span className="font-medium ml-2">{selectedAppointment.total_people} 人</span>
+
+                  {/* Resource Info */}
+                  <div className="grid grid-cols-2 gap-6 text-sm pt-4 border-t">
+                       <div className="space-y-2">
+                           <span className="text-muted-foreground text-base block">房间:</span>
+                           <span className="font-medium text-lg block">
+                               {getRoomDetails(selectedSchedule.room_id)}
+                           </span>
+                       </div>
+                       <div className="space-y-2">
+                           <span className="text-muted-foreground text-base block">护士:</span>
+                           <span className="font-medium text-lg block">
+                               {getNurseName(selectedSchedule.nurse_id)}
+                           </span>
+                       </div>
                   </div>
-                  <div>
-                    <span className="text-muted-foreground">标准时长：</span>
-                    <span className="font-medium ml-2">{selectedAppointment.estimated_duration} 分钟</span>
-                  </div>
+                  
+                  {/* Notes */}
+                  {selectedSchedule.notes && (
+                       <div className="mt-4 pt-4 border-t">
+                           <div className="text-sm">
+                               <span className="text-muted-foreground">备注:</span>
+                               <p className="mt-1 text-muted-foreground p-2 bg-muted rounded">{selectedSchedule.notes}</p>
+                           </div>
+                       </div>
+                  )}
+              </div>
+
+              <DialogFooter className="gap-2 sm:justify-between">
+                <Button
+                  variant="ghost"
+                  onClick={() => setIsCancelDialogOpen(true)}
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  手动取消
+                </Button>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => setIsScheduleDialogOpen(false)}>
+                    关闭
+                  </Button>
+                  <Button onClick={() => setIsEditing(true)}>
+                    <Pencil className="h-4 w-4 mr-2" />
+                    编辑排班
+                  </Button>
                 </div>
-              </AlertDescription>
-            </Alert>
+              </DialogFooter>
+            </div>
           )}
 
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
+          {/* 编辑模式 - 表单 */}
+          {isEditing && (
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                {/* 预约基本信息摘要 */}
+                {selectedAppointment && (
+                  <Alert className="bg-muted/50">
+                    <AlertDescription>
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div><span className="text-muted-foreground">客户：</span> {selectedAppointment.customer_name}</div>
+                        <div><span className="text-muted-foreground">服务：</span> {selectedAppointment.service?.name}</div>
+                        <div><span className="text-muted-foreground">人数：</span> {selectedAppointment.total_people || (selectedAppointment.companion_names?.length ? selectedAppointment.companion_names.length + 1 : 1)}人</div>
+                        <div><span className="text-muted-foreground">标准：</span> {selectedAppointment.estimated_duration}分钟</div>
+                      </div>
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="scheduled_time_start"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>开始时间 (Start)</FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <Input 
+                              type="time" 
+                              {...field} 
+                              className="text-lg font-medium"
+                            />
+                            <Clock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="adjusted_duration"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>修正时长 (Duration)</FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <Input 
+                              type="number" 
+                              value={field.value || ''}
+                              className="text-lg font-medium pr-12"
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                field.onChange(value ? parseInt(value) : undefined);
+                              }}
+                            />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                              min
+                            </span>
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
                 <FormField
                   control={form.control}
-                  name="scheduled_time_start"
+                  name="room_id"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>开始时间 (Start Time)</FormLabel>
-                      <FormControl>
-                        <div className="relative">
-                          <Input 
-                            type="time" 
-                            {...field} 
-                            className="text-lg font-medium"
-                          />
-                          <Clock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                        </div>
-                      </FormControl>
+                      <FormLabel>房间分配 (Room)</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger className="h-12">
+                            <SelectValue placeholder="选择房间" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {rooms.map(room => (
+                            <SelectItem key={room.id} value={room.id}>
+                              {room.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -572,139 +764,108 @@ export default function HeadNurseSchedulePage() {
 
                 <FormField
                   control={form.control}
-                  name="adjusted_duration"
+                  name="nurse_id"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>修正时长 (Duration)</FormLabel>
+                      <FormLabel>护士分配 (Nurse)</FormLabel>
+                      <FormDescription className="text-xs text-muted-foreground">
+                        双人复核机制
+                      </FormDescription>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger className="h-12">
+                            <SelectValue placeholder="选择护士" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {nurses.map(nurse => (
+                            <SelectItem key={nurse.id} value={nurse.id}>
+                              <div className="flex items-center gap-2">
+                                <Users className="h-4 w-4" />
+                                {nurse.name}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="adjustment_reason"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>调整原因（可选）</FormLabel>
                       <FormControl>
-                        <div className="relative">
-                          <Input 
-                            type="number" 
-                            value={field.value || ''}
-                            className="text-lg font-medium pr-12"
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              field.onChange(value ? parseInt(value) : undefined);
-                            }}
-                          />
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                            min
-                          </span>
-                        </div>
+                        <Textarea 
+                          placeholder="如调整了时长，请说明原因" 
+                          {...field} 
+                          rows={3}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-              </div>
 
-              <FormField
-                control={form.control}
-                name="room_id"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>房间分配 (Room)</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger className="h-12">
-                          <SelectValue placeholder="选择房间" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {rooms.map(room => (
-                          <SelectItem key={room.id} value={room.id}>
-                            {room.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="nurse_id"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>护士分配 (Nurse)</FormLabel>
-                    <FormDescription className="text-xs text-muted-foreground">
-                      双人复核机制
-                    </FormDescription>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger className="h-12">
-                          <SelectValue placeholder="选择护士" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {nurses.map(nurse => (
-                          <SelectItem key={nurse.id} value={nurse.id}>
-                            <div className="flex items-center gap-2">
-                              <Users className="h-4 w-4" />
-                              {nurse.name}
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="adjustment_reason"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>调整原因（可选）</FormLabel>
-                    <FormControl>
-                      <Textarea 
-                        placeholder="如调整了时长，请说明原因" 
-                        {...field} 
-                        rows={3}
-                      />
-                    </FormControl>
-                    <FormDescription className="text-xs">
-                      根据客户画像和历史数据，可手动调整预估时长
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <div className="flex gap-3 justify-end pt-4 border-t">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setIsScheduleDialogOpen(false)}
-                  className="min-w-24"
-                >
-                  取消
-                </Button>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  onClick={handleRejectAppointment}
-                  className="min-w-24"
-                  disabled={isLoading}
-                >
-                  {isLoading ? '处理中...' : '✗ 拒绝预约'}
-                </Button>
-                <Button
-                  type="submit"
-                  className="min-w-32 bg-primary hover:bg-primary/90"
-                  disabled={isLoading}
-                >
-                  {isLoading ? '保存中...' : '✓ 确认排班'}
-                </Button>
-              </div>
-            </form>
-          </Form>
+                <DialogFooter className="gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      // 如果是新建模式取消，直接关闭；如果是编辑现有，返回查看模式
+                      if (selectedSchedule && !isEditing) {
+                        setIsEditing(false);
+                      } else if (selectedSchedule && isEditing) {
+                        setIsEditing(false);
+                      } else {
+                        setIsScheduleDialogOpen(false);
+                      }
+                    }}
+                  >
+                    取消
+                  </Button>
+                  <Button
+                    type="submit"
+                    className="min-w-32 bg-primary hover:bg-primary/90"
+                    disabled={isLoading}
+                  >
+                    {isLoading ? '保存中...' : '✓ 保存排班'}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </Form>
+          )}
         </DialogContent>
       </Dialog>
+
+      {/* 取消预约二次确认对话框 */}
+      <AlertDialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认取消预约？</AlertDialogTitle>
+            <AlertDialogDescription>
+              此操作将取消该预约申请{selectedSchedule ? '并释放已分配的资源' : ''}。
+              <br />
+              <span className="text-destructive font-medium mt-2 block">
+                此操作无法撤销。
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleCancelAppointment}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              确认取消
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* 资源冲突确认对话框 */}
       <ResourceConflictDialog

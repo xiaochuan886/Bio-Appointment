@@ -1,13 +1,15 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { LogIn, UserPlus } from 'lucide-react';
+import { LogIn, UserPlus, QrCode, Smartphone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import QRCodeDataUrl from '@/components/ui/qrcodedataurl';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -22,6 +24,25 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const { login: authLogin } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('account');
+  const [qrCodeUrl, setQrCodeUrl] = useState('');
+
+  // 模拟获取钉钉登录二维码
+  useEffect(() => {
+    if (activeTab === 'dingtalk') {
+      // 实际项目中应调用 /api/dingtalk/qrcode 获取
+      const mockDingTalkAuthUrl = `https://oapi.dingtalk.com/connect/qrconnect?appid=dingoa_mock_id&response_type=code&scope=snsapi_login&state=STATE&redirect_uri=${encodeURIComponent(window.location.origin + '/auth/dingtalk/callback')}`;
+      setQrCodeUrl(mockDingTalkAuthUrl);
+      
+      // 模拟轮询检测扫码状态
+      const timer = setInterval(() => {
+        // 这里应该调用后端接口检查扫码状态
+        // checkScanStatus();
+      }, 3000);
+      
+      return () => clearInterval(timer);
+    }
+  }, [activeTab]);
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -82,74 +103,115 @@ export default function LoginPage() {
           <CardDescription>智能预约调度系统</CardDescription>
         </CardHeader>
         <CardContent>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="email"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>邮箱</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="请输入邮箱"
-                        type="email"
-                        autoComplete="email"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>密码</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="password"
-                        placeholder="请输入密码"
-                        autoComplete="current-password"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={isLoading}
-              >
-                {isLoading ? '登录中...' : '登录'}
-              </Button>
-            </form>
-          </Form>
+          <Tabs defaultValue="account" value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-2 mb-6">
+              <TabsTrigger value="account">
+                <Smartphone className="h-4 w-4 mr-2" />
+                账号登录
+              </TabsTrigger>
+              <TabsTrigger value="dingtalk">
+                <QrCode className="h-4 w-4 mr-2" />
+                钉钉扫码
+              </TabsTrigger>
+            </TabsList>
 
-          <div className="mt-6 text-center">
-            <p className="text-sm text-muted-foreground">
-              还没有账号？{' '}
-              <Link
-                to="/register"
-                className="text-primary hover:underline font-medium"
-              >
-                <UserPlus className="inline h-4 w-4 mr-1" />
-                立即注册
-              </Link>
-            </p>
-          </div>
+            <TabsContent value="account">
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                  <FormField
+                    control={form.control}
+                    name="email"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>邮箱</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="请输入邮箱"
+                            type="email"
+                            autoComplete="email"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="password"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>密码</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="password"
+                            placeholder="请输入密码"
+                            autoComplete="current-password"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    disabled={isLoading}
+                  >
+                    {isLoading ? '登录中...' : '登录'}
+                  </Button>
+                </form>
+              </Form>
 
-          <div className="mt-6 p-4 bg-muted/50 rounded-lg">
-            <p className="text-xs text-muted-foreground text-center">
-              💡 测试账号：<br/>
-              邮箱: admin@test.com<br/>
-              密码: admin123
-            </p>
-          </div>
+              <div className="mt-6 text-center">
+                <p className="text-sm text-muted-foreground">
+                  还没有账号？{' '}
+                  <Link
+                    to="/register"
+                    className="text-primary hover:underline font-medium"
+                  >
+                    <UserPlus className="inline h-4 w-4 mr-1" />
+                    立即注册
+                  </Link>
+                </p>
+              </div>
+
+              <div className="mt-6 p-4 bg-muted/50 rounded-lg">
+                <p className="text-xs text-muted-foreground text-center">
+                  💡 测试账号：<br/>
+                  邮箱: admin@test.com<br/>
+                  密码: admin123
+                </p>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="dingtalk">
+              <div className="flex flex-col items-center justify-center py-6 space-y-4">
+                <div className="bg-white p-2 rounded-lg border shadow-sm">
+                  {qrCodeUrl && (
+                    <QRCodeDataUrl 
+                      text={qrCodeUrl} 
+                      width={200} 
+                      color="#000000"
+                    />
+                  )}
+                </div>
+                <div className="text-center space-y-2">
+                  <p className="font-medium">打开钉钉 App 扫一扫</p>
+                  <p className="text-sm text-muted-foreground">
+                    扫码后无需输入密码，直接登录
+                  </p>
+                </div>
+                
+                <div className="mt-4 w-full p-4 bg-blue-50 rounded-lg border border-blue-100">
+                  <p className="text-xs text-blue-600 text-center">
+                    提示：首次登录需绑定系统账号，绑定后即可实现免密登录。
+                  </p>
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
     </div>

@@ -36,6 +36,25 @@ export default function GanttChart({
   onScheduleClick 
 }: GanttChartProps) {
 
+  // 🔧 调试函数：记录房间匹配信息
+  const logRoomMatch = (
+    context: string,
+    scheduleRoomId: string | undefined,
+    scheduleRoomName: string | undefined,
+    targetRoomId: string,
+    targetRoomName: string,
+    isMatch: boolean,
+    matchType: 'ID' | 'Name'
+  ) => {
+    console.log(`🔍 [DEBUG] ${context}:`);
+    console.log(`  - 排班房间ID: ${scheduleRoomId || 'undefined'}`);
+    console.log(`  - 排班房间名称: ${scheduleRoomName || 'undefined'}`);
+    console.log(`  - 目标房间ID: ${targetRoomId}`);
+    console.log(`  - 目标房间名称: ${targetRoomName}`);
+    console.log(`  - 匹配方式: ${matchType}匹配`);
+    console.log(`  - 匹配结果: ${isMatch ? '✅ 成功' : '❌ 失败'}`);
+  };
+
   // 对话框状态
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedSchedules, setSelectedSchedules] = useState<ScheduleWithDetails[]>([]);
@@ -107,10 +126,57 @@ export default function GanttChart({
     resourceName: string,
     resourceType: 'room' | 'nurse'
   ) => {
-    const cellSchedules = visibleSchedules.filter(
-      s => format(parseISO(s.scheduled_date), 'yyyy-MM-dd') === date && 
-      (resourceType === 'room' ? s.room_id === resourceId : s.nurse_id === resourceId)
-    );
+    console.log(`🔍 [DEBUG] handleCellClick 被调用:`);
+    console.log(`  - 日期: ${date}`);
+    console.log(`  - 资源ID: ${resourceId}`);
+    console.log(`  - 资源名称: ${resourceName}`);
+    console.log(`  - 资源类型: ${resourceType}`);
+    
+    let cellSchedules;
+    
+    if (resourceType === 'room') {
+      // 🔧 修复：房间排班使用ID匹配优先，名称匹配作为备选方案
+      cellSchedules = visibleSchedules.filter(schedule => {
+        const scheduleDate = format(parseISO(schedule.scheduled_date), 'yyyy-MM-dd');
+        const dateMatch = scheduleDate === date;
+        
+        // 首先尝试ID匹配
+        let roomMatch = false;
+        let matchType: 'ID' | 'Name' = 'ID';
+        
+        if (schedule.room_id && resourceId) {
+          roomMatch = schedule.room_id === resourceId;
+        }
+        
+        // 如果ID匹配失败，使用名称匹配作为备选方案
+        if (!roomMatch && schedule.room?.name && resourceName) {
+          roomMatch = schedule.room.name === resourceName;
+          matchType = 'Name';
+        }
+        
+        // 使用统一的调试日志函数
+        logRoomMatch(
+          'handleCellClick',
+          schedule.room_id,
+          schedule.room?.name,
+          resourceId,
+          resourceName,
+          roomMatch,
+          matchType
+        );
+        
+        console.log(`  - 日期匹配=${dateMatch}, 房间匹配=${roomMatch}`);
+        
+        return dateMatch && roomMatch;
+      });
+    } else {
+      // 护士排班继续使用ID匹配（护士数据没有ID不一致问题）
+      cellSchedules = visibleSchedules.filter(
+        s => format(parseISO(s.scheduled_date), 'yyyy-MM-dd') === date && s.nurse_id === resourceId
+      );
+    }
+    
+    console.log(`  - 找到的排班数量: ${cellSchedules.length}`);
     
     if (cellSchedules.length > 0) {
       setSelectedSchedules(cellSchedules);
@@ -118,6 +184,9 @@ export default function GanttChart({
       setSelectedResourceName(resourceName);
       setSelectedResourceType(resourceType);
       setDialogOpen(true);
+      console.log(`  - ✅ 对话框已打开`);
+    } else {
+      console.log(`  - ❌ 没有找到排班，不打开对话框`);
     }
   };
 
@@ -218,6 +287,11 @@ export default function GanttChart({
             >
               <div className="text-xs font-medium truncate drop-shadow-sm">
                 {schedule.appointment?.customer_name || ''}
+                {schedule.appointment?.companion_names && schedule.appointment.companion_names.length > 0 && (
+                  <span className="text-xs text-muted-foreground ml-1">
+                    +{schedule.appointment.companion_names.length}
+                  </span>
+                )}
               </div>
               <div className="text-xs truncate opacity-90 drop-shadow-sm">
                 {schedule.appointment?.service?.name || ''}
@@ -227,7 +301,14 @@ export default function GanttChart({
           <TooltipContent side="top" className="max-w-xs">
             <div className="space-y-2">
               <div>
-                <p className="font-semibold">{schedule.appointment?.customer_name}</p>
+                <p className="font-semibold">
+                  {schedule.appointment?.customer_name}
+                  {schedule.appointment?.companion_names && schedule.appointment.companion_names.length > 0 && (
+                    <span className="text-xs text-muted-foreground ml-1">
+                      +{schedule.appointment.companion_names.length}
+                    </span>
+                  )}
+                </p>
                 <p className="text-xs text-muted-foreground">
                   {schedule.scheduled_time_start} - {schedule.scheduled_time_end}
                 </p>
@@ -269,7 +350,17 @@ export default function GanttChart({
         // 北京时间：2025-12-04 00:00 (UTC+8)
         // 前端过滤："2025-12-04"
         // 正确方法：使用 date-fns 的 parseISO + format 进行时区转换
-        const scheduleDate = format(parseISO(schedule.scheduled_date), 'yyyy-MM-dd');
+        
+        // 处理时区问题：scheduled_date 可能是 UTC 时间字符串或日期对象
+        let scheduleDate: string;
+        if (typeof schedule.scheduled_date === 'string') {
+          // 如果是字符串，解析为 Date 对象再格式化
+          const scheduleDateObj = new Date(schedule.scheduled_date);
+          scheduleDate = format(scheduleDateObj, 'yyyy-MM-dd');
+        } else {
+          // 如果已经是 Date 对象，直接格式化
+          scheduleDate = format(schedule.scheduled_date, 'yyyy-MM-dd');
+        }
         
         if (scheduleDate !== dateFilter) {
           return false;
@@ -278,11 +369,48 @@ export default function GanttChart({
       
       // 资源过滤
       if (resourceType === 'room') {
-        return schedule.room_id === resourceId;
+        // 🔧 修复：使用ID匹配优先，名称匹配作为备选方案
+        // 问题：排班数据中的房间ID与房间列表中的ID不匹配
+        // 解决方案：首先尝试ID匹配，失败时使用名称匹配
+        
+        // 获取当前房间的信息
+        const currentRoom = rooms.find(r => r.id === resourceId);
+        if (!currentRoom) {
+          console.log(`⚠️ [WARNING] 未找到房间ID: ${resourceId}`);
+          return false;
+        }
+        
+        // 首先尝试ID匹配
+        let isMatch = false;
+        let matchType: 'ID' | 'Name' = 'ID';
+        
+        if (schedule.room_id && resourceId) {
+          isMatch = schedule.room_id === resourceId;
+        }
+        
+        // 如果ID匹配失败，使用名称匹配作为备选方案
+        if (!isMatch && schedule.room?.name && currentRoom.name) {
+          isMatch = schedule.room.name === currentRoom.name;
+          matchType = 'Name';
+        }
+        
+        // 使用统一的调试日志函数
+        logRoomMatch(
+          'getSchedulesForResource',
+          schedule.room_id,
+          schedule.room?.name,
+          resourceId,
+          currentRoom.name,
+          isMatch,
+          matchType
+        );
+        
+        return isMatch;
       }
       return schedule.nurse_id === resourceId;
     });
 
+    console.log(`🔍 [DEBUG] 资源 ${resourceType}:${resourceId} 的排班数量: ${filtered.length}`);
     return filtered;
   };
 
@@ -385,9 +513,41 @@ export default function GanttChart({
                     </div>
                   {weekDays.map(day => {
                     const dateStr = format(day, 'yyyy-MM-dd');
-                    const daySchedules = visibleSchedules.filter(
-                      s => format(parseISO(s.scheduled_date), 'yyyy-MM-dd') === dateStr && s.room_id === room.id
-                    );
+                    
+                    // 🔧 修复：使用ID匹配优先，名称匹配作为备选方案（与日视图保持一致）
+                    const daySchedules = visibleSchedules.filter(schedule => {
+                      const scheduleDate = format(parseISO(schedule.scheduled_date), 'yyyy-MM-dd');
+                      const dateMatch = scheduleDate === dateStr;
+                      
+                      // 首先尝试ID匹配
+                      let roomMatch = false;
+                      let matchType: 'ID' | 'Name' = 'ID';
+                      
+                      if (schedule.room_id && room.id) {
+                        roomMatch = schedule.room_id === room.id;
+                      }
+                      
+                      // 如果ID匹配失败，使用名称匹配作为备选方案
+                      if (!roomMatch && schedule.room?.name && room.name) {
+                        roomMatch = schedule.room.name === room.name;
+                        matchType = 'Name';
+                      }
+                      
+                      // 使用统一的调试日志函数
+                      if (dateMatch) {
+                        logRoomMatch(
+                          '周视图',
+                          schedule.room_id,
+                          schedule.room?.name,
+                          room.id,
+                          room.name,
+                          roomMatch,
+                          matchType
+                        );
+                      }
+                      
+                      return dateMatch && roomMatch;
+                    });
                     const isToday = isSameDay(day, currentDate);
 
                     // 获取客户姓名列表
@@ -438,7 +598,12 @@ export default function GanttChart({
                                 <div className="font-semibold">点击查看详情</div>
                                 {daySchedules.slice(0, 3).map((schedule, idx) => (
                                   <div key={idx} className="text-xs">
-                                    {schedule.appointment?.customer_name || ''} - {schedule.scheduled_time_start?.slice(0, 5)}
+                                    {schedule.appointment?.customer_name || ''}
+                                    {schedule.appointment?.companion_names && schedule.appointment.companion_names.length > 0 && (
+                                      <span className="text-xs text-muted-foreground ml-1">
+                                        +{schedule.appointment.companion_names.length}
+                                      </span>
+                                    )} - {schedule.scheduled_time_start?.slice(0, 5)}
                                   </div>
                                 ))}
                                 {daySchedules.length > 3 && (
@@ -545,7 +710,12 @@ export default function GanttChart({
                                 <div className="font-semibold">点击查看详情</div>
                                 {daySchedules.slice(0, 3).map((schedule, idx) => (
                                   <div key={idx} className="text-xs">
-                                    {schedule.appointment?.customer_name || ''} - {schedule.scheduled_time_start?.slice(0, 5)}
+                                    {schedule.appointment?.customer_name || ''}
+                                    {schedule.appointment?.companion_names && schedule.appointment.companion_names.length > 0 && (
+                                      <span className="text-xs text-muted-foreground ml-1">
+                                        +{schedule.appointment.companion_names.length}
+                                      </span>
+                                    )} - {schedule.scheduled_time_start?.slice(0, 5)}
                                   </div>
                                 ))}
                                 {daySchedules.length > 3 && (
@@ -663,7 +833,32 @@ export default function GanttChart({
                     const isValid = day.getTime() > 0;
                     const isToday = isValid && isSameDay(day, currentDate);
                     const dateStr = isValid ? format(day, 'yyyy-MM-dd') : '';
-                    const daySchedules = isValid ? visibleSchedules.filter(s => format(parseISO(s.scheduled_date), 'yyyy-MM-dd') === dateStr) : [];
+                    // 🔧 修复：月视图确保房间数据正确显示
+                    const daySchedules = isValid ? visibleSchedules.filter(schedule => {
+                      const scheduleDate = format(parseISO(schedule.scheduled_date), 'yyyy-MM-dd');
+                      const dateMatch = scheduleDate === dateStr;
+                      
+                      // 对于月视图，我们不区分资源类型，但需要确保房间数据正确关联
+                      // 添加调试日志来验证房间数据
+                      if (dateMatch && schedule.room_id) {
+                        const roomExists = rooms.some(r => r.id === schedule.room_id);
+                        if (!roomExists && schedule.room?.name) {
+                          const roomExistsByName = rooms.some(r => r.name === schedule.room!.name);
+                          logRoomMatch(
+                            '月视图',
+                            schedule.room_id,
+                            schedule.room!.name,
+                            schedule.room_id,
+                            schedule.room!.name,
+                            roomExistsByName,
+                            'Name'
+                          );
+                          console.log(`  - ID匹配: ${roomExists}, 名称匹配: ${roomExistsByName}`);
+                        }
+                      }
+                      
+                      return dateMatch;
+                    }) : [];
                     const scheduleCount = daySchedules.length;
 
                     // 获取客户姓名列表
@@ -720,7 +915,12 @@ export default function GanttChart({
                                 <div className="font-semibold">点击查看详情</div>
                                 {daySchedules.slice(0, 3).map((schedule, idx) => (
                                   <div key={idx} className="text-xs">
-                                    {schedule.appointment?.customer_name || ''} - {schedule.scheduled_time_start?.slice(0, 5)}
+                                    {schedule.appointment?.customer_name || ''}
+                                    {schedule.appointment?.companion_names && schedule.appointment.companion_names.length > 0 && (
+                                      <span className="text-xs text-muted-foreground ml-1">
+                                        +{schedule.appointment.companion_names.length}
+                                      </span>
+                                    )} - {schedule.scheduled_time_start?.slice(0, 5)}
                                   </div>
                                 ))}
                                 {scheduleCount > 3 && (

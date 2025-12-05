@@ -41,6 +41,7 @@ const cors_1 = __importDefault(require("cors"));
 const connection_1 = require("../src/db/connection");
 const auth_1 = require("../src/services/auth");
 const api_1 = require("../src/services/api");
+const DingTalkNotifyService = require("../src/services/dingtalk-notify");
 const app = (0, express_1.default)();
 const PORT = 3001;
 // Middleware
@@ -257,11 +258,78 @@ app.post('/api/appointments', async (req, res) => {
             ...appointmentData,
             created_by: userId,
         });
+        
+        // [DingTalk] Handle Urgent Order Notification
+        if (appointment.is_urgent) {
+            try {
+                // Find all head nurses
+                const headNurses = await (0, connection_1.query)("SELECT id, username FROM profiles WHERE role = 'head_nurse' AND status = 'active'");
+                // For demo purposes, we assume username is the DingTalk UserID (in real app, use dingtalk_userid)
+                // In a real implementation, we should fetch the dingtalk_userid from the profiles table
+                for (const nurse of headNurses.rows) {
+                    // Mock notification for now as we don't have real DingTalk IDs
+                    console.log(`[DingTalk] Sending urgent notification to Head Nurse: ${nurse.username}`);
+                    await DingTalkNotifyService.notifyUrgentOrder(appointment, nurse.username);
+                }
+            } catch (notifyError) {
+                console.error('[DingTalk] Failed to send urgent notification:', notifyError);
+            }
+        }
+        
         res.status(201).json(appointment);
     }
     catch (error) {
         res.status(500).json({
             error: 'Failed to create appointment',
+            message: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+app.put('/api/appointments/:id', async (req, res) => {
+    try {
+        await ensureDatabase();
+        const { id } = req.params;
+        const updates = req.body;
+        const userId = req.user?.id;
+        
+        // Get original appointment to check changes
+        const originalAppointment = await api_1.ApiService.getAppointment(id);
+        if (!originalAppointment) {
+            return res.status(404).json({ error: 'Appointment not found' });
+        }
+
+        const appointment = await api_1.ApiService.updateAppointment(id, updates);
+        
+        // [DingTalk] Handle Doctor Decision Notification
+        if (updates.doctor_status && updates.doctor_status !== originalAppointment.doctor_status) {
+             try {
+                 // Get Doctor Info
+                 const doctor = await api_1.ApiService.getProfile(userId);
+                 const doctorName = doctor ? doctor.full_name : 'Unknown Doctor';
+                 
+                 // Notify Sales (creator)
+                 // In real app, we should use originalAppointment.created_by to find the sales person
+                 console.log(`[DingTalk] Sending doctor decision (${updates.doctor_status}) notification to Sales.`);
+                 
+                 // Construct appointment object with doctor name for notification
+                 const appointmentForNotify = { ...appointment, doctor_name: doctorName };
+                 
+                 await DingTalkNotifyService.notifyDoctorDecision(
+                     appointmentForNotify, 
+                     userId, 
+                     updates.doctor_status, 
+                     updates.doctor_note
+                 );
+             } catch (notifyError) {
+                 console.error('[DingTalk] Failed to send doctor notification:', notifyError);
+             }
+        }
+
+        res.json(appointment);
+    }
+    catch (error) {
+        res.status(500).json({
+            error: 'Failed to update appointment',
             message: error instanceof Error ? error.message : 'Unknown error'
         });
     }

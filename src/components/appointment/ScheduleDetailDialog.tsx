@@ -101,14 +101,25 @@ export default function ScheduleDetailDialog({
                       <Clock className="w-4 h-4 text-muted-foreground" />
                       <span className="text-muted-foreground">时间:</span>
                       <span className="font-medium">
-                        {schedule.scheduled_time_start?.slice(0, 5)} - {schedule.scheduled_time_end?.slice(0, 5)}
+                        {(() => {
+                          if (!schedule.scheduled_time_start) return '未设定';
+                          const start = schedule.scheduled_time_start.slice(0, 5);
+                          // 计算结束时间：开始时间 + 时长
+                          const duration = schedule.adjusted_duration || schedule.appointment?.estimated_duration || 0;
+                          const [startH, startM] = start.split(':').map(Number);
+                          const endMinutes = startH * 60 + startM + duration;
+                          const endH = Math.floor(endMinutes / 60) % 24;
+                          const endM = endMinutes % 60;
+                          const end = `${endH.toString().padStart(2, '0')}:${endM.toString().padStart(2, '0')}`;
+                          return `${start} - ${end}`;
+                        })()}
                       </span>
                     </div>
                     <div className="flex items-center gap-2 text-sm">
                       <Clock className="w-4 h-4 text-muted-foreground" />
                       <span className="text-muted-foreground">时长:</span>
                       <span className="font-medium">
-                        {schedule.appointment?.estimated_duration || 0} 分钟
+                        {schedule.adjusted_duration || schedule.appointment?.estimated_duration || 0} 分钟
                       </span>
                     </div>
                   </div>
@@ -125,14 +136,20 @@ export default function ScheduleDetailDialog({
                       </div>
                     </div>
 
-                    {schedule.appointment?.companion_names && (
+                    {schedule.appointment?.companion_names && schedule.appointment.companion_names.length > 0 && (
                       <div className="flex items-start gap-2 text-sm">
                         <User className="w-4 h-4 text-muted-foreground mt-0.5" />
                         <div>
                           <span className="text-muted-foreground">同行客户:</span>
-                          <span className="ml-2 font-medium">
-                            {schedule.appointment.companion_names}
-                          </span>
+                          <div className="ml-2 font-medium">
+                            {schedule.appointment.companion_names.map((name, index) => (
+                              <span key={index} className="inline-block mr-2 mb-1">
+                                <Badge variant="secondary" className="text-xs">
+                                  {name}
+                                </Badge>
+                              </span>
+                            ))}
+                          </div>
                         </div>
                       </div>
                     )}

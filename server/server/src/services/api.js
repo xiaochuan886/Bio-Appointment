@@ -204,7 +204,7 @@ class ApiService {
              p.full_name as nurse_name
       FROM schedules s
       LEFT JOIN appointments a ON s.appointment_id = a.id
-      LEFT JOIN resources r ON s.room_id = r.id
+      LEFT JOIN rooms r ON s.room_id = r.id
       LEFT JOIN profiles p ON s.nurse_id = p.id
       WHERE ${whereClause}
       ORDER BY scheduled_date, scheduled_time_start

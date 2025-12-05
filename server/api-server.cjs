@@ -100,17 +100,31 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    // Generate mock JWT-like token
+    const generateToken = (userData) => {
+      const payload = JSON.stringify({
+        userId: userData.id,
+        email: userData.email,
+        role: userData.role,
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60
+      });
+      const base64Payload = Buffer.from(payload).toString('base64');
+      return `mock.${base64Payload}.signature`;
+    };
+
     // Mock admin user for testing
     if (email === 'admin@test.com' && password === 'admin123') {
+      const adminUser = {
+        id: 'admin-id',
+        email: 'admin@test.com',
+        full_name: '系统管理员',
+        role: 'super_admin',
+      };
       res.json({
-        user: {
-          id: 'admin-id',
-          email: 'admin@test.com',
-          full_name: '系统管理员',
-          role: 'super_admin',
-        },
+        user: adminUser,
         tokens: {
-          accessToken: 'mock-access-token',
+          accessToken: generateToken(adminUser),
           refreshToken: 'mock-refresh-token',
         }
       });
@@ -138,7 +152,7 @@ app.post('/api/auth/login', async (req, res) => {
         role: user.role,
       },
       tokens: {
-        accessToken: 'mock-access-token',
+        accessToken: generateToken(user),
         refreshToken: 'mock-refresh-token',
       }
     });
@@ -296,6 +310,8 @@ app.put('/api/services/:id', async (req, res) => {
     const values = [];
     let paramIndex = 1;
 
+    console.log('[DEBUG] Loop start:', { updates, paramIndex, valuesLength: values.length });
+
     for (const [key, value] of Object.entries(updates)) {
       if (value !== undefined) {
         updateFields.push(`${key} = $${paramIndex}`);
@@ -303,6 +319,8 @@ app.put('/api/services/:id', async (req, res) => {
         paramIndex++;
       }
     }
+    
+    console.log('[DEBUG] Loop end:', { updateFields, paramIndex, valuesLength: values.length });
 
     if (updateFields.length === 0) {
       return res.status(400).json({
@@ -468,33 +486,45 @@ app.get('/api/schedules', async (req, res) => {
     console.log('🔍 [DEBUG] 返回排班数量:', result.rows.length);
     
     // Transform the data to match frontend expected format
-    const schedules = result.rows.map(row => ({
-      ...row,
-      appointment: row.appointment_id ? {
-        id: row.appointment_id,
-        customer_name: row.customer_name,
-        service_id: row.service_id,
-        estimated_duration: row.estimated_duration,
-        is_urgent: row.is_urgent,
-        service: row.service_id ? {
-          id: row.service_id,
-          name: row.service_name,
-          category: row.service_category
-        } : null
-      } : null,
-      room: row.room_id ? {
-        id: row.room_id,
-        name: row.room_name,
-        type: row.room_type,
-        status: row.room_status
-      } : null,
+    const schedules = result.rows.map(row => {
+      // 添加房间类型推断逻辑（与房间API保持一致）
+      let room_type = 'treatment'; // default
+      if (row.room_name && row.room_name.includes('VIP')) {
+        room_type = 'vip';
+      } else if (row.room_name && row.room_name.includes('咨询')) {
+        room_type = 'consultation';
+      }
+
+      return {
+        ...row,
+        // 修正room_type为推断出的值
+        room_type: room_type,
+        appointment: row.appointment_id ? {
+          id: row.appointment_id,
+          customer_name: row.customer_name,
+          service_id: row.service_id,
+          estimated_duration: row.estimated_duration,
+          is_urgent: row.is_urgent,
+          service: row.service_id ? {
+            id: row.service_id,
+            name: row.service_name,
+            category: row.service_category
+          } : null
+        } : null,
+        room: row.room_id ? {
+          id: row.room_id,
+          name: row.room_name,
+          type: room_type, // 使用推断出的room_type
+          status: row.room_status
+        } : null,
       nurse: row.nurse_id ? {
         id: row.nurse_id,
         name: row.nurse_name,
         role: row.nurse_role,
         department: row.nurse_department
       } : null
-    }));
+      };
+    });
 
     res.json(schedules);
   } catch (error) {
@@ -536,6 +566,13 @@ app.get('/api/task-executions', async (req, res) => {
   }
 });
 
+// Helper function for DingTalk Notifications
+async function sendDingTalkNotification(userIds, message) {
+  console.log(`[DingTalk Notify] Sending to ${userIds.join(',')}:`, JSON.stringify(message));
+  // In production, this would fetch access token and call DingTalk API
+  return true;
+}
+
 // Create appointment
 app.post('/api/appointments', async (req, res) => {
   try {
@@ -560,7 +597,30 @@ app.post('/api/appointments', async (req, res) => {
       [customer_name, customer_phone, service_id, requested_date, requested_time_start, requested_time_end, notes, total_people, estimated_duration, is_urgent, companion_names]
     );
 
-    res.status(201).json(result.rows[0]);
+    const appointment = result.rows[0];
+
+    // [DingTalk] Handle Urgent Order Notification
+    if (is_urgent) {
+      try {
+        // Get Head Nurses
+        const headNurses = await pool.query("SELECT username FROM profiles WHERE role = 'head_nurse' AND status = 'active'");
+        const headNurseIds = headNurses.rows.map(n => n.username); // Assuming username is DingTalk ID for now
+        
+        if (headNurseIds.length > 0) {
+          await sendDingTalkNotification(headNurseIds, {
+            msgtype: "markdown",
+            markdown: {
+              title: "【紧急】急单预约提醒",
+              text: `### ⚠️ 急单预约提醒\n\n**客户**: ${customer_name}\n**时间**: ${requested_time_start}\n\n请立即处理！`
+            }
+          });
+        }
+      } catch (notifyError) {
+        console.error('[DingTalk] Failed to send urgent notification:', notifyError);
+      }
+    }
+
+    res.status(201).json(appointment);
   } catch (error) {
     console.error('Create appointment error:', error);
     res.status(500).json({
@@ -580,8 +640,14 @@ app.get('/api/appointments', async (req, res) => {
 
     // Build WHERE clause based on filters
     if (status) {
-      conditions.push(`status = $${params.length + 1}`);
-      params.push(status);
+      if (status.includes(',')) {
+        const statuses = status.split(',');
+        conditions.push(`status = ANY($${params.length + 1})`);
+        params.push(statuses);
+      } else {
+        conditions.push(`status = $${params.length + 1}`);
+        params.push(status);
+      }
     }
     if (customer_name) {
       conditions.push(`customer_name ILIKE $${params.length + 1}`);
@@ -634,6 +700,8 @@ app.put('/api/appointments/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
+    
+    console.log(`[DEBUG] Updating appointment ${id} with:`, JSON.stringify(updates));
 
     // Build dynamic update query
     const updateFields = [];
@@ -654,6 +722,10 @@ app.put('/api/appointments/:id', async (req, res) => {
       });
     }
 
+    // Get original appointment to check changes
+    const originalAppointmentResult = await pool.query('SELECT * FROM appointments WHERE id = $1', [id]);
+    const originalAppointment = originalAppointmentResult.rows[0];
+
     values.push(id);
 
     const result = await pool.query(
@@ -669,8 +741,32 @@ app.put('/api/appointments/:id', async (req, res) => {
       });
     }
 
-    res.json(result.rows[0]);
+    const updatedAppointment = result.rows[0];
+
+    // [DingTalk] Handle Doctor Decision Notification
+    if (updates.doctor_status && updates.doctor_status !== originalAppointment.doctor_status) {
+      try {
+        // In a real app, we'd find the sales person who created this appointment
+        // For now, just log it
+        const decision = updates.doctor_status === 'accepted' ? '已接受' : '已拒绝';
+        console.log(`[DingTalk] Doctor decision notification: Appointment ${updatedAppointment.customer_name} ${decision}`);
+        
+        // Send notification to a placeholder user (representing Sales)
+        await sendDingTalkNotification(['sales1'], {
+          msgtype: "markdown",
+          markdown: {
+            title: `预约${decision}`,
+            text: `### 预约${decision}\n\n**客户**: ${updatedAppointment.customer_name}\n**备注**: ${updates.doctor_note || '无'}`
+          }
+        });
+      } catch (notifyError) {
+        console.error('[DingTalk] Failed to send doctor notification:', notifyError);
+      }
+    }
+
+    res.json(updatedAppointment);
   } catch (error) {
+    console.error('Failed to update appointment:', error);
     res.status(500).json({
       error: 'Failed to update appointment',
       message: error.message
@@ -841,10 +937,20 @@ app.get('/api/doctors/available', async (req, res) => {
 // Get nurses for system config
 app.get('/api/nurses', async (req, res) => {
   try {
+    console.log('🔍 [DEBUG] 开始获取护士数据...');
+    
     const result = await pool.query(
       'SELECT id, username, full_name, role, department, status FROM profiles WHERE role IN ($1, $2) ORDER BY role, full_name',
       ['nurse', 'head_nurse']
     );
+    
+    console.log('🔍 [DEBUG] 护士数据查询结果:');
+    console.log('  - 查询到的护士数量:', result.rows.length);
+    console.log('  - 原始数据样本:', result.rows[0] || '无数据');
+    
+    // 检查profiles表中的角色分布
+    const allRolesResult = await pool.query('SELECT role, COUNT(*) as count FROM profiles GROUP BY role');
+    console.log('🔍 [DEBUG] profiles表中的角色分布:', allRolesResult.rows);
     
     // Transform to match frontend expected format
     const nurses = result.rows.map(profile => ({
@@ -855,8 +961,13 @@ app.get('/api/nurses', async (req, res) => {
       created_at: profile.created_at || new Date().toISOString()
     }));
     
+    console.log('🔍 [DEBUG] 转换后的护士数据:');
+    console.log('  - 转换后数量:', nurses.length);
+    console.log('  - 转换后样本:', nurses[0] || '无数据');
+    
     res.json(nurses);
   } catch (error) {
+    console.error('❌ [ERROR] 获取护士数据失败:', error);
     res.status(500).json({
       error: 'Failed to fetch nurses',
       message: error.message
@@ -867,10 +978,28 @@ app.get('/api/nurses', async (req, res) => {
 // Get rooms for system config
 app.get('/api/rooms', async (req, res) => {
   try {
+    console.log('🔍 [DEBUG] 开始获取房间数据...');
+    
     const result = await pool.query(
       'SELECT DISTINCT ON (name) id, name, type, status FROM resources WHERE type = $1 ORDER BY name',
       ['room']
     );
+    
+    console.log('🔍 [DEBUG] 数据库查询结果:');
+    console.log('  - 查询到的房间数量:', result.rows.length);
+    console.log('  - 原始数据样本:', result.rows[0] || '无数据');
+    
+    // 检查resources表中是否有房间数据
+    const allResourcesResult = await pool.query('SELECT type, COUNT(*) as count FROM resources GROUP BY type');
+    console.log('🔍 [DEBUG] resources表中的资源类型分布:', allResourcesResult.rows);
+    
+    // 如果没有房间数据，检查是否有其他类型的资源
+    if (result.rows.length === 0) {
+      console.warn('⚠️ [WARNING] 没有找到type=room的资源！');
+      console.log('🔍 [DEBUG] 尝试查看所有resources数据:');
+      const allResources = await pool.query('SELECT * FROM resources LIMIT 10');
+      console.log('  - 所有资源样本:', allResources.rows);
+    }
     
     // Transform to match frontend expected format
     const rooms = result.rows.map(resource => {
@@ -890,8 +1019,13 @@ app.get('/api/rooms', async (req, res) => {
       };
     });
     
+    console.log('🔍 [DEBUG] 转换后的房间数据:');
+    console.log('  - 转换后数量:', rooms.length);
+    console.log('  - 转换后样本:', rooms[0] || '无数据');
+    
     res.json(rooms);
   } catch (error) {
+    console.error('❌ [ERROR] 获取房间数据失败:', error);
     res.status(500).json({
       error: 'Failed to fetch rooms',
       message: error.message
@@ -972,6 +1106,31 @@ app.put('/api/schedules/:id', async (req, res) => {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to update schedule',
+      message: error.message
+    });
+  }
+});
+
+// Delete schedule
+app.delete('/api/schedules/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      'DELETE FROM schedules WHERE id = $1 RETURNING *',
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Schedule not found'
+      });
+    }
+
+    res.json({ message: 'Schedule deleted successfully' });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to delete schedule',
       message: error.message
     });
   }
