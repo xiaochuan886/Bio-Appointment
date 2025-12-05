@@ -12,7 +12,8 @@
       "Bash(xargs kill:*)",
       "Bash(npx playwright install:*)",
       "Bash(npm run api:*)",
-      "Bash(\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" --headless --disable-gpu --virtual-time-budget=10000 --screenshot=/tmp/screenshot.png --window-size=1920,1080 \"https://www.miaoda.cn/projects/app-7wpv4dmop3wh\")"
+      "Bash(\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" --headless --disable-gpu --virtual-time-budget=10000 --screenshot=/tmp/screenshot.png --window-size=1920,1080 \"https://www.miaoda.cn/projects/app-7wpv4dmop3wh\")",
+      "Bash(openspec list:*)"
     ],
     "deny": [],
     "ask": []
