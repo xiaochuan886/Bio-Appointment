@@ -682,7 +682,8 @@ app.post('/api/appointments', async (req, res) => {
       estimated_duration = 60,
       is_urgent = false,
       companion_names,
-      store_id
+      store_id,
+      doctor_id
     } = req.body;
 
     // Validate store_id is provided
@@ -700,11 +701,42 @@ app.post('/api/appointments', async (req, res) => {
       });
     }
 
+    // Get service information to determine workflow
+    const serviceResult = await pool.query('SELECT category, name FROM services WHERE id = $1', [service_id]);
+    if (serviceResult.rows.length === 0) {
+      return res.status(400).json({
+        error: 'Invalid service ID'
+      });
+    }
+
+    const service = serviceResult.rows[0];
+    let workflowStatus;
+    let requiresNurseScheduling = true;
+
+    // Determine initial workflow status based on service category
+    if (service.category === 'nursing') {
+      workflowStatus = 'pending_nurse_assignment';
+      requiresNurseScheduling = true;
+    } else if (service.category === 'consultation' || service.category === 'report') {
+      workflowStatus = 'pending_doctor_confirmation';
+      requiresNurseScheduling = false; // 医生服务不需要护士长排班
+    } else {
+      // Default to nursing workflow for unknown categories
+      workflowStatus = 'pending_nurse_assignment';
+      requiresNurseScheduling = true;
+    }
+
+    console.log(`[DEBUG] Creating appointment:`, {
+      service_category: service.category,
+      workflow_status: workflowStatus,
+      requires_nurse_scheduling: requiresNurseScheduling
+    });
+
     const result = await pool.query(
-      `INSERT INTO appointments (customer_name, customer_phone, service_id, requested_date, requested_time_start, requested_time_end, notes, total_people, estimated_duration, is_urgent, companion_names, store_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-       RETURNING *`,
-      [customer_name, customer_phone, service_id, requested_date, requested_time_start, requested_time_end, notes, total_people, estimated_duration, is_urgent, companion_names, store_id]
+      `INSERT INTO appointments (customer_name, customer_phone, service_id, requested_date, requested_time_start, requested_time_end, notes, total_people, estimated_duration, is_urgent, companion_names, store_id, doctor_id, workflow_status, requires_nurse_scheduling)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+         RETURNING *`,
+      [customer_name, customer_phone, service_id, requested_date, requested_time_start, requested_time_end, notes, total_people, estimated_duration, is_urgent, companion_names, store_id, doctor_id, workflowStatus, requiresNurseScheduling]
     );
 
     const appointment = result.rows[0];
@@ -721,12 +753,30 @@ app.post('/api/appointments', async (req, res) => {
             msgtype: "markdown",
             markdown: {
               title: "【紧急】急单预约提醒",
-              text: `### ⚠️ 急单预约提醒\n\n**客户**: ${customer_name}\n**时间**: ${requested_time_start}\n\n请立即处理！`
+              text: `### ⚠️ 急单预约提醒\n\n**客户**: ${customer_name}\n**服务**: ${service.name}\n**时间**: ${requested_time_start}\n\n请立即处理！`
             }
           });
         }
       } catch (notifyError) {
         console.error('[DingTalk] Failed to send urgent notification:', notifyError);
+      }
+    }
+
+    // [DingTalk] Handle Doctor Notification for consultation/report services
+    if (workflowStatus === 'pending_doctor_confirmation' && doctor_id) {
+      try {
+        const doctorResult = await pool.query('SELECT username FROM profiles WHERE id = $1', [doctor_id]);
+        if (doctorResult.rows.length > 0) {
+          await sendDingTalkNotification([doctorResult.rows[0].username], {
+            msgtype: "markdown",
+            markdown: {
+              title: "【待确认】预约通知",
+              text: `### 📋 预约待确认\n\n**客户**: ${customer_name}\n**服务**: ${service.name}\n**时间**: ${requested_date} ${requested_time_start}\n\n请确认预约！`
+            }
+          });
+        }
+      } catch (notifyError) {
+        console.error('[DingTalk] Failed to send doctor notification:', notifyError);
       }
     }
 
@@ -808,6 +858,606 @@ app.get('/api/appointments', async (req, res) => {
     console.error('Failed to fetch appointments:', error);
     res.status(500).json({
       error: 'Failed to fetch appointments',
+      message: error.message
+    });
+  }
+});
+
+// Get nurse pending appointments
+app.get('/api/appointments/nurse-pending', async (req, res) => {
+  try {
+    const { requested_date_from, requested_date_to, store_id } = req.query;
+    
+    // Get user info to check permissions
+    const user = await getUserFromToken(req);
+    if (!user) {
+      return res.status(401).json({
+        error: 'Authentication required'
+      });
+    }
+
+    // Get user details from database
+    let userResult;
+    if (user && user.userId) {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(user.userId)) {
+        userResult = await pool.query(
+          'SELECT id, role, store_id FROM profiles WHERE id = $1',
+          [user.userId]
+        );
+      } else {
+        userResult = { rows: [{ id: user.userId, role: user.role, store_id: null }] };
+      }
+    }
+
+    if (userResult.rows.length === 0) {
+      return res.status(401).json({
+        error: 'User not found'
+      });
+    }
+
+    const userProfile = userResult.rows[0];
+
+    // Check if user is head_nurse or admin
+    if (userProfile.role !== 'head_nurse' && userProfile.role !== 'super_admin') {
+      return res.status(403).json({
+        error: 'Access denied. Only head nurses can access this endpoint.'
+      });
+    }
+
+    // Build query conditions
+    let query = `
+      SELECT
+        a.*,
+        s.name as service_name,
+        s.category as service_category,
+        s.base_duration as service_duration,
+        st.name as store_name,
+        p2.full_name as doctor_name
+      FROM appointments a
+      LEFT JOIN services s ON a.service_id = s.id
+      LEFT JOIN stores st ON a.store_id = st.id
+      LEFT JOIN profiles p2 ON a.doctor_id = p2.id
+      WHERE a.workflow_status IN ('pending_nurse_assignment', 'doctor_confirmed')
+        AND a.status != 'cancelled'
+        AND s.category = 'nursing' -- 只显示护理服务
+        AND a.requires_nurse_scheduling = true -- 确保只显示需要护士长排班的预约
+    `;
+    
+    let params = [];
+    const conditions = [];
+
+    // Add date range filter
+    if (requested_date_from) {
+      conditions.push(`a.requested_date >= $${params.length + 1}`);
+      params.push(requested_date_from);
+    }
+    
+    if (requested_date_to) {
+      conditions.push(`a.requested_date <= $${params.length + 1}`);
+      params.push(requested_date_to);
+    }
+
+    // Add store filter (head nurses can only see their store's appointments)
+    if (userProfile.role === 'head_nurse') {
+      conditions.push(`a.store_id = $${params.length + 1}`);
+      params.push(userProfile.store_id);
+    } else if (store_id && userProfile.role === 'super_admin') {
+      conditions.push(`a.store_id = $${params.length + 1}`);
+      params.push(store_id);
+    }
+
+    if (conditions.length > 0) {
+      query += ' AND ' + conditions.join(' AND ');
+    }
+
+    query += ' ORDER BY a.requested_date ASC, a.requested_time_start ASC';
+
+    const result = await pool.query(query, params);
+    
+    // Transform the data to include service and store objects
+    const appointments = result.rows.map(row => ({
+      ...row,
+      service: row.service_name ? {
+        id: row.service_id,
+        name: row.service_name,
+        category: row.service_category,
+        duration: row.service_duration
+      } : null,
+      store: row.store_name ? {
+        id: row.store_id,
+        name: row.store_name
+      } : null,
+      nurse: row.nurse_name ? {
+        name: row.nurse_name
+      } : null,
+      doctor: row.doctor_name ? {
+        name: row.doctor_name
+      } : null
+    }));
+
+    res.json(appointments);
+  } catch (error) {
+    console.error('Failed to fetch nurse pending appointments:', error);
+    res.status(500).json({
+      error: 'Failed to fetch nurse pending appointments',
+      message: error.message
+    });
+  }
+});
+
+// Get doctor pending appointments
+app.get('/api/appointments/doctor-pending', async (req, res) => {
+  try {
+    const { store_id } = req.query;
+    
+    // Get user info to check permissions
+    const user = await getUserFromToken(req);
+    if (!user) {
+      return res.status(401).json({
+        error: 'Authentication required'
+      });
+    }
+
+    // Get user details from database
+    let userResult;
+    if (user && user.userId) {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(user.userId)) {
+        userResult = await pool.query(
+          'SELECT id, role, store_id FROM profiles WHERE id = $1',
+          [user.userId]
+        );
+      } else {
+        userResult = { rows: [{ id: user.userId, role: user.role, store_id: null }] };
+      }
+    }
+
+    if (userResult.rows.length === 0) {
+      return res.status(401).json({
+        error: 'User not found'
+      });
+    }
+
+    const userProfile = userResult.rows[0];
+
+    // Check if user is doctor or admin
+    if (userProfile.role !== 'doctor' && userProfile.role !== 'super_admin') {
+      return res.status(403).json({
+        error: 'Access denied. Only doctors can access this endpoint.'
+      });
+    }
+
+    // Build query conditions
+    let query = `
+      SELECT
+        a.*,
+        s.name as service_name,
+        s.category as service_category,
+        s.base_duration as service_duration,
+        st.name as store_name
+      FROM appointments a
+      LEFT JOIN services s ON a.service_id = s.id
+      LEFT JOIN stores st ON a.store_id = st.id
+      WHERE a.workflow_status = 'pending_doctor_confirmation'
+        AND a.status != 'cancelled'
+        AND s.category IN ('consultation', 'report') -- 只显示医生服务
+    `;
+    
+    let params = [];
+    const conditions = [];
+
+    // For doctors, only show appointments assigned to them or without doctor assignment
+    if (userProfile.role === 'doctor') {
+      conditions.push(`(a.doctor_id = $${params.length + 1} OR a.doctor_id IS NULL)`);
+      params.push(userProfile.id);
+      
+      // Also filter by doctor's store
+      conditions.push(`a.store_id = $${params.length + 1}`);
+      params.push(userProfile.store_id);
+    } else if (store_id && userProfile.role === 'super_admin') {
+      conditions.push(`a.store_id = $${params.length + 1}`);
+      params.push(store_id);
+    }
+
+    if (conditions.length > 0) {
+      query += ' AND ' + conditions.join(' AND ');
+    }
+
+    query += ' ORDER BY a.requested_date ASC, a.requested_time_start ASC';
+
+    const result = await pool.query(query, params);
+    
+    // Transform the data to include service and store objects
+    const appointments = result.rows.map(row => ({
+      ...row,
+      service: row.service_name ? {
+        id: row.service_id,
+        name: row.service_name,
+        category: row.service_category,
+        duration: row.service_duration
+      } : null,
+      store: row.store_name ? {
+        id: row.store_id,
+        name: row.store_name
+      } : null
+    }));
+
+    res.json(appointments);
+  } catch (error) {
+    console.error('Failed to fetch doctor pending appointments:', error);
+    res.status(500).json({
+      error: 'Failed to fetch doctor pending appointments',
+      message: error.message
+    });
+  }
+});
+
+// Doctor confirm appointment
+app.put('/api/appointments/:id/doctor-confirm', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { doctor_id, doctor_note } = req.body;
+    
+    // Get user info to check permissions
+    const user = await getUserFromToken(req);
+    if (!user) {
+      return res.status(401).json({
+        error: 'Authentication required'
+      });
+    }
+
+    // Get user details from database
+    let userResult;
+    if (user && user.userId) {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(user.userId)) {
+        userResult = await pool.query(
+          'SELECT id, role FROM profiles WHERE id = $1',
+          [user.userId]
+        );
+      } else {
+        userResult = { rows: [{ id: user.userId, role: user.role }] };
+      }
+    }
+
+    if (userResult.rows.length === 0) {
+      return res.status(401).json({
+        error: 'User not found'
+      });
+    }
+
+    const userProfile = userResult.rows[0];
+
+    // Check if user is doctor or admin
+    if (userProfile.role !== 'doctor' && userProfile.role !== 'super_admin') {
+      return res.status(403).json({
+        error: 'Access denied. Only doctors can confirm appointments.'
+      });
+    }
+
+    // Get current appointment
+    const appointmentResult = await pool.query('SELECT * FROM appointments WHERE id = $1', [id]);
+    if (appointmentResult.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Appointment not found'
+      });
+    }
+
+    const appointment = appointmentResult.rows[0];
+
+    // Check if appointment is in correct status
+    if (appointment.workflow_status !== 'pending_doctor_confirmation') {
+      return res.status(400).json({
+        error: 'Appointment is not in pending doctor confirmation status'
+      });
+    }
+
+    // 获取预约信息以确定服务类型
+    const appointmentInfo = await pool.query(
+      'SELECT a.*, s.category as service_category FROM appointments a LEFT JOIN services s ON a.service_id = s.id WHERE a.id = $1',
+      [id]
+    );
+    
+    if (appointmentInfo.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Appointment not found'
+      });
+    }
+    
+    const appointmentWithService = appointmentInfo.rows[0];
+    let newStatus;
+    
+    // 根据服务类型决定确认后的状态
+    if (appointmentWithService.service_category === 'consultation' || appointmentWithService.service_category === 'report') {
+      // 医生服务直接完成，不需要护士长排班
+      newStatus = 'doctor_completed';
+    } else {
+      // 护理服务需要护士长排班
+      newStatus = 'doctor_confirmed';
+    }
+    
+    // Update appointment workflow status
+    const result = await pool.query(
+      `UPDATE appointments
+       SET workflow_status = $1,
+           doctor_confirmed_at = CURRENT_TIMESTAMP,
+           doctor_note = $2,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $3
+       RETURNING *`,
+      [newStatus, doctor_note, id]
+    );
+
+    const updatedAppointment = result.rows[0];
+
+    // [DingTalk] 只有护理服务才需要通知护士长
+    if (newStatus === 'doctor_confirmed') {
+      try {
+        const headNurses = await pool.query(
+          "SELECT username FROM profiles WHERE role = 'head_nurse' AND status = 'active' AND store_id = $1",
+          [updatedAppointment.store_id]
+        );
+        
+        if (headNurses.rows.length > 0) {
+          const serviceResult = await pool.query('SELECT name FROM services WHERE id = $1', [updatedAppointment.service_id]);
+          const serviceName = serviceResult.rows[0]?.name || '未知服务';
+          
+          await sendDingTalkNotification(headNurses.rows.map(n => n.username), {
+            msgtype: "markdown",
+            markdown: {
+              title: "【已确认】医生确认预约",
+              text: `### ✅ 医生确认预约\n\n**客户**: ${updatedAppointment.customer_name}\n**服务**: ${serviceName}\n**医生备注**: ${doctor_note || '无'}\n\n请安排护士排班！`
+            }
+          });
+        }
+      } catch (notifyError) {
+        console.error('[DingTalk] Failed to send nurse notification:', notifyError);
+      }
+    }
+
+    res.json(updatedAppointment);
+  } catch (error) {
+    console.error('Failed to confirm appointment:', error);
+    res.status(500).json({
+      error: 'Failed to confirm appointment',
+      message: error.message
+    });
+  }
+});
+
+// Doctor reject appointment
+app.put('/api/appointments/:id/doctor-reject', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { doctor_id, doctor_note } = req.body;
+    
+    // Get user info to check permissions
+    const user = await getUserFromToken(req);
+    if (!user) {
+      return res.status(401).json({
+        error: 'Authentication required'
+      });
+    }
+
+    // Get user details from database
+    let userResult;
+    if (user && user.userId) {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(user.userId)) {
+        userResult = await pool.query(
+          'SELECT id, role FROM profiles WHERE id = $1',
+          [user.userId]
+        );
+      } else {
+        userResult = { rows: [{ id: user.userId, role: user.role }] };
+      }
+    }
+
+    if (userResult.rows.length === 0) {
+      return res.status(401).json({
+        error: 'User not found'
+      });
+    }
+
+    const userProfile = userResult.rows[0];
+
+    // Check if user is doctor or admin
+    if (userProfile.role !== 'doctor' && userProfile.role !== 'super_admin') {
+      return res.status(403).json({
+        error: 'Access denied. Only doctors can reject appointments.'
+      });
+    }
+
+    // Get current appointment
+    const appointmentResult = await pool.query('SELECT * FROM appointments WHERE id = $1', [id]);
+    if (appointmentResult.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Appointment not found'
+      });
+    }
+
+    const appointment = appointmentResult.rows[0];
+
+    // Check if appointment is in correct status
+    if (appointment.workflow_status !== 'pending_doctor_confirmation') {
+      return res.status(400).json({
+        error: 'Appointment is not in pending doctor confirmation status'
+      });
+    }
+
+    // Update appointment workflow status
+    const result = await pool.query(
+      `UPDATE appointments
+       SET workflow_status = 'doctor_rejected',
+           doctor_note = $1,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2
+       RETURNING *`,
+      [doctor_note, id]
+    );
+
+    const updatedAppointment = result.rows[0];
+
+    // [DingTalk] Notify sales about the rejection
+    try {
+      // Find sales users to notify
+      const salesUsers = await pool.query(
+        "SELECT username FROM profiles WHERE role = 'sales' AND status = 'active'"
+      );
+      
+      if (salesUsers.rows.length > 0) {
+        const serviceResult = await pool.query('SELECT name FROM services WHERE id = $1', [updatedAppointment.service_id]);
+        const serviceName = serviceResult.rows[0]?.name || '未知服务';
+        
+        await sendDingTalkNotification(salesUsers.rows.map(u => u.username), {
+          msgtype: "markdown",
+          markdown: {
+            title: "【已拒绝】医生拒绝预约",
+            text: `### ❌ 医生拒绝预约\n\n**客户**: ${updatedAppointment.customer_name}\n**服务**: ${serviceName}\n**拒绝原因**: ${doctor_note || '未提供原因'}\n\n请联系客户重新安排！`
+          }
+        });
+      }
+    } catch (notifyError) {
+      console.error('[DingTalk] Failed to send sales notification:', notifyError);
+    }
+
+    res.json(updatedAppointment);
+  } catch (error) {
+    console.error('Failed to reject appointment:', error);
+    res.status(500).json({
+      error: 'Failed to reject appointment',
+      message: error.message
+    });
+  }
+});
+
+// Update appointment workflow
+app.put('/api/appointments/:id/workflow', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { workflow_status, note } = req.body;
+    
+    // Get user info to check permissions
+    const user = await getUserFromToken(req);
+    if (!user) {
+      return res.status(401).json({
+        error: 'Authentication required'
+      });
+    }
+
+    // Get user details from database
+    let userResult;
+    if (user && user.userId) {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(user.userId)) {
+        userResult = await pool.query(
+          'SELECT id, role FROM profiles WHERE id = $1',
+          [user.userId]
+        );
+      } else {
+        userResult = { rows: [{ id: user.userId, role: user.role }] };
+      }
+    }
+
+    if (userResult.rows.length === 0) {
+      return res.status(401).json({
+        error: 'User not found'
+      });
+    }
+
+    const userProfile = userResult.rows[0];
+
+    // Get current appointment
+    const appointmentResult = await pool.query('SELECT * FROM appointments WHERE id = $1', [id]);
+    if (appointmentResult.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Appointment not found'
+      });
+    }
+
+    const appointment = appointmentResult.rows[0];
+    const currentStatus = appointment.workflow_status;
+
+    // Validate workflow status transition based on user role
+    let validTransition = false;
+    
+    if (userProfile.role === 'head_nurse') {
+      // Head nurses can schedule appointments that are pending nurse assignment or doctor confirmed
+      if ((currentStatus === 'pending_nurse_assignment' || currentStatus === 'doctor_confirmed') &&
+          workflow_status === 'nurse_scheduled') {
+        validTransition = true;
+      }
+    } else if (userProfile.role === 'doctor') {
+      // Doctors can confirm or reject appointments pending doctor confirmation
+      if (currentStatus === 'pending_doctor_confirmation' &&
+          (workflow_status === 'doctor_confirmed' || workflow_status === 'doctor_rejected' || workflow_status === 'doctor_completed')) {
+        validTransition = true;
+      }
+    } else if (userProfile.role === 'super_admin') {
+      // Admins can make any valid transition
+      validTransition = true;
+    }
+
+    if (!validTransition) {
+      return res.status(400).json({
+        error: 'Invalid workflow status transition for your role',
+        current_status: currentStatus,
+        requested_status: workflow_status,
+        user_role: userProfile.role
+      });
+    }
+
+    // Update appointment workflow status
+    const updateFields = ['workflow_status = $1', 'updated_at = CURRENT_TIMESTAMP'];
+    const updateValues = [workflow_status];
+    let paramIndex = 2;
+
+    // Add timestamp for specific status changes
+    if (workflow_status === 'doctor_confirmed') {
+      updateFields.push(`doctor_confirmed_at = CURRENT_TIMESTAMP`);
+    } else if (workflow_status === 'nurse_scheduled') {
+      updateFields.push(`forwarded_to_nurse_at = CURRENT_TIMESTAMP`);
+    }
+
+    // Add note if provided
+    if (note) {
+      updateFields.push(`notes = $${paramIndex}`);
+      updateValues.push(note);
+      paramIndex++;
+    }
+
+    updateValues.push(id);
+
+    const result = await pool.query(
+      `UPDATE appointments
+       SET ${updateFields.join(', ')}
+       WHERE id = $${paramIndex}
+       RETURNING *`,
+      updateValues
+    );
+
+    const updatedAppointment = result.rows[0];
+
+    // Log the workflow change
+    try {
+      await pool.query(
+        `INSERT INTO audit_logs (table_name, record_id, action, old_values, new_values, user_id, note)
+         VALUES ('appointments', $1, 'workflow_update',
+                 json_build_object('workflow_status', $2),
+                 json_build_object('workflow_status', $3),
+                 $4, $5)`,
+        [id, currentStatus, workflow_status, userProfile.id, note || 'Workflow status updated']
+      );
+    } catch (logError) {
+      console.error('Failed to log workflow change:', logError);
+    }
+
+    res.json(updatedAppointment);
+  } catch (error) {
+    console.error('Failed to update appointment workflow:', error);
+    res.status(500).json({
+      error: 'Failed to update appointment workflow',
       message: error.message
     });
   }

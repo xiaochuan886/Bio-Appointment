@@ -12,6 +12,8 @@ export type ResourceType = 'room' | 'nurse';
 
 export type AppointmentStatus = 'pending' | 'scheduled' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled';
 
+export type AppointmentWorkflowStatus = 'pending_nurse_assignment' | 'pending_doctor_confirmation' | 'doctor_confirmed' | 'doctor_rejected' | 'nurse_scheduled' | 'in_progress' | 'completed' | 'cancelled';
+
 export type DoctorStatus = 'pending' | 'accepted' | 'rejected';
 
 export type ScheduleStatus = 'draft' | 'published' | 'locked';
@@ -131,10 +133,14 @@ export interface Appointment {
   actual_duration?: number;
   is_urgent: boolean;
   status: AppointmentStatus;
-  sales_id?: string;
+  workflow_status?: AppointmentWorkflowStatus;
+  requires_nurse_scheduling?: boolean;
   doctor_id?: string;
   doctor_status?: DoctorStatus;
   doctor_note?: string;
+  doctor_confirmed_at?: string;
+  forwarded_to_nurse_at?: string;
+  sales_id?: string;
   store_id?: string;
   store?: Store | null;
   created_by?: string;
@@ -206,6 +212,38 @@ export interface CreateAppointmentInput {
   is_urgent?: boolean;
   sales_id?: string;
   doctor_id?: string;
+  store_id?: string;
+  workflow_status?: AppointmentWorkflowStatus;
+  requires_nurse_scheduling?: boolean;
+}
+
+// 医生确认预约请求
+export interface DoctorConfirmRequest {
+  doctor_id: string;
+  doctor_note?: string;
+}
+
+// 医生拒绝预约请求
+export interface DoctorRejectRequest {
+  doctor_id: string;
+  doctor_note?: string;
+}
+
+// 更新工作流状态请求
+export interface UpdateWorkflowRequest {
+  workflow_status: AppointmentWorkflowStatus;
+  note?: string;
+}
+
+// 护士长待处理预约查询参数
+export interface NursePendingAppointmentsQuery {
+  requested_date_from?: string;
+  requested_date_to?: string;
+  store_id?: string;
+}
+
+// 医生待处理预约查询参数
+export interface DoctorPendingAppointmentsQuery {
   store_id?: string;
 }
 

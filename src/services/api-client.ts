@@ -131,6 +131,10 @@ export interface Appointment {
   estimated_duration: number;
   is_urgent: boolean;
   status: string;
+  workflow_status?: 'pending_nurse_assignment' | 'pending_doctor_confirmation' | 'doctor_confirmed' | 'doctor_completed' | 'doctor_rejected' | 'nurse_scheduled' | 'in_progress' | 'completed' | 'cancelled';
+  requires_nurse_scheduling?: boolean;
+  doctor_confirmed_at?: string;
+  forwarded_to_nurse_at?: string;
   doctor_id?: string;
   doctor_status?: string;
   doctor_note?: string;
@@ -275,6 +279,68 @@ export const clientApi = {
     }
     const query = params.toString() ? `?${params.toString()}` : '';
     return authenticatedApiCall(`/appointments${query}`);
+  },
+
+  async getNursePendingAppointments(filters?: Record<string, any>): Promise<Appointment[]> {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          params.append(key, String(value));
+        }
+      });
+    }
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return authenticatedApiCall(`/appointments/nurse-pending${query}`);
+  },
+
+  async getDoctorPendingAppointments(filters?: Record<string, any>): Promise<Appointment[]> {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          params.append(key, String(value));
+        }
+      });
+    }
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return authenticatedApiCall(`/appointments/doctor-pending${query}`);
+  },
+
+  async doctorConfirmAppointment(id: string, data: {
+    doctor_id: string;
+    doctor_note?: string;
+  }): Promise<Appointment> {
+    return authenticatedApiCall(`/appointments/${id}/doctor-confirm`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        ...data,
+        workflow_status: 'doctor_confirmed'
+      }),
+    });
+  },
+
+  async doctorRejectAppointment(id: string, data: {
+    doctor_id: string;
+    doctor_note: string;
+  }): Promise<Appointment> {
+    return authenticatedApiCall(`/appointments/${id}/doctor-reject`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        ...data,
+        workflow_status: 'doctor_rejected'
+      }),
+    });
+  },
+
+  async updateAppointmentWorkflow(id: string, data: {
+    workflow_status: string;
+    note?: string;
+  }): Promise<Appointment> {
+    return authenticatedApiCall(`/appointments/${id}/workflow`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
   },
 
   async createAppointment(data: CreateAppointmentInput): Promise<Appointment> {

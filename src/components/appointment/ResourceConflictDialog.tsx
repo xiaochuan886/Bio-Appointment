@@ -12,8 +12,10 @@ import {
 
 interface ResourceConflict {
   type: 'room' | 'nurse';
-  resourceName: string;
-  conflictingSchedules: Array<{
+  message?: string;
+  resourceId: string;
+  resourceName?: string;
+  conflictingSchedules?: Array<{
     customerName: string;
     timeStart: string;
     timeEnd: string;
@@ -52,21 +54,23 @@ export default function ResourceConflictDialog({
             {conflicts.map((conflict, index) => (
               <div key={index} className="border rounded-lg p-4 bg-muted/50">
                 <div className="font-semibold text-foreground mb-2">
-                  {conflict.type === 'room' ? '🏥 房间冲突' : '👩‍⚕️ 护士冲突'}: {conflict.resourceName}
+                  {conflict.type === 'room' ? '🏥 房间冲突' : '👩‍⚕️ 护士冲突'}: {conflict.resourceName || '未知资源'}
                 </div>
-                <div className="space-y-2">
-                  {conflict.conflictingSchedules.map((schedule, idx) => (
-                    <div key={idx} className="text-sm pl-4 border-l-2 border-destructive">
-                      <div className="font-medium text-foreground">{schedule.customerName}</div>
-                      <div className="text-muted-foreground">
-                        {schedule.serviceName}
+                {conflict.conflictingSchedules && (
+                  <div className="space-y-2">
+                    {conflict.conflictingSchedules.map((schedule, idx) => (
+                      <div key={idx} className="text-sm pl-4 border-l-2 border-destructive">
+                        <div className="font-medium text-foreground">{schedule.customerName}</div>
+                        <div className="text-muted-foreground">
+                          {schedule.serviceName}
+                        </div>
+                        <div className="text-muted-foreground">
+                          时间: {schedule.timeStart.slice(0, 5)} - {schedule.timeEnd.slice(0, 5)}
+                        </div>
                       </div>
-                      <div className="text-muted-foreground">
-                        时间: {schedule.timeStart.slice(0, 5)} - {schedule.timeEnd.slice(0, 5)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
 

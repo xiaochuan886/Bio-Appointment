@@ -414,14 +414,32 @@ export default function SalesAppointmentPage() {
                       </Select>
                       {selectedService && (
                         <FormDescription>
-                          标准预估时长：{selectedService.base_duration} 分钟/人
-                          {selectedService.allow_companions && totalPeople > 1 && (
-                            <span className="text-primary font-medium">
-                              {' '}· 当前 {totalPeople} 人，预计总耗时：{estimatedDuration} 分钟
-                            </span>
-                          )}
-                          {selectedService.allow_companions && ' · 支持同行客户'}
-                          {selectedService.requires_doctor && ' · 需要医生确认'}
+                          <div className="space-y-1">
+                            <div>
+                              标准预估时长：{selectedService.base_duration} 分钟/人
+                              {selectedService.allow_companions && totalPeople > 1 && (
+                                <span className="text-primary font-medium">
+                                  {' '}· 当前 {totalPeople} 人，预计总耗时：{estimatedDuration} 分钟
+                                </span>
+                              )}
+                              {selectedService.allow_companions && ' · 支持同行客户'}
+                            </div>
+                            <div className="text-sm">
+                              {selectedService.category === 'nursing' ? (
+                                <span className="text-blue-600">
+                                  处理流程：预约创建后直接流转到所选门店的护士长进行智能排班
+                                </span>
+                              ) : selectedService.requires_doctor ? (
+                                <span className="text-orange-600">
+                                  处理流程：预约创建后先由所选医生处理确认，医生确认后再流转到护士长进行排班
+                                </span>
+                              ) : (
+                                <span className="text-green-600">
+                                  处理流程：预约创建后直接流转到所选门店的护士长进行智能排班
+                                </span>
+                              )}
+                            </div>
+                          </div>
                         </FormDescription>
                       )}
                       <FormMessage />

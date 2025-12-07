@@ -2,9 +2,10 @@ import type { ScheduleWithDetails } from '@/types/types';
 
 export interface ResourceConflict {
   type: 'room' | 'nurse';
+  message?: string;
   resourceId: string;
-  resourceName: string;
-  conflictingSchedules: Array<{
+  resourceName?: string;
+  conflictingSchedules?: Array<{
     id: string;
     customerName: string;
     timeStart: string;

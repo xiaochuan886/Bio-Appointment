@@ -17,7 +17,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import clientApi from '@/services/api-client';
 import type { Appointment } from '@/services/api-client';
 import StatusBadge from '@/components/appointment/StatusBadge';
-import { canViewStoreSchedule } from '@/utils/permissions';
+import { canViewStoreSchedule, canAccessDoctorPendingAppointments, getWorkflowStatusDisplayName, getWorkflowStatusColor } from '@/utils/permissions';
 import { handleApiError } from '@/utils/validation';
 
 const rejectFormSchema = z.object({
@@ -50,50 +50,42 @@ export default function DoctorAppointmentPage() {
     try {
       if (!user) return;
       
+      // 检查是否有权限访问医生待处理预约
+      if (!canAccessDoctorPendingAppointments(user.profile)) {
+        toast.error('您没有权限访问医生预约');
+        return;
+      }
+      
       // 获取当前用户的门店ID
       const userStoreId = user.profile?.store_id;
       
-      const data = await clientApi.getAppointments({});
-      const doctorAppointments = data.filter(a => {
-        // 使用权限工具函数检查是否可以查看该预约
-        if (!canViewStoreSchedule(user.profile, a.store_id)) {
-          return false;
-        }
-        
-        // 1. 已分配给当前医生的预约
-        if (a.doctor_id === user.id) {
-          return true;
-        }
-        
-        // 2. 未分配医生，但需要医生确认的预约（抢单池）
-        // 服务类型为咨询类(consultation)或标记为需要医生(requires_doctor)
-        if (!a.doctor_id && (a.service?.category === 'consultation' || a.service?.requires_doctor)) {
-          // 仅显示待处理或已处理状态（理论上未分配的通常是 pending）
-          return a.doctor_status === 'pending';
-        }
-        
-        return false;
+      // 使用新的API获取医生待处理预约
+      const data = await clientApi.getDoctorPendingAppointments({
+        store_id: userStoreId
       });
-      setAppointments(doctorAppointments);
+      
+      setAppointments(data);
     } catch (error) {
       console.error('加载预约失败:', error);
+      const errorMessage = error instanceof Error ? error.message : '未知错误';
+      toast.error(`加载预约失败: ${errorMessage}`);
     }
   };
 
   const handleAccept = async (appointment: Appointment) => {
-    if (!user) return;
+    if (!user || !user.id) return;
     
     try {
-      await clientApi.updateAppointment(appointment.id, {
-        doctor_id: user.id, // 抢单：将当前医生设为负责人
-        doctor_status: 'accepted',
-        status: 'confirmed',
+      // 使用新的工作流API确认预约
+      await clientApi.doctorConfirmAppointment(appointment.id, {
+        doctor_id: user.id,
+        doctor_note: '医生已确认预约'
       });
 
-      toast.success('预约已接受');
+      toast.success('预约已确认');
       loadAppointments();
     } catch (error: any) {
-      const errorMessage = handleApiError(error, '接受预约');
+      const errorMessage = handleApiError(error, '确认预约');
       toast.error(errorMessage);
     }
   };
@@ -105,8 +97,8 @@ export default function DoctorAppointmentPage() {
   };
 
   const onRejectSubmit = async (values: RejectFormValues) => {
-    if (!selectedAppointment) return;
-
+    if (!selectedAppointment || !user || !user.id) return;
+    
     setIsLoading(true);
     try {
       let note = values.doctor_note;
@@ -115,10 +107,10 @@ export default function DoctorAppointmentPage() {
         note += `\n建议改期至：${suggestedDateStr}`;
       }
 
-      await clientApi.updateAppointment(selectedAppointment.id, {
-        doctor_status: 'rejected',
-        doctor_note: note,
-        status: 'cancelled',
+      // 使用新的工作流API拒绝预约
+      await clientApi.doctorRejectAppointment(selectedAppointment.id, {
+        doctor_id: user.id,
+        doctor_note: note
       });
 
       toast.success('预约已拒绝，系统将通知销售人员');
@@ -132,15 +124,18 @@ export default function DoctorAppointmentPage() {
     }
   };
 
-  const pendingAppointments = appointments.filter(a => a.doctor_status === 'pending');
-  const acceptedAppointments = appointments.filter(a => a.doctor_status === 'accepted');
-  const rejectedAppointments = appointments.filter(a => a.doctor_status === 'rejected');
+  // 根据工作流状态过滤预约
+  const pendingAppointments = appointments.filter(a => a.workflow_status === 'pending_doctor_confirmation');
+  const acceptedAppointments = appointments.filter(a =>
+    a.workflow_status === 'doctor_confirmed' || a.workflow_status === 'doctor_completed'
+  );
+  const rejectedAppointments = appointments.filter(a => a.workflow_status === 'doctor_rejected');
 
   return (
     <div className="container py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">预约待办</h1>
-        <p className="text-muted-foreground">处理需要医生确认的预约申请</p>
+        <h1 className="text-3xl font-bold mb-2">医生服务管理</h1>
+        <p className="text-muted-foreground">处理医生服务预约（确认后直接完成，无需护士长排班）</p>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-3 mb-8">
@@ -157,12 +152,12 @@ export default function DoctorAppointmentPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">已接受</CardTitle>
+            <CardTitle className="text-sm font-medium">已完成</CardTitle>
             <CheckCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-confirmed">{acceptedAppointments.length}</div>
-            <p className="text-xs text-muted-foreground mt-1">已确认预约</p>
+            <p className="text-xs text-muted-foreground mt-1">已完成预约</p>
           </CardContent>
         </Card>
 
@@ -188,7 +183,15 @@ export default function DoctorAppointmentPage() {
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-lg">{appointment.customer_name}</CardTitle>
-                      <StatusBadge status={(appointment.doctor_status as any) || 'pending'} />
+                      <div className="flex items-center gap-2">
+                        {/* 显示工作流状态 */}
+                        {appointment.workflow_status && (
+                          <div className="px-2 py-1 bg-blue/10 text-blue rounded text-xs">
+                            {getWorkflowStatusDisplayName(appointment.workflow_status)}
+                          </div>
+                        )}
+                        <StatusBadge status="pending" />
+                      </div>
                     </div>
                     <CardDescription>{appointment.service?.name}</CardDescription>
                   </CardHeader>
@@ -216,12 +219,6 @@ export default function DoctorAppointmentPage() {
                         <span className="text-muted-foreground">预估时长：</span>
                         <span className="font-medium">{appointment.estimated_duration} 分钟</span>
                       </div>
-                      {appointment.sales && (
-                        <div className="col-span-2">
-                          <span className="text-muted-foreground">销售：</span>
-                          <span className="font-medium">{appointment.sales.full_name || appointment.sales.username}</span>
-                        </div>
-                      )}
                       {appointment.store && (
                         <div className="col-span-2">
                           <span className="text-muted-foreground">门店：</span>
@@ -236,7 +233,7 @@ export default function DoctorAppointmentPage() {
                         onClick={() => handleAccept(appointment)}
                       >
                         <CheckCircle className="h-4 w-4 mr-2" />
-                        接受
+                        确认
                       </Button>
                       <Button
                         variant="outline"
@@ -256,14 +253,26 @@ export default function DoctorAppointmentPage() {
 
         {acceptedAppointments.length > 0 && (
           <div>
-            <h2 className="text-xl font-bold mb-4">已接受预约</h2>
+            <h2 className="text-xl font-bold mb-4">已完成预约</h2>
             <div className="grid gap-4 xl:grid-cols-2">
               {acceptedAppointments.map(appointment => (
                 <Card key={appointment.id}>
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-lg">{appointment.customer_name}</CardTitle>
-                      <StatusBadge status={(appointment.doctor_status as any) || 'accepted'} />
+                      <div className="flex items-center gap-2">
+                        {/* 显示工作流状态 */}
+                        {appointment.workflow_status && (
+                          <div className={`px-2 py-1 rounded text-xs ${
+                            appointment.workflow_status === 'doctor_completed'
+                              ? 'bg-blue/10 text-blue'
+                              : 'bg-green/10 text-green'
+                          }`}>
+                            {getWorkflowStatusDisplayName(appointment.workflow_status)}
+                          </div>
+                        )}
+                        <StatusBadge status="confirmed" />
+                      </div>
                     </div>
                     <CardDescription>{appointment.service?.name}</CardDescription>
                   </CardHeader>
@@ -285,8 +294,16 @@ export default function DoctorAppointmentPage() {
                       )}
                       <div>
                         <span className="text-muted-foreground">状态：</span>
-                        <StatusBadge status={appointment.status as any} />
+                        <StatusBadge status={appointment.workflow_status === 'doctor_completed' ? 'completed' : (appointment.status as any)} />
                       </div>
+                      {appointment.doctor_confirmed_at && (
+                        <div>
+                          <span className="text-muted-foreground">确认时间：</span>
+                          <span className="font-medium">
+                            {format(new Date(appointment.doctor_confirmed_at), 'yyyy-MM-dd HH:mm')}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -304,7 +321,15 @@ export default function DoctorAppointmentPage() {
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-lg">{appointment.customer_name}</CardTitle>
-                      <StatusBadge status={(appointment.doctor_status as any) || 'rejected'} />
+                      <div className="flex items-center gap-2">
+                        {/* 显示工作流状态 */}
+                        {appointment.workflow_status && (
+                          <div className="px-2 py-1 bg-red/10 text-red rounded text-xs">
+                            {getWorkflowStatusDisplayName(appointment.workflow_status)}
+                          </div>
+                        )}
+                        <StatusBadge status="cancelled" />
+                      </div>
                     </div>
                     <CardDescription>{appointment.service?.name}</CardDescription>
                   </CardHeader>

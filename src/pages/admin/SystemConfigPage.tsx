@@ -496,6 +496,16 @@ export default function SystemConfigPage() {
     return labels[category] || category;
   };
 
+  const getServiceWorkflowDescription = (category: string, requiresDoctor: boolean) => {
+    if (category === 'nursing') {
+      return '预约创建后直接流转到护士长进行排班';
+    }
+    if (requiresDoctor) {
+      return '预约创建后先由医生确认，医生确认后直接完成，无需护士长排班';
+    }
+    return '预约创建后直接流转到护士长进行排班';
+  };
+
   // 检查用户是否有权限访问门店管理
   const canManageStores = profile?.role === 'super_admin' || profile?.role === 'admin';
 
@@ -589,7 +599,12 @@ export default function SystemConfigPage() {
                             render={({ field }) => (
                               <FormItem>
                                 <FormLabel>服务类别 *</FormLabel>
-                                <Select onValueChange={field.onChange} value={field.value}>
+                                <Select onValueChange={(value) => {
+                                  field.onChange(value);
+                                  // 根据服务类别自动设置是否需要医生
+                                  const requiresDoctor = value === 'consultation' || value === 'report';
+                                  serviceForm.setValue('requires_doctor', requiresDoctor);
+                                }} value={field.value}>
                                   <FormControl>
                                     <SelectTrigger>
                                       <SelectValue placeholder="选择服务类别" />
@@ -602,7 +617,24 @@ export default function SystemConfigPage() {
                                   </SelectContent>
                                 </Select>
                                 <FormDescription>
-                                  服务类别影响预约流程和资源分配
+                                  {field.value === 'nursing' && (
+                                    <span className="text-blue-600">
+                                      护理服务：预约创建后直接流转到所选门店的护士长进行智能排班
+                                    </span>
+                                  )}
+                                  {field.value === 'consultation' && (
+                                    <span className="text-orange-600">
+                                      咨询服务：预约创建后先由所选医生处理确认，医生确认后直接完成，无需护士长排班
+                                    </span>
+                                  )}
+                                  {field.value === 'report' && (
+                                    <span className="text-orange-600">
+                                      报告解读：预约创建后先由所选医生处理确认，医生确认后直接完成，无需护士长排班
+                                    </span>
+                                  )}
+                                  {!field.value && (
+                                    <span>服务类别影响预约流程和资源分配</span>
+                                  )}
                                 </FormDescription>
                                 <FormMessage />
                               </FormItem>
@@ -674,22 +706,38 @@ export default function SystemConfigPage() {
                           <FormField
                             control={serviceForm.control}
                             name="requires_doctor"
-                            render={({ field }) => (
-                              <FormItem className="flex items-center justify-between rounded-lg border p-4">
-                                <div className="space-y-0.5">
-                                  <FormLabel className="text-base">需要医生</FormLabel>
-                                  <FormDescription>
-                                    该服务是否需要医生参与
-                                  </FormDescription>
-                                </div>
-                                <FormControl>
-                                  <Switch
-                                    checked={field.value}
-                                    onCheckedChange={field.onChange}
-                                  />
-                                </FormControl>
-                              </FormItem>
-                            )}
+                            render={({ field }) => {
+                              const category = serviceForm.watch('category');
+                              const isAutoSet = category === 'consultation' || category === 'report';
+                              
+                              return (
+                                <FormItem className="flex items-center justify-between rounded-lg border p-4">
+                                  <div className="space-y-0.5">
+                                    <FormLabel className="text-base">需要医生</FormLabel>
+                                    <FormDescription>
+                                      {isAutoSet ? (
+                                        <span className="text-orange-600">
+                                          根据服务类别自动设置：{category === 'consultation' ? '咨询服务' : '报告解读'}需要医生参与
+                                        </span>
+                                      ) : category === 'nursing' ? (
+                                        <span className="text-blue-600">
+                                          根据服务类别自动设置：护理服务不需要医生参与
+                                        </span>
+                                      ) : (
+                                        <span>该服务是否需要医生参与</span>
+                                      )}
+                                    </FormDescription>
+                                  </div>
+                                  <FormControl>
+                                    <Switch
+                                      checked={field.value}
+                                      onCheckedChange={field.onChange}
+                                      disabled={isAutoSet || category === 'nursing'}
+                                    />
+                                  </FormControl>
+                                </FormItem>
+                              );
+                            }}
                           />
 
                           <FormField
@@ -756,6 +804,7 @@ export default function SystemConfigPage() {
                     <TableHead>服务名称</TableHead>
                     <TableHead>类别</TableHead>
                     <TableHead>基础时长</TableHead>
+                    <TableHead>处理流程</TableHead>
                     <TableHead>特殊要求</TableHead>
                     <TableHead>状态</TableHead>
                     <TableHead className="text-right">操作</TableHead>
@@ -764,7 +813,7 @@ export default function SystemConfigPage() {
                 <TableBody>
                   {services.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                         暂无服务项目数据，请点击"添加服务项目"按钮添加
                       </TableCell>
                     </TableRow>
@@ -777,7 +826,14 @@ export default function SystemConfigPage() {
                         </TableCell>
                         <TableCell>{service.base_duration} 分钟</TableCell>
                         <TableCell>
-                          <div className="flex gap-1">
+                          <div className="text-sm text-muted-foreground max-w-xs">
+                            {service.category === 'consultation' || service.category === 'report'
+                              ? '预约创建后先由医生确认，医生确认后直接完成'
+                              : getServiceWorkflowDescription(service.category, service.requires_doctor)}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-1 flex-wrap">
                             {service.requires_doctor && <Badge variant="secondary">需要医生</Badge>}
                             {service.allow_companions && <Badge variant="secondary">允许同行</Badge>}
                             {service.max_companions && service.max_companions > 0 && (

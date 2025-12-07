@@ -35,7 +35,7 @@ import ResourceFilter, { type ResourceFilterType } from '@/components/appointmen
 import CompactFilterBar from '@/components/appointment/CompactFilterBar';
 import { detectResourceConflicts, type ResourceConflict } from '@/utils/scheduleUtils';
 import { useAuth } from '@/contexts/AuthContext';
-import { canManageStoreSchedule, canViewStoreSchedule, getAccessibleStoreIds } from '@/utils/permissions';
+import { canManageStoreSchedule, canViewStoreSchedule, getAccessibleStoreIds, getWorkflowStatusDisplayName, getWorkflowStatusColor, canUpdateWorkflowStatus } from '@/utils/permissions';
 import { validateStoreAccess, validateScheduleData, validateAppointmentData, handleApiError, hasTimeConflict } from '@/utils/validation';
 
 const scheduleFormSchema = z.object({
@@ -110,8 +110,7 @@ export default function HeadNurseSchedulePage() {
       const storeFilter = getAccessibleStoreIds(user?.profile || null);
       
       const [appointmentsData, schedulesData, nursesData, roomsData] = await Promise.all([
-        clientApi.getAppointments({
-          status: 'pending,confirmed',
+        clientApi.getNursePendingAppointments({
           requested_date_from: startDate,
           requested_date_to: endDate,
           store_id: storeFilter || undefined // 根据权限过滤门店
@@ -125,8 +124,16 @@ export default function HeadNurseSchedulePage() {
         clientApi.getAvailableNurses(storeFilter || undefined), // 根据权限过滤门店
         clientApi.getAvailableRooms(storeFilter || undefined), // 根据权限过滤门店
       ]);
+      // 按工作流状态分组显示，并确保只显示护理服务
+      const pendingNurseAssignment = appointmentsData.filter(a =>
+        a.workflow_status === 'pending_nurse_assignment' && a.service?.category === 'nursing'
+      );
+      const doctorConfirmed = appointmentsData.filter(a =>
+        a.workflow_status === 'doctor_confirmed' && a.service?.category === 'nursing'
+      );
+      
+      setPendingAppointments([...pendingNurseAssignment, ...doctorConfirmed]);
 
-      setPendingAppointments(appointmentsData);
       setSchedules(schedulesData);
       setNurses(nursesData);
       setRooms(roomsData);
@@ -327,8 +334,10 @@ export default function HeadNurseSchedulePage() {
           room_id: values.room_id,
           nurse_id: values.nurse_id,
         });
-        await clientApi.updateAppointment(selectedAppointment.id, {
-          status: 'scheduled',
+        // 使用新的工作流API更新状态
+        await clientApi.updateAppointmentWorkflow(selectedAppointment.id, {
+          workflow_status: 'nurse_scheduled',
+          note: '护士长已排班'
         });
         console.log(`[操作日志] 创建排班: 预约ID ${selectedAppointment.id}, 预约人 ${selectedAppointment.customer_name}`);
         toast.success(forceOverride ? '排班已强制创建（存在资源冲突）' : '排班已创建');
@@ -428,8 +437,8 @@ export default function HeadNurseSchedulePage() {
   return (
     <div className="container py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">智能排班看板</h1>
-        <p className="text-muted-foreground">资源调度确认 (Resource Scheduling)</p>
+        <h1 className="text-3xl font-bold mb-2">护理服务排班看板</h1>
+        <p className="text-muted-foreground">护理服务资源调度确认 (Nursing Service Scheduling)</p>
         {user?.profile?.store_id && (
           <div className="flex items-center gap-2 mt-2 text-sm text-muted-foreground">
             <MapPin className="h-4 w-4" />
@@ -497,7 +506,7 @@ export default function HeadNurseSchedulePage() {
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-base">排班待办</CardTitle>
+              <CardTitle className="text-base">护理服务排班待办</CardTitle>
               <div className="flex gap-3 text-xs">
                 <span className="text-confirmed">● 已确认</span>
                 <span className="text-pending">● 待排班</span>
@@ -518,6 +527,14 @@ export default function HeadNurseSchedulePage() {
                         {appointment.requested_date && (
                           <div className="text-xs text-primary font-medium mt-1">
                             📅 {format(new Date(appointment.requested_date), 'yyyy-MM-dd')}
+                          </div>
+                        )}
+                        {/* 显示工作流状态 */}
+                        {appointment.workflow_status && (
+                          <div className="mt-1">
+                            <Badge variant="outline" className={`text-xs bg-${getWorkflowStatusColor(appointment.workflow_status)}/10 text-${getWorkflowStatusColor(appointment.workflow_status)}`}>
+                              {getWorkflowStatusDisplayName(appointment.workflow_status)}
+                            </Badge>
                           </div>
                         )}
                       </div>
@@ -549,6 +566,14 @@ export default function HeadNurseSchedulePage() {
                         {appointment.requested_date && (
                           <div className="text-xs text-primary font-medium mt-1">
                             📅 {format(new Date(appointment.requested_date), 'yyyy-MM-dd')}
+                          </div>
+                        )}
+                        {/* 显示工作流状态 */}
+                        {appointment.workflow_status && (
+                          <div className="mt-1">
+                            <Badge variant="outline" className={`text-xs bg-${getWorkflowStatusColor(appointment.workflow_status)}/10 text-${getWorkflowStatusColor(appointment.workflow_status)}`}>
+                              {getWorkflowStatusDisplayName(appointment.workflow_status)}
+                            </Badge>
                           </div>
                         )}
                       </div>
