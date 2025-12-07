@@ -405,7 +405,7 @@ export const clientApi = {
     if (filters?.status) params.append('status', filters.status);
     if (filters?.store_id) params.append('store_id', filters.store_id);
     const query = params.toString() ? `?${params.toString()}` : '';
-    return apiCall(`/resources${query}`);
+    return authenticatedApiCall(`/resources${query}`);
   },
 
   // Schedules
@@ -423,7 +423,7 @@ export const clientApi = {
     if (filters?.nurse_id) params.append('nurse_id', filters.nurse_id);
     if (filters?.store_id) params.append('store_id', filters.store_id);
     const query = params.toString() ? `?${params.toString()}` : '';
-    return apiCall(`/schedules${query}`);
+    return authenticatedApiCall(`/schedules${query}`);
   },
 
   async createSchedule(data: {
@@ -460,7 +460,7 @@ export const clientApi = {
     if (filters?.status) params.append('status', filters.status);
     if (filters?.assigned_to) params.append('assigned_to', filters.assigned_to);
     const query = params.toString() ? `?${params.toString()}` : '';
-    return apiCall(`/task-executions${query}`);
+    return authenticatedApiCall(`/task-executions${query}`);
   },
 
   async updateTaskExecution(id: string, data: Partial<TaskExecution>): Promise<TaskExecution> {
@@ -496,13 +496,13 @@ export const clientApi = {
   // Dashboard Stats
   async getDashboardStats(date?: string) {
     const query = date ? `?date=${date}` : '';
-    return apiCall(`/dashboard/stats${query}`);
+    return authenticatedApiCall(`/dashboard/stats${query}`);
   },
 
   // Resource Availability
   async getResourceAvailability(params: { date: string; time_start: string; time_end: string; store_id?: string }) {
     const queryParams = new URLSearchParams(params).toString();
-    return apiCall(`/resources/availability?${queryParams}`);
+    return authenticatedApiCall(`/resources/availability?${queryParams}`);
   },
 
 

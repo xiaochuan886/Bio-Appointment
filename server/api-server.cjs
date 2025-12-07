@@ -1,9 +1,14 @@
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
+const WebSocket = require('ws');
+const http = require('http');
 
 const app = express();
 const PORT = 3001;
+
+// Create HTTP server for WebSocket
+const server = http.createServer(app);
 
 // Database connection
 const pool = new Pool({
@@ -510,8 +515,85 @@ app.get('/api/resources', async (req, res) => {
 // Get schedules
 app.get('/api/schedules', async (req, res) => {
   try {
+    // 获取用户信息进行权限验证
+    const user = await getUserFromToken(req);
+    if (!user) {
+      return res.status(401).json({
+        error: 'Authentication required',
+        message: '请先登录以访问排班数据'
+      });
+    }
+
+    // 获取用户详细信息
+    let userResult;
+    if (user && user.userId) {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(user.userId)) {
+        userResult = await pool.query(
+          'SELECT id, role, store_id FROM profiles WHERE id = $1',
+          [user.userId]
+        );
+      } else {
+        userResult = { rows: [{ id: user.userId, role: user.role, store_id: null }] };
+      }
+    }
+
+    if (userResult.rows.length === 0) {
+      return res.status(401).json({
+        error: 'User not found',
+        message: '用户不存在'
+      });
+    }
+
+    const userProfile = userResult.rows[0];
     const { date, start_date, end_date, nurse_id, store_id } = req.query;
+    
     console.log('🔍 [DEBUG] 排班查询参数:', { date, start_date, end_date, nurse_id, store_id });
+    console.log('🔍 [DEBUG] 用户信息:', { userId: userProfile.id, role: userProfile.role, store_id: userProfile.store_id });
+    
+    // 参数验证
+    if (nurse_id && nurse_id !== 'null' && nurse_id !== 'undefined') {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      // Allow both UUID format and mock IDs for development
+      if (!uuidRegex.test(nurse_id) && !nurse_id.startsWith('admin-') && !nurse_id.startsWith('nurse-') && !nurse_id.startsWith('doctor-')) {
+        return res.status(400).json({
+          error: 'Invalid nurse_id format',
+          message: '护士ID格式无效，必须是有效的UUID格式或有效的用户ID'
+        });
+      }
+    }
+
+    if (store_id && store_id !== 'null' && store_id !== 'undefined') {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      // Allow both UUID format and mock IDs for development
+      if (!uuidRegex.test(store_id) && !store_id.startsWith('store-')) {
+        return res.status(400).json({
+          error: 'Invalid store_id format',
+          message: '门店ID格式无效，必须是有效的UUID格式或有效的门店ID'
+        });
+      }
+    }
+
+    // 日期格式验证
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (date && !dateRegex.test(date)) {
+      return res.status(400).json({
+        error: 'Invalid date format',
+        message: '日期格式无效，请使用YYYY-MM-DD格式'
+      });
+    }
+    if (start_date && !dateRegex.test(start_date)) {
+      return res.status(400).json({
+        error: 'Invalid start_date format',
+        message: '开始日期格式无效，请使用YYYY-MM-DD格式'
+      });
+    }
+    if (end_date && !dateRegex.test(end_date)) {
+      return res.status(400).json({
+        error: 'Invalid end_date format',
+        message: '结束日期格式无效，请使用YYYY-MM-DD格式'
+      });
+    }
     
     let query = `
       SELECT
@@ -538,6 +620,34 @@ app.get('/api/schedules', async (req, res) => {
     let params = [];
     const conditions = [];
 
+    // 权限控制：护士只能查看自己的排班
+    if (userProfile.role === 'nurse') {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(userProfile.id)) {
+        // UUID格式：使用UUID比较
+        conditions.push(`s.nurse_id = $${params.length + 1}::uuid`);
+        params.push(userProfile.id);
+      } else {
+        // 非UUID格式：使用文本比较
+        conditions.push(`s.nurse_id::text = $${params.length + 1}`);
+        params.push(userProfile.id);
+      }
+    }
+    
+    // 护士长只能查看自己门店的排班
+    if (userProfile.role === 'head_nurse' && userProfile.store_id) {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(userProfile.store_id)) {
+        // UUID格式：使用UUID比较
+        conditions.push(`a.store_id = $${params.length + 1}::uuid`);
+        params.push(userProfile.store_id);
+      } else {
+        // 非UUID格式：使用文本比较
+        conditions.push(`a.store_id::text = $${params.length + 1}`);
+        params.push(userProfile.store_id);
+      }
+    }
+
     // 构建查询条件
     if (date) {
       conditions.push(`DATE(s.scheduled_date) = $${params.length + 1}`);
@@ -555,14 +665,32 @@ app.get('/api/schedules', async (req, res) => {
       params.push(end_date);
     }
 
-    if (nurse_id) {
-      conditions.push(`s.nurse_id = $${params.length + 1}`);
-      params.push(nurse_id);
+    // 只有管理员和护士长可以按护士ID筛选
+    if (nurse_id && (userProfile.role === 'super_admin' || userProfile.role === 'head_nurse')) {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(nurse_id)) {
+        // UUID格式：使用UUID比较
+        conditions.push(`s.nurse_id = $${params.length + 1}::uuid`);
+        params.push(nurse_id);
+      } else {
+        // 非UUID格式：使用文本比较
+        conditions.push(`s.nurse_id::text = $${params.length + 1}`);
+        params.push(nurse_id);
+      }
     }
     
-    if (store_id) {
-      conditions.push(`a.store_id = $${params.length + 1}`);
-      params.push(store_id);
+    // 只有管理员可以按门店ID筛选
+    if (store_id && userProfile.role === 'super_admin') {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(store_id)) {
+        // UUID格式：使用UUID比较
+        conditions.push(`a.store_id = $${params.length + 1}::uuid`);
+        params.push(store_id);
+      } else {
+        // 非UUID格式：使用文本比较
+        conditions.push(`a.store_id::text = $${params.length + 1}`);
+        params.push(store_id);
+      }
     }
 
     // 如果有条件，添加WHERE子句
@@ -2053,6 +2181,46 @@ app.post('/api/rooms', async (req, res) => {
 // Create schedule
 app.post('/api/schedules', async (req, res) => {
   try {
+    // 获取用户信息进行权限验证
+    const user = await getUserFromToken(req);
+    if (!user) {
+      return res.status(401).json({
+        error: 'Authentication required',
+        message: '请先登录以创建排班'
+      });
+    }
+
+    // 获取用户详细信息
+    let userResult;
+    if (user && user.userId) {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(user.userId)) {
+        userResult = await pool.query(
+          'SELECT id, role, store_id FROM profiles WHERE id = $1',
+          [user.userId]
+        );
+      } else {
+        userResult = { rows: [{ id: user.userId, role: user.role, store_id: null }] };
+      }
+    }
+
+    if (userResult.rows.length === 0) {
+      return res.status(401).json({
+        error: 'User not found',
+        message: '用户不存在'
+      });
+    }
+
+    const userProfile = userResult.rows[0];
+
+    // 只有护士长和医生可以创建排班
+    if (userProfile.role !== 'head_nurse' && userProfile.role !== 'doctor' && userProfile.role !== 'super_admin') {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: '只有护士长、医生和管理员可以创建排班'
+      });
+    }
+
     const {
       appointment_id,
       scheduled_date,
@@ -2063,32 +2231,99 @@ app.post('/api/schedules', async (req, res) => {
       notes
     } = req.body;
 
-    // Validate that all resources belong to the same store as the appointment
+    // 参数验证
+    if (!appointment_id) {
+      return res.status(400).json({
+        error: 'Missing required parameter',
+        message: '缺少必需参数：appointment_id'
+      });
+    }
+
+    // UUID格式验证
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(appointment_id)) {
+      return res.status(400).json({
+        error: 'Invalid appointment_id format',
+        message: '预约ID格式无效，必须是有效的UUID格式'
+      });
+    }
+
+    if (room_id && !uuidRegex.test(room_id)) {
+      return res.status(400).json({
+        error: 'Invalid room_id format',
+        message: '房间ID格式无效，必须是有效的UUID格式'
+      });
+    }
+
+    if (nurse_id && !uuidRegex.test(nurse_id) && !nurse_id.startsWith('admin-') && !nurse_id.startsWith('nurse-') && !nurse_id.startsWith('doctor-')) {
+      return res.status(400).json({
+        error: 'Invalid nurse_id format',
+        message: '护士ID格式无效，必须是有效的UUID格式或有效的用户ID'
+      });
+    }
+
+    // 日期格式验证
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!scheduled_date || !dateRegex.test(scheduled_date)) {
+      return res.status(400).json({
+        error: 'Invalid scheduled_date format',
+        message: '排班日期格式无效，请使用YYYY-MM-DD格式'
+      });
+    }
+
+    // 时间格式验证
+    const timeRegex = /^\d{2}:\d{2}:\d{2}$/;
+    if (!scheduled_time_start || !timeRegex.test(scheduled_time_start)) {
+      return res.status(400).json({
+        error: 'Invalid scheduled_time_start format',
+        message: '开始时间格式无效，请使用HH:MM:SS格式'
+      });
+    }
+
+    if (!scheduled_time_end || !timeRegex.test(scheduled_time_end)) {
+      return res.status(400).json({
+        error: 'Invalid scheduled_time_end format',
+        message: '结束时间格式无效，请使用HH:MM:SS格式'
+      });
+    }
+
+    // 验证预约是否存在并获取门店信息
     const appointmentResult = await pool.query('SELECT store_id FROM appointments WHERE id = $1', [appointment_id]);
     if (appointmentResult.rows.length === 0) {
       return res.status(404).json({
-        error: 'Appointment not found'
+        error: 'Appointment not found',
+        message: '预约不存在'
       });
     }
     
     const appointmentStoreId = appointmentResult.rows[0].store_id;
     
-    // Check if room belongs to the same store
+    // 门店权限检查：护士长和医生只能操作自己门店的预约
+    if (userProfile.role !== 'super_admin' && userProfile.store_id !== appointmentStoreId) {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: '您只能操作自己门店的预约'
+      });
+    }
+    
+    // 检查房间是否属于同一门店
     if (room_id) {
       const roomResult = await pool.query('SELECT store_id FROM resources WHERE id = $1', [room_id]);
       if (roomResult.rows.length === 0 || roomResult.rows[0].store_id !== appointmentStoreId) {
         return res.status(400).json({
-          error: 'Room does not belong to the same store as the appointment'
+          error: 'Invalid room',
+          message: '房间不属于预约所在门店'
         });
       }
     }
     
-    // Check if nurse belongs to the same store
+    // 检查护士是否属于同一门店
     if (nurse_id) {
       const nurseResult = await pool.query('SELECT store_id FROM profiles WHERE id = $1', [nurse_id]);
       if (nurseResult.rows.length === 0 || nurseResult.rows[0].store_id !== appointmentStoreId) {
         return res.status(400).json({
-          error: 'Nurse does not belong to the same store as the appointment'
+          error: 'Invalid nurse',
+          message: '护士不属于预约所在门店'
         });
       }
     }
@@ -2102,9 +2337,10 @@ app.post('/api/schedules', async (req, res) => {
 
     res.status(201).json(result.rows[0]);
   } catch (error) {
+    console.error('Failed to create schedule:', error);
     res.status(500).json({
       error: 'Failed to create schedule',
-      message: error.message
+      message: '创建排班失败：' + error.message
     });
   }
 });
@@ -2112,8 +2348,148 @@ app.post('/api/schedules', async (req, res) => {
 // Update schedule
 app.put('/api/schedules/:id', async (req, res) => {
   try {
+    // 获取用户信息进行权限验证
+    const user = await getUserFromToken(req);
+    if (!user) {
+      return res.status(401).json({
+        error: 'Authentication required',
+        message: '请先登录以更新排班'
+      });
+    }
+
+    // 获取用户详细信息
+    let userResult;
+    if (user && user.userId) {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(user.userId)) {
+        userResult = await pool.query(
+          'SELECT id, role, store_id FROM profiles WHERE id = $1',
+          [user.userId]
+        );
+      } else {
+        userResult = { rows: [{ id: user.userId, role: user.role, store_id: null }] };
+      }
+    }
+
+    if (userResult.rows.length === 0) {
+      return res.status(401).json({
+        error: 'User not found',
+        message: '用户不存在'
+      });
+    }
+
+    const userProfile = userResult.rows[0];
     const { id } = req.params;
+
+    // UUID格式验证
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(id)) {
+      return res.status(400).json({
+        error: 'Invalid schedule ID format',
+        message: '排班ID格式无效，必须是有效的UUID格式'
+      });
+    }
+
+    // 检查排班是否存在并获取相关信息
+    const scheduleResult = await pool.query(
+      `SELECT s.*, a.store_id as appointment_store_id, a.customer_name
+       FROM schedules s
+       LEFT JOIN appointments a ON s.appointment_id = a.id
+       WHERE s.id = $1`,
+      [id]
+    );
+
+    if (scheduleResult.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Schedule not found',
+        message: '排班不存在'
+      });
+    }
+
+    const schedule = scheduleResult.rows[0];
+    const appointmentStoreId = schedule.appointment_store_id;
+
+    // 权限检查
+    // 护士只能更新自己的排班
+    if (userProfile.role === 'nurse' && schedule.nurse_id !== userProfile.id) {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: '护士只能更新自己的排班'
+      });
+    }
+
+    // 护士长和医生只能操作自己门店的排班
+    if ((userProfile.role === 'head_nurse' || userProfile.role === 'doctor') &&
+        userProfile.store_id !== appointmentStoreId) {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: '您只能操作自己门店的排班'
+      });
+    }
+
     const updates = req.body;
+
+    // 参数验证
+    if (updates.room_id && !uuidRegex.test(updates.room_id)) {
+      return res.status(400).json({
+        error: 'Invalid room_id format',
+        message: '房间ID格式无效，必须是有效的UUID格式'
+      });
+    }
+
+    if (updates.nurse_id && !uuidRegex.test(updates.nurse_id) && !updates.nurse_id.startsWith('admin-') && !updates.nurse_id.startsWith('nurse-') && !updates.nurse_id.startsWith('doctor-')) {
+      return res.status(400).json({
+        error: 'Invalid nurse_id format',
+        message: '护士ID格式无效，必须是有效的UUID格式或有效的用户ID'
+      });
+    }
+
+    // 日期格式验证
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (updates.scheduled_date && !dateRegex.test(updates.scheduled_date)) {
+      return res.status(400).json({
+        error: 'Invalid scheduled_date format',
+        message: '排班日期格式无效，请使用YYYY-MM-DD格式'
+      });
+    }
+
+    // 时间格式验证
+    const timeRegex = /^\d{2}:\d{2}:\d{2}$/;
+    if (updates.scheduled_time_start && !timeRegex.test(updates.scheduled_time_start)) {
+      return res.status(400).json({
+        error: 'Invalid scheduled_time_start format',
+        message: '开始时间格式无效，请使用HH:MM:SS格式'
+      });
+    }
+
+    if (updates.scheduled_time_end && !timeRegex.test(updates.scheduled_time_end)) {
+      return res.status(400).json({
+        error: 'Invalid scheduled_time_end format',
+        message: '结束时间格式无效，请使用HH:MM:SS格式'
+      });
+    }
+
+    // 检查房间是否属于同一门店
+    if (updates.room_id) {
+      const roomResult = await pool.query('SELECT store_id FROM resources WHERE id = $1', [updates.room_id]);
+      if (roomResult.rows.length === 0 || roomResult.rows[0].store_id !== appointmentStoreId) {
+        return res.status(400).json({
+          error: 'Invalid room',
+          message: '房间不属于预约所在门店'
+        });
+      }
+    }
+
+    // 检查护士是否属于同一门店
+    if (updates.nurse_id) {
+      const nurseResult = await pool.query('SELECT store_id FROM profiles WHERE id = $1', [updates.nurse_id]);
+      if (nurseResult.rows.length === 0 || nurseResult.rows[0].store_id !== appointmentStoreId) {
+        return res.status(400).json({
+          error: 'Invalid nurse',
+          message: '护士不属于预约所在门店'
+        });
+      }
+    }
 
     // Build dynamic update query
     const updateFields = [];
@@ -2130,7 +2506,8 @@ app.put('/api/schedules/:id', async (req, res) => {
 
     if (updateFields.length === 0) {
       return res.status(400).json({
-        error: 'No valid fields to update'
+        error: 'No valid fields to update',
+        message: '没有提供有效的更新字段'
       });
     }
 
@@ -2145,15 +2522,17 @@ app.put('/api/schedules/:id', async (req, res) => {
 
     if (result.rows.length === 0) {
       return res.status(404).json({
-        error: 'Schedule not found'
+        error: 'Schedule not found',
+        message: '排班不存在'
       });
     }
 
     res.json(result.rows[0]);
   } catch (error) {
+    console.error('Failed to update schedule:', error);
     res.status(500).json({
       error: 'Failed to update schedule',
-      message: error.message
+      message: '更新排班失败：' + error.message
     });
   }
 });
@@ -2161,7 +2540,92 @@ app.put('/api/schedules/:id', async (req, res) => {
 // Delete schedule
 app.delete('/api/schedules/:id', async (req, res) => {
   try {
+    // 获取用户信息进行权限验证
+    const user = await getUserFromToken(req);
+    if (!user) {
+      return res.status(401).json({
+        error: 'Authentication required',
+        message: '请先登录以删除排班'
+      });
+    }
+
+    // 获取用户详细信息
+    let userResult;
+    if (user && user.userId) {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(user.userId)) {
+        userResult = await pool.query(
+          'SELECT id, role, store_id FROM profiles WHERE id = $1',
+          [user.userId]
+        );
+      } else {
+        userResult = { rows: [{ id: user.userId, role: user.role, store_id: null }] };
+      }
+    }
+
+    if (userResult.rows.length === 0) {
+      return res.status(401).json({
+        error: 'User not found',
+        message: '用户不存在'
+      });
+    }
+
+    const userProfile = userResult.rows[0];
     const { id } = req.params;
+
+    // UUID格式验证
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(id)) {
+      return res.status(400).json({
+        error: 'Invalid schedule ID format',
+        message: '排班ID格式无效，必须是有效的UUID格式'
+      });
+    }
+
+    // 检查排班是否存在并获取相关信息
+    const scheduleResult = await pool.query(
+      `SELECT s.*, a.store_id as appointment_store_id, a.customer_name
+       FROM schedules s
+       LEFT JOIN appointments a ON s.appointment_id = a.id
+       WHERE s.id = $1`,
+      [id]
+    );
+
+    if (scheduleResult.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Schedule not found',
+        message: '排班不存在'
+      });
+    }
+
+    const schedule = scheduleResult.rows[0];
+    const appointmentStoreId = schedule.appointment_store_id;
+
+    // 权限检查
+    // 护士只能删除自己的排班
+    if (userProfile.role === 'nurse' && schedule.nurse_id !== userProfile.id) {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: '护士只能删除自己的排班'
+      });
+    }
+
+    // 护士长和医生只能操作自己门店的排班
+    if ((userProfile.role === 'head_nurse' || userProfile.role === 'doctor') &&
+        userProfile.store_id !== appointmentStoreId) {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: '您只能操作自己门店的排班'
+      });
+    }
+
+    // 只有护士长、医生和管理员可以删除排班
+    if (userProfile.role !== 'head_nurse' && userProfile.role !== 'doctor' && userProfile.role !== 'super_admin') {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: '只有护士长、医生和管理员可以删除排班'
+      });
+    }
 
     const result = await pool.query(
       'DELETE FROM schedules WHERE id = $1 RETURNING *',
@@ -2170,15 +2634,20 @@ app.delete('/api/schedules/:id', async (req, res) => {
 
     if (result.rows.length === 0) {
       return res.status(404).json({
-        error: 'Schedule not found'
+        error: 'Schedule not found',
+        message: '排班不存在'
       });
     }
 
-    res.json({ message: 'Schedule deleted successfully' });
+    res.json({
+      message: '排班删除成功',
+      deleted_schedule: result.rows[0]
+    });
   } catch (error) {
+    console.error('Failed to delete schedule:', error);
     res.status(500).json({
       error: 'Failed to delete schedule',
-      message: error.message
+      message: '删除排班失败：' + error.message
     });
   }
 });
@@ -3269,10 +3738,46 @@ app.get('/api/stores/:id/staff', checkStoreAccess, async (req, res) => {
   }
 });
 
+// Initialize WebSocket server and real-time service
+let realtimeService = null;
+
+async function initializeRealtimeServices() {
+  try {
+    // Import and initialize WebSocket server
+    const { WebSocketServer } = require('./websocket-server.js');
+    const { RealtimeService } = require('./realtime-service.js');
+    
+    // Create WebSocket server
+    const wss = new WebSocketServer({ server });
+    
+    // Initialize real-time service
+    realtimeService = new RealtimeService(pool);
+    
+    // Initialize notification tables
+    await realtimeService.initializeDatabase();
+    
+    // Set up real-time service with WebSocket server
+    realtimeService.setWebSocketServer(wss);
+    
+    console.log('✅ WebSocket server and real-time service initialized');
+    return true;
+  } catch (error) {
+    console.error('❌ Failed to initialize real-time services:', error);
+    return false;
+  }
+}
+
+// Make realtime service available to routes
+app.use((req, res, next) => {
+  req.realtimeService = realtimeService;
+  next();
+});
+
 // Start server
-app.listen(PORT, async () => {
-  console.log(`🚀 API Server running on http://localhost:${PORT}`);
-  console.log('📊 Health check: http://localhost:${PORT}/api/health');
+server.listen(PORT, async () => {
+  console.log('🚀 API Server running on http://localhost:' + PORT);
+  console.log('📊 Health check: http://localhost:' + PORT + '/api/health');
+  console.log('🔌 WebSocket server: ws://localhost:' + PORT);
 
   // Initialize database
   await initializeDatabase();
@@ -3286,5 +3791,13 @@ app.listen(PORT, async () => {
     }
   } catch (error) {
     console.error('❌ Failed to connect to database:', error);
+  }
+
+  // Initialize real-time services
+  const realtimeInitialized = await initializeRealtimeServices();
+  if (realtimeInitialized) {
+    console.log('✅ Real-time services ready');
+  } else {
+    console.error('❌ Real-time services initialization failed');
   }
 });

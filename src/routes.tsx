@@ -15,6 +15,8 @@ import HeadNurseSchedulePage from '@/pages/head-nurse/SchedulePage';
 
 // 护士端页面
 import NurseTaskPage from '@/pages/nurse/TaskPage';
+import NurseSchedulePage from '@/pages/nurse/SchedulePage';
+import NurseHistoryPage from '@/pages/nurse/HistoryPage';
 
 // 医生端页面
 import DoctorAppointmentPage from '@/pages/doctor/AppointmentPage';
@@ -89,6 +91,22 @@ const routes: RouteConfig[] = [
     name: '我的任务',
     path: '/nurse/tasks',
     element: <NurseTaskPage />,
+    visible: true,
+    requireAuth: true,
+    requiredRole: ['nurse', 'super_admin'],
+  },
+  {
+    name: '我的排班',
+    path: '/nurse/schedule',
+    element: <NurseSchedulePage />,
+    visible: true,
+    requireAuth: true,
+    requiredRole: ['nurse', 'super_admin'],
+  },
+  {
+    name: '任务历史',
+    path: '/nurse/history',
+    element: <NurseHistoryPage />,
     visible: true,
     requireAuth: true,
     requiredRole: ['nurse', 'super_admin'],

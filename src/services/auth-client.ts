@@ -37,7 +37,7 @@ export class ClientAuthService {
         // Return a mock payload with long expiry for development
         const now = Math.floor(Date.now() / 1000);
         return {
-          userId: 'admin-id',
+          userId: '123e4567-e89b-12d3-a456-426614174000', // Valid UUID format
           email: 'admin@test.com',
           role: 'super_admin',
           iat: now,

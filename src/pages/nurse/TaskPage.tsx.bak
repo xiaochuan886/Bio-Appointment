@@ -412,8 +412,6 @@ export default function NurseTaskPage() {
           </Card>
         </div>
 
-      </div>
-
       <div className="space-y-6">
         {inProgressTasks.length > 0 && (
           <div>
