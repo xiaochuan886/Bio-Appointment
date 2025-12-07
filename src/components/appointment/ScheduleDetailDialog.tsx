@@ -4,7 +4,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { format, isValid, parseISO } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import type { ScheduleWithDetails } from '@/types/types';
-import { Calendar, Clock, User, FileText, AlertCircle } from 'lucide-react';
+import { Calendar, Clock, User, FileText, AlertCircle, MapPin } from 'lucide-react';
 
 interface ScheduleDetailDialogProps {
   open: boolean;
@@ -170,6 +170,24 @@ export default function ScheduleDetailDialog({
                       </span>
                     </div>
                   </div>
+
+                  {/* 门店信息 */}
+                  {schedule.appointment?.store && (
+                    <div className="mb-3 text-sm">
+                      <div className="flex items-center gap-2">
+                        <MapPin className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-muted-foreground">门店:</span>
+                        <span className="font-medium">
+                          {schedule.appointment.store.name}
+                        </span>
+                      </div>
+                      {schedule.appointment.store.address && (
+                        <div className="ml-6 text-xs text-muted-foreground">
+                          {schedule.appointment.store.address}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* 调整原因 */}
                   {schedule.adjustment_reason && (

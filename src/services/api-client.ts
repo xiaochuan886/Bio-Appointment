@@ -57,20 +57,91 @@ function getStoredTokens() {
 }
 
 // Types
+export interface Store {
+  id: string;
+  name: string;
+  address?: string;
+  phone?: string;
+  contact_person?: string;
+  status: 'active' | 'inactive';
+  description?: string;
+  business_hours?: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+  created_by?: string;
+  updated_by?: string;
+}
+
+export interface StoreCreateRequest {
+  name: string;
+  address?: string;
+  phone?: string;
+  contact_person?: string;
+  status?: 'active' | 'inactive';
+  description?: string;
+  business_hours?: Record<string, any>;
+}
+
+export interface StoreUpdateRequest {
+  name?: string;
+  address?: string;
+  phone?: string;
+  contact_person?: string;
+  status?: 'active' | 'inactive';
+  description?: string;
+  business_hours?: Record<string, any>;
+}
+
+export interface StoreFilters {
+  status?: 'active' | 'inactive';
+  name?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface StoreResource {
+  id: string;
+  name: string;
+  type: string;
+  category: string;
+  status: string;
+  capacity?: number;
+  location?: string;
+}
+
+export interface StoreStaff {
+  id: string;
+  username: string;
+  full_name: string;
+  role: string;
+  status: string;
+  phone?: string;
+}
+
 export interface Appointment {
   id: string;
   customer_name: string;
-  customer_phone: string;
+  customer_phone?: string;
   service_id: string;
   service?: Service | null;
   requested_date: string;
-  requested_time_start: string;
-  requested_time_end: string;
+  requested_time_start?: string;
+  requested_time_end?: string;
   total_people: number;
   estimated_duration: number;
   is_urgent: boolean;
   status: string;
+  doctor_id?: string;
+  doctor_status?: string;
+  doctor_note?: string;
+  sales?: {
+    id: string;
+    username: string;
+    full_name?: string;
+  };
+  store?: Store;
   notes?: string;
+  store_id?: string;
   created_at: string;
   updated_at: string;
 }
@@ -93,6 +164,7 @@ export interface Resource {
   type: string;
   category: string;
   status: string;
+  store_id?: string;
 }
 
 export interface Schedule {
@@ -104,6 +176,19 @@ export interface Schedule {
   room_id?: string;
   nurse_id?: string;
   status: string;
+  notes?: string;
+  store_id?: string;
+  appointment?: {
+    customer_name?: string;
+    store_id?: string;
+    store?: {
+      id: string;
+      name: string;
+    };
+  };
+  room?: {
+    name: string;
+  };
   created_at: string;
   updated_at: string;
 }
@@ -126,6 +211,7 @@ export interface Profile {
   role: string;
   phone?: string;
   department?: string;
+  store_id?: string;
   created_at: string;
   updated_at: string;
 }
@@ -142,6 +228,7 @@ export interface CreateAppointmentInput {
   is_urgent?: boolean;
   notes?: string;
   companion_names?: string[] | null;
+  store_id?: string;
 }
 
 // API Functions
@@ -246,10 +333,11 @@ export const clientApi = {
   },
 
   // Resources
-  async getResources(filters?: { type?: string; status?: string }): Promise<Resource[]> {
+  async getResources(filters?: { type?: string; status?: string; store_id?: string }): Promise<Resource[]> {
     const params = new URLSearchParams();
     if (filters?.type) params.append('type', filters.type);
     if (filters?.status) params.append('status', filters.status);
+    if (filters?.store_id) params.append('store_id', filters.store_id);
     const query = params.toString() ? `?${params.toString()}` : '';
     return apiCall(`/resources${query}`);
   },
@@ -259,15 +347,45 @@ export const clientApi = {
     date?: string;
     start_date?: string;
     end_date?: string;
-    nurse_id?: string
+    nurse_id?: string;
+    store_id?: string;
   }): Promise<Schedule[]> {
     const params = new URLSearchParams();
     if (filters?.date) params.append('date', filters.date);
     if (filters?.start_date) params.append('start_date', filters.start_date);
     if (filters?.end_date) params.append('end_date', filters.end_date);
     if (filters?.nurse_id) params.append('nurse_id', filters.nurse_id);
+    if (filters?.store_id) params.append('store_id', filters.store_id);
     const query = params.toString() ? `?${params.toString()}` : '';
     return apiCall(`/schedules${query}`);
+  },
+
+  async createSchedule(data: {
+    appointment_id: string;
+    scheduled_date: string;
+    scheduled_time_start: string;
+    scheduled_time_end: string;
+    room_id?: string;
+    nurse_id?: string;
+    notes?: string;
+  }): Promise<Schedule> {
+    return authenticatedApiCall('/schedules', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateSchedule(id: string, data: Partial<Schedule>): Promise<Schedule> {
+    return authenticatedApiCall(`/schedules/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteSchedule(id: string): Promise<void> {
+    return authenticatedApiCall(`/schedules/${id}`, {
+      method: 'DELETE',
+    });
   },
 
   // Task Executions
@@ -300,8 +418,9 @@ export const clientApi = {
   },
 
   // Profiles
-  async getProfiles(): Promise<Profile[]> {
-    return authenticatedApiCall('/profiles');
+  async getProfiles(store_id?: string): Promise<Profile[]> {
+    const query = store_id ? `?store_id=${store_id}` : '';
+    return authenticatedApiCall(`/profiles${query}`);
   },
 
   async getProfile(id: string): Promise<Profile> {
@@ -315,47 +434,21 @@ export const clientApi = {
   },
 
   // Resource Availability
-  async getResourceAvailability(params: { date: string; time_start: string; time_end: string }) {
+  async getResourceAvailability(params: { date: string; time_start: string; time_end: string; store_id?: string }) {
     const queryParams = new URLSearchParams(params).toString();
     return apiCall(`/resources/availability?${queryParams}`);
   },
 
-  // Schedule CRUD operations
-  async createSchedule(data: {
-    appointment_id: string;
-    scheduled_date: string;
-    scheduled_time_start: string;
-    scheduled_time_end: string;
-    room_id?: string;
-    nurse_id?: string;
-    notes?: string;
-  }): Promise<Schedule> {
-    return authenticatedApiCall('/schedules', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
-
-  async updateSchedule(id: string, data: Partial<Schedule>): Promise<Schedule> {
-    return authenticatedApiCall(`/schedules/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
-  },
-
-  async deleteSchedule(id: string): Promise<void> {
-    return authenticatedApiCall(`/schedules/${id}`, {
-      method: 'DELETE',
-    });
-  },
 
   // Helper functions for specific needs
-  async getAvailableNurses() {
-    return apiCall('/nurses');
+  async getAvailableNurses(store_id?: string) {
+    const query = store_id ? `?store_id=${store_id}` : '';
+    return authenticatedApiCall(`/profiles/nurses/available${query}`);
   },
 
-  async getAvailableRooms() {
-    return apiCall('/rooms');
+  async getAvailableRooms(store_id?: string) {
+    const query = store_id ? `?store_id=${store_id}` : '';
+    return authenticatedApiCall(`/resources/rooms/available${query}`);
   },
 
   // DingTalk Configuration
@@ -405,6 +498,55 @@ export const clientApi = {
 
     const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
     return authenticatedApiCall(`/dingtalk/sync/logs${query}`);
+  },
+
+  // Store Management
+  async getStores(filters?: StoreFilters): Promise<Store[]> {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          params.append(key, String(value));
+        }
+      });
+    }
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const response = await authenticatedApiCall(`/stores${query}`);
+    return response.stores || response; // Handle both paginated and direct array responses
+  },
+
+  async getStore(id: string): Promise<Store> {
+    return authenticatedApiCall(`/stores/${id}`);
+  },
+
+  async createStore(data: StoreCreateRequest): Promise<Store> {
+    return authenticatedApiCall('/stores', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateStore(id: string, data: StoreUpdateRequest): Promise<Store> {
+    return authenticatedApiCall(`/stores/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteStore(id: string): Promise<void> {
+    return authenticatedApiCall(`/stores/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async getStoreResources(id: string, type?: string): Promise<StoreResource[]> {
+    const query = type ? `?type=${type}` : '';
+    return authenticatedApiCall(`/stores/${id}/resources${query}`);
+  },
+
+  async getStoreStaff(id: string, role?: string): Promise<StoreStaff[]> {
+    const query = role ? `?role=${role}` : '';
+    return authenticatedApiCall(`/stores/${id}/staff${query}`);
   },
 };
 

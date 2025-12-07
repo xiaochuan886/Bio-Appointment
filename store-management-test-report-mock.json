@@ -1,0 +1,103 @@
+{
+  "summary": {
+    "totalTests": 7,
+    "passedTests": 5,
+    "failedTests": 2,
+    "startTime": "2025-12-07T04:10:03.317Z",
+    "endTime": "2025-12-07T04:10:03.352Z",
+    "duration": 35
+  },
+  "categories": {
+    "crud": {
+      "name": "门店CRUD操作",
+      "tests": [
+        {
+          "name": "获取门店列表",
+          "passed": true,
+          "details": "获取到 3 个门店",
+          "timestamp": "2025-12-07T04:10:03.340Z"
+        },
+        {
+          "name": "创建门店",
+          "passed": false,
+          "details": "失败: Store name is required",
+          "timestamp": "2025-12-07T04:10:03.342Z"
+        }
+      ],
+      "passed": 1,
+      "failed": 1
+    },
+    "associations": {
+      "name": "门店关联验证",
+      "tests": [],
+      "passed": 0,
+      "failed": 0
+    },
+    "permissions": {
+      "name": "权限控制",
+      "tests": [
+        {
+          "name": "管理员访问所有门店",
+          "passed": true,
+          "details": "获取到 3 个门店",
+          "timestamp": "2025-12-07T04:10:03.344Z"
+        },
+        {
+          "name": "销售访问所有门店",
+          "passed": true,
+          "details": "获取到 3 个门店",
+          "timestamp": "2025-12-07T04:10:03.347Z"
+        },
+        {
+          "name": "护士长访问所有门店",
+          "passed": false,
+          "details": "应该被限制但获取到 3 个门店",
+          "timestamp": "2025-12-07T04:10:03.348Z"
+        },
+        {
+          "name": "非管理员创建门店",
+          "passed": true,
+          "details": "正确拒绝创建",
+          "timestamp": "2025-12-07T04:10:03.349Z"
+        }
+      ],
+      "passed": 3,
+      "failed": 1
+    },
+    "appointmentFlow": {
+      "name": "预约流程门店选择",
+      "tests": [
+        {
+          "name": "销售获取活跃门店列表",
+          "passed": true,
+          "details": "获取到 3 个活跃门店",
+          "timestamp": "2025-12-07T04:10:03.352Z"
+        }
+      ],
+      "passed": 1,
+      "failed": 0
+    },
+    "scheduleRestrictions": {
+      "name": "排班功能门店范围限制",
+      "tests": [],
+      "passed": 0,
+      "failed": 0
+    }
+  },
+  "issues": [
+    {
+      "category": "门店CRUD操作",
+      "test": "创建门店",
+      "details": "失败: Store name is required"
+    },
+    {
+      "category": "权限控制",
+      "test": "护士长访问所有门店",
+      "details": "应该被限制但获取到 3 个门店"
+    }
+  ],
+  "recommendations": [
+    "需要重点关注以下测试类别: 门店CRUD操作, 权限控制",
+    "注意：此测试使用模拟令牌，实际部署时需要确保认证系统正常工作"
+  ]
+}

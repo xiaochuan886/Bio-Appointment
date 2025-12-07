@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Users, UserPlus, Shield, Edit, Ban, CheckCircle, Trash2 } from 'lucide-react';
+import { Users, UserPlus, Shield, Edit, Ban, CheckCircle, Trash2, Store } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -18,6 +18,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import DingTalkSyncPanel from '@/components/dingtalk/DingTalkSyncPanel';
+import clientApi from '@/services/api-client';
 
 const roleLabels: Record<UserRole, string> = {
   super_admin: '超级管理员',
@@ -49,6 +50,7 @@ const createUserSchema = z.object({
     .max(50, '姓名最多50个字符'),
   role: z.enum(['super_admin', 'sales', 'head_nurse', 'nurse', 'doctor']),
   department: z.string().optional(),
+  store_id: z.string().optional(),
 });
 
 // 编辑用户表单验证
@@ -58,6 +60,7 @@ const editUserSchema = z.object({
     .max(50, '姓名最多50个字符'),
   role: z.enum(['super_admin', 'sales', 'head_nurse', 'nurse', 'doctor']),
   department: z.string().optional(),
+  store_id: z.string().optional(),
 });
 
 type CreateUserFormData = z.infer<typeof createUserSchema>;
@@ -66,7 +69,9 @@ type EditUserFormData = z.infer<typeof editUserSchema>;
 export default function UserManagementPage() {
   const { profile: currentProfile } = useAuth();
   const [users, setUsers] = useState<Profile[]>([]);
+  const [stores, setStores] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [storeFilter, setStoreFilter] = useState<string>('all');
   const [editingUser, setEditingUser] = useState<Profile | null>(null);
   const [deletingUser, setDeletingUser] = useState<Profile | null>(null);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -82,6 +87,7 @@ export default function UserManagementPage() {
       full_name: '',
       role: 'sales',
       department: '',
+      store_id: '',
     },
   });
 
@@ -92,11 +98,13 @@ export default function UserManagementPage() {
       full_name: '',
       role: 'sales',
       department: '',
+      store_id: '',
     },
   });
 
   useEffect(() => {
     loadUsers();
+    loadStores();
   }, []);
 
   const loadUsers = async () => {
@@ -112,15 +120,61 @@ export default function UserManagementPage() {
     }
   };
 
+  // 根据门店过滤用户
+  const filteredUsers = users.filter(user => {
+    // 超级管理员可以查看所有用户
+    if (currentProfile?.role === 'super_admin') {
+      if (storeFilter === 'all') return true;
+      return user.store_id === storeFilter;
+    }
+    
+    // 销售可以查看所有用户（为了创建预约）
+    if (currentProfile?.role === 'sales') {
+      if (storeFilter === 'all') return true;
+      return user.store_id === storeFilter;
+    }
+    
+    // 护士长只能查看自己门店的用户
+    if (currentProfile?.role === 'head_nurse') {
+      const currentUserStoreId = users.find(u => u.id === currentProfile?.id)?.store_id;
+      if (storeFilter === 'all') {
+        return user.store_id === currentUserStoreId || user.store_id === null;
+      }
+      return user.store_id === storeFilter && user.store_id === currentUserStoreId;
+    }
+    
+    // 其他角色只能查看自己
+    if (user.id === currentProfile?.id) return true;
+    
+    return false;
+  });
+
+  const loadStores = async () => {
+    try {
+      const data = await clientApi.getStores();
+      setStores(data);
+    } catch (error: any) {
+      console.error('加载门店列表失败:', error);
+      toast.error('加载门店列表失败');
+    }
+  };
+
   // 创建用户
   const handleCreateUser = async (data: CreateUserFormData) => {
     try {
+      // 验证护士和医生必须选择门店
+      if ((data.role === 'nurse' || data.role === 'doctor' || data.role === 'head_nurse') && !data.store_id) {
+        toast.error('护士、医生和护士长必须选择门店');
+        return;
+      }
+      
       const input: CreateUserInput = {
         username: data.username,
         password: data.password,
         full_name: data.full_name,
         role: data.role,
         department: data.department || undefined,
+        store_id: data.store_id || undefined,
       };
       
       await createUser(input);
@@ -141,6 +195,7 @@ export default function UserManagementPage() {
       full_name: user.full_name || '',
       role: user.role,
       department: user.department || '',
+      store_id: user.store_id || undefined,
     });
     setEditDialogOpen(true);
   };
@@ -150,11 +205,18 @@ export default function UserManagementPage() {
     if (!editingUser) return;
 
     try {
+      // 验证护士和医生必须选择门店
+      if ((data.role === 'nurse' || data.role === 'doctor' || data.role === 'head_nurse') && !data.store_id) {
+        toast.error('护士、医生和护士长必须选择门店');
+        return;
+      }
+      
       const input: UpdateUserInput = {
         user_id: editingUser.id,
         full_name: data.full_name,
         role: data.role,
         department: data.department || undefined,
+        store_id: data.store_id || undefined,
       };
       
       await updateUser(input);
@@ -267,7 +329,13 @@ export default function UserManagementPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>角色</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <Select onValueChange={(value) => {
+                        field.onChange(value);
+                        // 当角色变化时，如果是护士、医生或护士长，且没有选择门店，则清空门店选择
+                        if ((value === 'nurse' || value === 'doctor' || value === 'head_nurse') && !createForm.getValues('store_id')) {
+                          // 这里可以添加提示，让用户知道需要选择门店
+                        }
+                      }} defaultValue={field.value}>
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="选择角色" />
@@ -313,6 +381,46 @@ export default function UserManagementPage() {
                 
                 <FormField
                   control={createForm.control}
+                  name="store_id"
+                  render={({ field }) => {
+                    const currentRole = createForm.watch('role');
+                    const isStoreRequired = currentRole === 'nurse' || currentRole === 'doctor' || currentRole === 'head_nurse';
+                    
+                    return (
+                      <FormItem>
+                        <FormLabel>
+                          门店 {isStoreRequired && <span className="text-red-500">*</span>}
+                        </FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder={isStoreRequired ? "请选择门店" : "选择门店（可选）"} />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {stores.map((store) => (
+                              <SelectItem key={store.id} value={store.id}>
+                                <div className="flex items-center gap-2">
+                                  <Store className="h-4 w-4" />
+                                  {store.name}
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                        {isStoreRequired && !field.value && (
+                          <p className="text-sm text-red-500 mt-1">
+                            护士、医生和护士长必须选择门店
+                          </p>
+                        )}
+                      </FormItem>
+                    );
+                  }}
+                />
+                
+                <FormField
+                  control={createForm.control}
                   name="department"
                   render={({ field }) => (
                     <FormItem>
@@ -352,17 +460,40 @@ export default function UserManagementPage() {
         <TabsContent value="users" className="mt-6">
           <Card>
             <CardHeader>
-              <CardTitle>用户列表</CardTitle>
-              <CardDescription>
-                共 {users.length} 个用户
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>用户列表</CardTitle>
+                  <CardDescription>
+                    共 {filteredUsers.length} 个用户
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="store-filter" className="text-sm">门店筛选:</Label>
+                  <Select value={storeFilter} onValueChange={setStoreFilter}>
+                    <SelectTrigger id="store-filter" className="w-48">
+                      <SelectValue placeholder="选择门店" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">全部门店</SelectItem>
+                      {stores.map((store) => (
+                        <SelectItem key={store.id} value={store.id}>
+                          <div className="flex items-center gap-2">
+                            <Store className="h-4 w-4" />
+                            {store.name}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
           {loading ? (
             <div className="text-center py-8 text-muted-foreground">
               加载中...
             </div>
-          ) : users.length === 0 ? (
+          ) : filteredUsers.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               暂无用户
             </div>
@@ -374,13 +505,14 @@ export default function UserManagementPage() {
                   <TableHead>真实姓名</TableHead>
                   <TableHead>角色</TableHead>
                   <TableHead>部门</TableHead>
+                  <TableHead>门店</TableHead>
                   <TableHead>状态</TableHead>
                   <TableHead>注册时间</TableHead>
                   <TableHead className="text-right">操作</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {users.map((user) => (
+                {filteredUsers.map((user) => (
                   <TableRow key={user.id}>
                     <TableCell className="font-medium">{user.username}</TableCell>
                     <TableCell>{user.full_name || '-'}</TableCell>
@@ -390,6 +522,18 @@ export default function UserManagementPage() {
                       </Badge>
                     </TableCell>
                     <TableCell>{user.department || '-'}</TableCell>
+                    <TableCell>
+                      {user.store_id && user.store_name ? (
+                        user.store_name
+                      ) : user.store_id ? (
+                        (() => {
+                          const store = stores.find(s => s.id === user.store_id);
+                          return store ? store.name : '未知门店';
+                        })()
+                      ) : (
+                        '-'
+                      )}
+                    </TableCell>
                     <TableCell>
                       {user.status === 'active' ? (
                         <Badge variant="outline" className="text-green-600 border-green-600">
@@ -512,7 +656,13 @@ export default function UserManagementPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>角色</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <Select onValueChange={(value) => {
+                      field.onChange(value);
+                      // 当角色变化时，如果是护士、医生或护士长，且没有选择门店，则清空门店选择
+                      if ((value === 'nurse' || value === 'doctor' || value === 'head_nurse') && !editForm.getValues('store_id')) {
+                        // 这里可以添加提示，让用户知道需要选择门店
+                      }
+                    }} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="选择角色" />
@@ -554,6 +704,46 @@ export default function UserManagementPage() {
                     <FormMessage />
                   </FormItem>
                 )}
+              />
+              
+              <FormField
+                control={editForm.control}
+                name="store_id"
+                render={({ field }) => {
+                  const currentRole = editForm.watch('role');
+                  const isStoreRequired = currentRole === 'nurse' || currentRole === 'doctor' || currentRole === 'head_nurse';
+                  
+                  return (
+                    <FormItem>
+                      <FormLabel>
+                        门店 {isStoreRequired && <span className="text-red-500">*</span>}
+                      </FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder={isStoreRequired ? "请选择门店" : "选择门店（可选）"} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {stores.map((store) => (
+                            <SelectItem key={store.id} value={store.id}>
+                              <div className="flex items-center gap-2">
+                                <Store className="h-4 w-4" />
+                                {store.name}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                      {isStoreRequired && !field.value && (
+                        <p className="text-sm text-red-500 mt-1">
+                          护士、医生和护士长必须选择门店
+                        </p>
+                      )}
+                    </FormItem>
+                  );
+                }}
               />
               
               <FormField

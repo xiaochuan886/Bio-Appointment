@@ -603,7 +603,16 @@ export default function GanttChart({
                                       <span className="text-xs text-muted-foreground ml-1">
                                         +{schedule.appointment.companion_names.length}
                                       </span>
-                                    )} - {schedule.scheduled_time_start?.slice(0, 5)}
+                                    )}
+                                    {schedule.appointment?.store && (
+                                      <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                                        <MapPin className="h-3 w-3" />
+                                        <span>{schedule.appointment.store.name}</span>
+                                      </div>
+                                    )}
+                                    <div className="text-xs text-muted-foreground">
+                                      {schedule.scheduled_time_start?.slice(0, 5)}
+                                    </div>
                                   </div>
                                 ))}
                                 {daySchedules.length > 3 && (
@@ -715,7 +724,16 @@ export default function GanttChart({
                                       <span className="text-xs text-muted-foreground ml-1">
                                         +{schedule.appointment.companion_names.length}
                                       </span>
-                                    )} - {schedule.scheduled_time_start?.slice(0, 5)}
+                                    )}
+                                    {schedule.appointment?.store && (
+                                      <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                                        <MapPin className="h-3 w-3" />
+                                        <span>{schedule.appointment.store.name}</span>
+                                      </div>
+                                    )}
+                                    <div className="text-xs text-muted-foreground">
+                                      {schedule.scheduled_time_start?.slice(0, 5)}
+                                    </div>
                                   </div>
                                 ))}
                                 {daySchedules.length > 3 && (
@@ -920,7 +938,16 @@ export default function GanttChart({
                                       <span className="text-xs text-muted-foreground ml-1">
                                         +{schedule.appointment.companion_names.length}
                                       </span>
-                                    )} - {schedule.scheduled_time_start?.slice(0, 5)}
+                                    )}
+                                    {schedule.appointment?.store && (
+                                      <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                                        <MapPin className="h-3 w-3" />
+                                        <span>{schedule.appointment.store.name}</span>
+                                      </div>
+                                    )}
+                                    <div className="text-xs text-muted-foreground">
+                                      {schedule.scheduled_time_start?.slice(0, 5)}
+                                    </div>
                                   </div>
                                 ))}
                                 {scheduleCount > 3 && (

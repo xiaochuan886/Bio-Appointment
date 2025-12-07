@@ -34,6 +34,9 @@ import ResourceConflictDialog from '@/components/appointment/ResourceConflictDia
 import ResourceFilter, { type ResourceFilterType } from '@/components/appointment/ResourceFilter';
 import CompactFilterBar from '@/components/appointment/CompactFilterBar';
 import { detectResourceConflicts, type ResourceConflict } from '@/utils/scheduleUtils';
+import { useAuth } from '@/contexts/AuthContext';
+import { canManageStoreSchedule, canViewStoreSchedule, getAccessibleStoreIds } from '@/utils/permissions';
+import { validateStoreAccess, validateScheduleData, validateAppointmentData, handleApiError, hasTimeConflict } from '@/utils/validation';
 
 const scheduleFormSchema = z.object({
   scheduled_time_start: z.string().min(1, '请选择开始时间'),
@@ -47,6 +50,7 @@ const scheduleFormSchema = z.object({
 type ScheduleFormValues = z.infer<typeof scheduleFormSchema>;
 
 export default function HeadNurseSchedulePage() {
+  const { user } = useAuth();
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>('day');
   const [resourceFilters, setResourceFilters] = useState<ResourceFilterType[]>([]);
@@ -102,15 +106,24 @@ export default function HeadNurseSchedulePage() {
           startDate = endDate = format(selectedDate, 'yyyy-MM-dd');
       }
 
+      // 使用权限工具函数获取可访问的门店ID
+      const storeFilter = getAccessibleStoreIds(user?.profile || null);
+      
       const [appointmentsData, schedulesData, nursesData, roomsData] = await Promise.all([
-        clientApi.getAppointments({ status: 'pending,confirmed', requested_date_from: startDate, requested_date_to: endDate }),
+        clientApi.getAppointments({
+          status: 'pending,confirmed',
+          requested_date_from: startDate,
+          requested_date_to: endDate,
+          store_id: storeFilter || undefined // 根据权限过滤门店
+        }),
         clientApi.getSchedules({
           date: viewMode === 'day' ? startDate : undefined,
           start_date: viewMode !== 'day' ? startDate : undefined,
-          end_date: viewMode !== 'day' ? endDate : undefined
+          end_date: viewMode !== 'day' ? endDate : undefined,
+          store_id: storeFilter || undefined // 根据权限过滤门店
         }),
-        clientApi.getAvailableNurses(),
-        clientApi.getAvailableRooms(),
+        clientApi.getAvailableNurses(storeFilter || undefined), // 根据权限过滤门店
+        clientApi.getAvailableRooms(storeFilter || undefined), // 根据权限过滤门店
       ]);
 
       setPendingAppointments(appointmentsData);
@@ -130,6 +143,20 @@ export default function HeadNurseSchedulePage() {
   };
 
   const handleCreateSchedule = (appointment: any) => {
+    // 使用验证工具函数验证
+    const accessValidation = validateStoreAccess(user?.profile || null, appointment.store_id, 'manage');
+    if (!accessValidation.valid) {
+      toast.error(accessValidation.message || '权限不足');
+      return;
+    }
+
+    // 验证预约数据
+    const appointmentValidation = validateAppointmentData(appointment);
+    if (!appointmentValidation.valid) {
+      toast.error(appointmentValidation.message || '预约数据无效');
+      return;
+    }
+
     setSelectedAppointment(appointment);
     setSelectedSchedule(null);
     setIsEditing(true); // 新建时默认为编辑模式
@@ -156,6 +183,21 @@ export default function HeadNurseSchedulePage() {
   };
 
   const handleEditSchedule = (schedule: any) => {
+    // 使用验证工具函数验证
+    const scheduleStoreId = schedule.appointment?.store_id || schedule.store_id;
+    const accessValidation = validateStoreAccess(user?.profile || null, scheduleStoreId, 'manage');
+    if (!accessValidation.valid) {
+      toast.error(accessValidation.message || '权限不足');
+      return;
+    }
+
+    // 验证排班数据
+    const scheduleValidation = validateScheduleData(schedule);
+    if (!scheduleValidation.valid) {
+      toast.error(scheduleValidation.message || '排班数据无效');
+      return;
+    }
+
     setSelectedSchedule(schedule);
     setSelectedAppointment(schedule.appointment || null);
     setIsEditing(false); // 查看现有排班时默认为查看详情模式
@@ -219,12 +261,51 @@ export default function HeadNurseSchedulePage() {
   const saveSchedule = async (values: ScheduleFormValues, forceOverride = false) => {
     if (!selectedAppointment) return;
 
+    // 使用验证工具函数验证
+    const accessValidation = validateStoreAccess(user?.profile || null, selectedAppointment.store_id, 'manage');
+    if (!accessValidation.valid) {
+      toast.error(accessValidation.message || '权限不足');
+      return;
+    }
+
     setIsLoading(true);
     try {
       // 使用预约的requested_date作为排班日期
-      const dateStr = selectedAppointment.requested_date 
+      const dateStr = selectedAppointment.requested_date
         ? format(new Date(selectedAppointment.requested_date), 'yyyy-MM-dd')
         : format(selectedDate, 'yyyy-MM-dd');
+
+      // 创建临时排班对象用于验证
+      const tempSchedule = {
+        id: selectedSchedule?.id,
+        scheduled_date: dateStr,
+        scheduled_time_start: values.scheduled_time_start,
+        scheduled_time_end: values.scheduled_time_end,
+        room_id: values.room_id,
+        nurse_id: values.nurse_id,
+        appointment_id: selectedAppointment.id,
+      };
+
+      // 验证排班数据
+      const scheduleValidation = validateScheduleData(tempSchedule);
+      if (!scheduleValidation.valid) {
+        toast.error(scheduleValidation.message || '排班数据无效');
+        return;
+      }
+
+      // 检查时间冲突（除非强制覆盖）
+      if (!forceOverride && hasTimeConflict(schedules, tempSchedule)) {
+        setResourceConflicts([{
+          type: 'room' as any,
+          message: '时间段与现有排班冲突',
+          resourceId: values.room_id || values.nurse_id,
+          resourceName: rooms.find(r => r.id === values.room_id)?.name || nurses.find(n => n.id === values.nurse_id)?.name,
+          conflictingSchedules: []
+        }]);
+        setPendingScheduleData(values);
+        setIsConflictDialogOpen(true);
+        return;
+      }
 
       if (selectedSchedule) {
         await clientApi.updateSchedule(selectedSchedule.id, {
@@ -258,7 +339,8 @@ export default function HeadNurseSchedulePage() {
       setPendingScheduleData(null);
       loadData();
     } catch (error: any) {
-      toast.error(error.message || '操作失败');
+      const errorMessage = handleApiError(error, '保存排班');
+      toast.error(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -348,6 +430,12 @@ export default function HeadNurseSchedulePage() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2">智能排班看板</h1>
         <p className="text-muted-foreground">资源调度确认 (Resource Scheduling)</p>
+        {user?.profile?.store_id && (
+          <div className="flex items-center gap-2 mt-2 text-sm text-muted-foreground">
+            <MapPin className="h-4 w-4" />
+            <span>当前门店: {user.profile.store_id}</span>
+          </div>
+        )}
       </div>
 
       {/* 统计卡片 */}
@@ -682,6 +770,11 @@ export default function HeadNurseSchedulePage() {
                         <div><span className="text-muted-foreground">服务：</span> {selectedAppointment.service?.name}</div>
                         <div><span className="text-muted-foreground">人数：</span> {selectedAppointment.total_people || (selectedAppointment.companion_names?.length ? selectedAppointment.companion_names.length + 1 : 1)}人</div>
                         <div><span className="text-muted-foreground">标准：</span> {selectedAppointment.estimated_duration}分钟</div>
+                        {selectedAppointment.store && (
+                          <div className="col-span-2">
+                            <span className="text-muted-foreground">门店：</span> {selectedAppointment.store.name}
+                          </div>
+                        )}
                       </div>
                     </AlertDescription>
                   </Alert>

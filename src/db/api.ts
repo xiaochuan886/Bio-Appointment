@@ -225,7 +225,7 @@ export async function getAllUsers() {
  * 更新用户信息（仅管理员）
  */
 export async function updateUser(input: UpdateUserInput) {
-  const { user_id, full_name, role, department, status } = input;
+  const { user_id, full_name, role, department, status, store_id } = input;
   
   console.log('🔍 [DEBUG] updateUser 被调用，参数:', {
     user_id,
@@ -233,6 +233,7 @@ export async function updateUser(input: UpdateUserInput) {
     role,
     department,
     status,
+    store_id,
     timestamp: new Date().toISOString()
   });
   
@@ -241,6 +242,7 @@ export async function updateUser(input: UpdateUserInput) {
   if (role !== undefined) updateData.role = role;
   if (department !== undefined) updateData.department = department;
   if (status !== undefined) updateData.status = status;
+  if (store_id !== undefined) updateData.store_id = store_id;
   
   console.log('🔍 [DEBUG] 准备通过后端 API 更新数据:', updateData);
   
@@ -274,23 +276,27 @@ export async function updateUser(input: UpdateUserInput) {
  * 创建新用户（仅管理员）
  */
 export async function createUser(input: CreateUserInput) {
-  const { username, password, full_name, role, department } = input;
+  const { username, password, full_name, role, department, store_id } = input;
   
   console.log('🔍 [DEBUG] createUser 被调用，参数:', {
     username,
     full_name,
     role,
-    department
+    department,
+    store_id
   });
 
   try {
-    const response = await fetch('http://localhost:3001/api/users', {
+    // Create a default email for the user
+    const defaultEmail = `${username}@company.local`;
+    
+    const response = await fetch('http://localhost:3001/api/profiles', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
       },
-      body: JSON.stringify({ username, password, full_name, role, department })
+      body: JSON.stringify({ username, email: defaultEmail, password, full_name, role, department, store_id })
     });
     
     if (!response.ok) {
@@ -1167,7 +1173,7 @@ export async function deleteNurse(id: string) {
 
 // ==================== Rooms ====================
 
-export async function createRoom(room: { name: string; type: string; is_available: boolean }) {
+export async function createRoom(room: { name: string; type: string; is_available: boolean; store_id?: string }) {
   try {
     const response = await fetch('http://localhost:3001/api/rooms', {
       method: 'POST',
@@ -1232,9 +1238,14 @@ export async function deleteRoom(id: string) {
   }
 }
 
-export async function getRooms() {
+export async function getRooms(store_id?: string) {
   try {
-    const response = await fetch('http://localhost:3001/api/rooms', {
+    let url = 'http://localhost:3001/api/rooms';
+    if (store_id) {
+      url += `?store_id=${store_id}`;
+    }
+    
+    const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',

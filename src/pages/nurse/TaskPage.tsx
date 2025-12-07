@@ -15,6 +15,9 @@ import * as z from 'zod';
 import clientApi from '@/services/api-client';
 import type { Schedule, TaskExecution } from '@/services/api-client';
 import StatusBadge from '@/components/appointment/StatusBadge';
+import { useAuth } from '@/contexts/AuthContext';
+import { canManageStoreSchedule, getAccessibleStoreIds } from '@/utils/permissions';
+import { handleApiError } from '@/utils/validation';
 
 const finishFormSchema = z.object({
   overtime_note: z.string().optional(),
@@ -23,6 +26,7 @@ const finishFormSchema = z.object({
 type FinishFormValues = z.infer<typeof finishFormSchema>;
 
 export default function NurseTaskPage() {
+  const { user } = useAuth();
   const [tasks, setTasks] = useState<Schedule[]>([]);
   const [selectedTask, setSelectedTask] = useState<Schedule | null>(null);
   const [isFinishDialogOpen, setIsFinishDialogOpen] = useState(false);
@@ -41,13 +45,41 @@ export default function NurseTaskPage() {
   const loadTasks = async () => {
     try {
       const today = format(new Date(), 'yyyy-MM-dd');
-      const schedulesData = await clientApi.getSchedules({ date: today });
-
-      const lockedSchedules = await clientApi.getSchedules({ date: today });
+      // 使用权限工具函数获取可访问的门店ID
+      const storeFilter = getAccessibleStoreIds(user?.profile || null);
       
-      setTasks([...schedulesData, ...lockedSchedules]);
+      const schedulesData = await clientApi.getSchedules({
+        date: today,
+        store_id: storeFilter || undefined // 根据权限过滤门店
+      });
+
+      const lockedSchedules = await clientApi.getSchedules({
+        date: today,
+        store_id: storeFilter || undefined // 根据权限过滤门店
+      });
+      
+      // 过滤并验证任务数据
+      const allTasks = [...schedulesData, ...lockedSchedules];
+      const validTasks = allTasks.filter(task => {
+        // 使用权限工具函数验证是否可以管理该任务
+        const taskStoreId = task.store_id || task.appointment?.store_id;
+        if (!canManageStoreSchedule(user?.profile || null, taskStoreId)) {
+          return false;
+        }
+        
+        // 确保任务有关联的预约
+        if (!task.appointment_id) {
+          console.warn('任务缺少关联预约:', task.id);
+          return false;
+        }
+        
+        return true;
+      });
+      
+      setTasks(validTasks);
     } catch (error) {
-      console.error('加载任务失败:', error);
+      const errorMessage = handleApiError(error, '加载任务');
+      toast.error(errorMessage);
     }
   };
 
@@ -55,6 +87,13 @@ export default function NurseTaskPage() {
     if (!task.appointment_id) return;
 
     try {
+      // 使用权限工具函数验证是否可以操作此任务
+      const taskStoreId = task.store_id || task.appointment?.store_id;
+      if (!canManageStoreSchedule(user?.profile || null, taskStoreId)) {
+        toast.error('无权限操作其他门店的任务');
+        return;
+      }
+
       await clientApi.updateSchedule(task.id, {
         status: 'in_progress',
       });
@@ -62,7 +101,8 @@ export default function NurseTaskPage() {
       toast.success('客户已到达，服务开始');
       loadTasks();
     } catch (error: any) {
-      toast.error(error.message || '操作失败');
+      const errorMessage = handleApiError(error, '签到');
+      toast.error(errorMessage);
     }
   };
 
@@ -70,6 +110,13 @@ export default function NurseTaskPage() {
     if (!task.appointment_id) return;
 
     try {
+      // 使用权限工具函数验证是否可以操作此任务
+      const taskStoreId = task.store_id || task.appointment?.store_id;
+      if (!canManageStoreSchedule(user?.profile || null, taskStoreId)) {
+        toast.error('无权限操作其他门店的任务');
+        return;
+      }
+
       await clientApi.updateSchedule(task.id, {
         status: 'in_progress',
       });
@@ -77,7 +124,8 @@ export default function NurseTaskPage() {
       toast.success('服务已开始');
       loadTasks();
     } catch (error: any) {
-      toast.error(error.message || '操作失败');
+      const errorMessage = handleApiError(error, '开始服务');
+      toast.error(errorMessage);
     }
   };
 
@@ -92,6 +140,13 @@ export default function NurseTaskPage() {
 
     setIsLoading(true);
     try {
+      // 使用权限工具函数验证是否可以操作此任务
+      const taskStoreId = selectedTask.store_id || selectedTask.appointment?.store_id;
+      if (!canManageStoreSchedule(user?.profile || null, taskStoreId)) {
+        toast.error('无权限操作其他门店的任务');
+        return;
+      }
+
       await clientApi.updateSchedule(selectedTask.id, {
         status: 'completed',
         notes: values.overtime_note,
@@ -101,7 +156,8 @@ export default function NurseTaskPage() {
       setIsFinishDialogOpen(false);
       loadTasks();
     } catch (error: any) {
-      toast.error(error.message || '操作失败');
+      const errorMessage = handleApiError(error, '完成服务');
+      toast.error(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -205,7 +261,7 @@ export default function NurseTaskPage() {
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-lg">客户 #{task.appointment_id?.substring(0, 8)}</CardTitle>
-                      <StatusBadge status={getTaskStatus(task)}  />
+                      <StatusBadge status={getTaskStatus(task) as any}  />
                     </div>
                     <CardDescription>服务项目</CardDescription>
                   </CardHeader>
@@ -231,6 +287,14 @@ export default function NurseTaskPage() {
                           60 分钟
                         </span>
                       </div>
+                      {(task.appointment?.store || task.store_id) && (
+                        <div className="col-span-2">
+                          <span className="text-muted-foreground">门店：</span>
+                          <span className="font-medium">
+                            {task.appointment?.store?.name || `门店 #${task.store_id?.substring(0, 8)}`}
+                          </span>
+                        </div>
+                      )}
                     </div>
                     {getTaskActions(task)}
                   </CardContent>
@@ -249,7 +313,7 @@ export default function NurseTaskPage() {
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-lg">客户 #{task.appointment_id?.substring(0, 8)}</CardTitle>
-                      <StatusBadge status={getTaskStatus(task)}  />
+                      <StatusBadge status={getTaskStatus(task) as any}  />
                     </div>
                     <CardDescription>服务项目</CardDescription>
                   </CardHeader>
@@ -275,6 +339,14 @@ export default function NurseTaskPage() {
                           60 分钟
                         </span>
                       </div>
+                      {(task.appointment?.store || task.store_id) && (
+                        <div className="col-span-2">
+                          <span className="text-muted-foreground">门店：</span>
+                          <span className="font-medium">
+                            {task.appointment?.store?.name || `门店 #${task.store_id?.substring(0, 8)}`}
+                          </span>
+                        </div>
+                      )}
                     </div>
                     {getTaskActions(task)}
                   </CardContent>
@@ -293,7 +365,7 @@ export default function NurseTaskPage() {
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-lg">客户 #{task.appointment_id?.substring(0, 8)}</CardTitle>
-                      <StatusBadge status={getTaskStatus(task)} />
+                      <StatusBadge status={getTaskStatus(task) as any} />
                     </div>
                     <CardDescription>服务项目</CardDescription>
                   </CardHeader>
@@ -309,6 +381,14 @@ export default function NurseTaskPage() {
                           {task.scheduled_time_start.substring(0, 5)} - {task.scheduled_time_end.substring(0, 5)}
                         </span>
                       </div>
+                      {(task.appointment?.store || task.store_id) && (
+                        <div className="col-span-2">
+                          <span className="text-muted-foreground">门店：</span>
+                          <span className="font-medium">
+                            {task.appointment?.store?.name || `门店 #${task.store_id?.substring(0, 8)}`}
+                          </span>
+                        </div>
+                      )}
                     </div>
                     {getTaskActions(task)}
                   </CardContent>

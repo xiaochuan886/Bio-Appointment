@@ -27,6 +27,7 @@ export interface Profile {
   full_name?: string;
   role: UserRole;
   department?: string;
+  store_id?: string;
   status: UserStatus;
   created_at: string;
   updated_at: string;
@@ -78,6 +79,7 @@ export interface CreateUserInput {
   full_name: string;
   role: UserRole;
   department?: string;
+  store_id?: string;
 }
 
 export interface UpdateUserInput {
@@ -85,6 +87,7 @@ export interface UpdateUserInput {
   full_name?: string;
   role?: UserRole;
   department?: string;
+  store_id?: string;
   status?: UserStatus;
 }
 
@@ -132,6 +135,8 @@ export interface Appointment {
   doctor_id?: string;
   doctor_status?: DoctorStatus;
   doctor_note?: string;
+  store_id?: string;
+  store?: Store | null;
   created_by?: string;
   created_at: string;
   updated_at: string;
@@ -173,6 +178,7 @@ export interface AppointmentWithDetails extends Appointment {
   service?: Service;
   sales?: Profile;
   doctor?: Profile;
+  store?: Store;
   schedule?: ScheduleWithDetails;
 }
 
@@ -200,6 +206,7 @@ export interface CreateAppointmentInput {
   is_urgent?: boolean;
   sales_id?: string;
   doctor_id?: string;
+  store_id?: string;
 }
 
 export interface CreateScheduleInput {
@@ -272,6 +279,7 @@ export interface Room {
   name: string;
   room_type: RoomType;
   is_available: boolean;
+  store_id?: string;
   created_at: string;
 }
 
@@ -467,6 +475,71 @@ export interface DingTalkNotificationInput {
   title: string;
   content: string;
   related_id?: string;
+}
+
+// ==================== 门店管理类型 ====================
+
+export type StoreStatus = 'active' | 'inactive';
+
+export interface Store {
+  id: string;
+  name: string;
+  address?: string;
+  phone?: string;
+  contact_person?: string;
+  status: StoreStatus;
+  description?: string;
+  business_hours?: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+  created_by?: string;
+  updated_by?: string;
+}
+
+export interface StoreCreateRequest {
+  name: string;
+  address?: string;
+  phone?: string;
+  contact_person?: string;
+  status?: StoreStatus;
+  description?: string;
+  business_hours?: Record<string, any>;
+}
+
+export interface StoreUpdateRequest {
+  name?: string;
+  address?: string;
+  phone?: string;
+  contact_person?: string;
+  status?: StoreStatus;
+  description?: string;
+  business_hours?: Record<string, any>;
+}
+
+export interface StoreFilters {
+  status?: StoreStatus;
+  name?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface StoreResource {
+  id: string;
+  name: string;
+  type: string;
+  category: string;
+  status: string;
+  capacity?: number;
+  location?: string;
+}
+
+export interface StoreStaff {
+  id: string;
+  username: string;
+  full_name: string;
+  role: string;
+  status: string;
+  phone?: string;
 }
 
 // 钉钉配置

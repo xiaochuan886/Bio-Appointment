@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Calendar, Users, ClipboardList, Stethoscope, AlertCircle } from 'lucide-react';
+import { Calendar, Users, ClipboardList, Stethoscope, AlertCircle, Store as StoreIcon } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import clientApi from '@/services/api-client';
@@ -13,11 +13,28 @@ export default function DashboardPage() {
     pendingSchedules: 0,
     urgentAppointments: 0,
     activeTasks: 0,
+    totalStores: 0,
+    activeStores: 0,
   });
+  const [userRole, setUserRole] = useState<string>('');
 
   useEffect(() => {
     loadStats();
+    loadUserRole();
   }, []);
+
+  const loadUserRole = () => {
+    // 从localStorage或其他地方获取用户角色
+    const profile = localStorage.getItem('user_profile');
+    if (profile) {
+      try {
+        const parsedProfile = JSON.parse(profile);
+        setUserRole(parsedProfile.role || '');
+      } catch (error) {
+        console.error('解析用户信息失败:', error);
+      }
+    }
+  };
 
   const loadStats = async () => {
     try {
@@ -29,11 +46,26 @@ export default function DashboardPage() {
       // 获取任务执行数据
       const tasks = await clientApi.getTaskExecutions({ status: 'in_progress' });
 
+      // 获取门店数据（如果是管理员）
+      let storeStats = { totalStores: 0, activeStores: 0 };
+      if (userRole === 'super_admin' || userRole === 'admin') {
+        try {
+          const stores = await clientApi.getStores();
+          storeStats = {
+            totalStores: stores.length,
+            activeStores: stores.filter(store => store.status === 'active').length,
+          };
+        } catch (error) {
+          console.error('加载门店数据失败:', error);
+        }
+      }
+
       setStats({
         todayAppointments: parseInt(dashboardData.appointments.total) || 0,
         pendingSchedules: parseInt(dashboardData.schedules.today_schedules) || 0,
         urgentAppointments: 0, // 可以从appointments中计算
         activeTasks: tasks.length,
+        ...storeStats,
       });
     } catch (error) {
       console.error('加载统计数据失败:', error);
@@ -71,6 +103,24 @@ export default function DashboardPage() {
     },
   ];
 
+  // 管理员专属快捷操作
+  const adminQuickActions = [
+    {
+      title: '门店管理',
+      description: '管理系统门店信息和营业状态',
+      icon: StoreIcon,
+      link: '/admin/stores',
+      color: 'text-orange-600',
+    },
+    {
+      title: '系统配置',
+      description: '管理系统资源和配置项',
+      icon: ClipboardList,
+      link: '/admin/config',
+      color: 'text-purple-600',
+    },
+  ];
+
   return (
     <div className="container py-8">
       <div className="mb-8">
@@ -78,7 +128,7 @@ export default function DashboardPage() {
         <p className="text-muted-foreground">Bio-Appointment智能预约调度系统</p>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-4 mb-8">
+      <div className={`grid gap-6 mb-8 ${userRole === 'super_admin' || userRole === 'admin' ? 'xl:grid-cols-6' : 'xl:grid-cols-4'}`}>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">今日预约</CardTitle>
@@ -124,12 +174,61 @@ export default function DashboardPage() {
             <p className="text-xs text-muted-foreground mt-1">正在执行的服务</p>
           </CardContent>
         </Card>
+
+        {/* 管理员专属统计卡片 */}
+        {(userRole === 'super_admin' || userRole === 'admin') && (
+          <>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">总门店数</CardTitle>
+                <StoreIcon className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-orange-600">{stats.totalStores}</div>
+                <p className="text-xs text-muted-foreground mt-1">系统中的所有门店</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">营业中</CardTitle>
+                <StoreIcon className="h-4 w-4 text-green-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-green-600">{stats.activeStores}</div>
+                <p className="text-xs text-muted-foreground mt-1">正在营业的门店</p>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
 
       <div>
         <h2 className="text-2xl font-bold mb-4">快捷入口</h2>
-        <div className="grid gap-6 xl:grid-cols-2">
+        <div className={`grid gap-6 ${userRole === 'super_admin' || userRole === 'admin' ? 'xl:grid-cols-3' : 'xl:grid-cols-2'}`}>
           {quickActions.map((action) => (
+            <Card key={action.link} className="hover:shadow-lg transition-shadow">
+              <CardHeader>
+                <div className="flex items-center gap-4">
+                  <div className={`p-3 rounded-lg bg-muted ${action.color}`}>
+                    <action.icon className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <CardTitle>{action.title}</CardTitle>
+                    <CardDescription>{action.description}</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <Link to={action.link}>
+                  <Button className="w-full">进入</Button>
+                </Link>
+              </CardContent>
+            </Card>
+          ))}
+          
+          {/* 管理员专属快捷操作 */}
+          {(userRole === 'super_admin' || userRole === 'admin') && adminQuickActions.map((action) => (
             <Card key={action.link} className="hover:shadow-lg transition-shadow">
               <CardHeader>
                 <div className="flex items-center gap-4">

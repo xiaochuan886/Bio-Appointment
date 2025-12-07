@@ -131,8 +131,8 @@ app.post('/api/auth/login', async (req, res) => {
       return;
     }
 
-    // Try to get user from database
-    const result = await pool.query('SELECT * FROM profiles WHERE email = $1', [email]);
+    // Try to get user from database (support both email and username)
+    const result = await pool.query('SELECT * FROM profiles WHERE email = $1 OR username = $1', [email]);
 
     if (result.rows.length === 0) {
       return res.status(401).json({
@@ -203,7 +203,34 @@ app.post('/api/auth/logout', async (req, res) => {
 // Get profiles
 app.get('/api/profiles', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM profiles ORDER BY created_at DESC');
+    const { role, status, store_id } = req.query;
+    let query = 'SELECT * FROM profiles';
+    let params = [];
+    const conditions = [];
+    
+    // Build WHERE conditions
+    if (role) {
+      conditions.push(`role = $${params.length + 1}`);
+      params.push(role);
+    }
+    
+    if (status) {
+      conditions.push(`status = $${params.length + 1}`);
+      params.push(status);
+    }
+    
+    if (store_id) {
+      conditions.push(`store_id = $${params.length + 1}`);
+      params.push(store_id);
+    }
+    
+    if (conditions.length > 0) {
+      query += ' WHERE ' + conditions.join(' AND ');
+    }
+    
+    query += ' ORDER BY created_at DESC';
+    
+    const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (error) {
     res.status(500).json({
@@ -241,6 +268,57 @@ app.get('/api/profiles/:id', async (req, res) => {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to fetch profile',
+      message: error.message
+    });
+  }
+});
+
+// Create user (profile)
+app.post('/api/profiles', async (req, res) => {
+  try {
+    const {
+      username,
+      email,
+      full_name,
+      role,
+      password,
+      phone,
+      department,
+      status = 'active'
+    } = req.body;
+
+    // Validate required fields
+    if (!username || !email || !full_name || !role) {
+      return res.status(400).json({
+        error: 'Missing required fields: username, email, full_name, role'
+      });
+    }
+
+    // Check if user already exists
+    const existingUser = await pool.query(
+      'SELECT id FROM profiles WHERE username = $1 OR email = $2',
+      [username, email]
+    );
+
+    if (existingUser.rows.length > 0) {
+      return res.status(400).json({
+        error: 'User already exists'
+      });
+    }
+
+    // Create user
+    const result = await pool.query(
+      `INSERT INTO profiles (username, email, full_name, role, password_hash, phone, department, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [username, email, full_name, role, password, phone, department, status]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Failed to create user:', error);
+    res.status(500).json({
+      error: 'Failed to create user',
       message: error.message
     });
   }
@@ -393,22 +471,31 @@ app.delete('/api/services/:id', async (req, res) => {
 // Get resources
 app.get('/api/resources', async (req, res) => {
   try {
-    const { type, status } = req.query;
-    let query = 'SELECT * FROM resources ORDER BY name';
+    const { type, status, store_id } = req.query;
+    let query = 'SELECT * FROM resources';
     let params = [];
+    const conditions = [];
 
-    if (type || status) {
-      const conditions = [];
-      if (type) {
-        conditions.push(`type = $${params.length + 1}`);
-        params.push(type);
-      }
-      if (status) {
-        conditions.push(`status = $${params.length + 1}`);
-        params.push(status);
-      }
-      query = `SELECT * FROM resources WHERE ${conditions.join(' AND ')} ORDER BY name`;
+    if (type) {
+      conditions.push(`type = $${params.length + 1}`);
+      params.push(type);
     }
+    
+    if (status) {
+      conditions.push(`status = $${params.length + 1}`);
+      params.push(status);
+    }
+    
+    if (store_id) {
+      conditions.push(`store_id = $${params.length + 1}`);
+      params.push(store_id);
+    }
+
+    if (conditions.length > 0) {
+      query += ' WHERE ' + conditions.join(' AND ');
+    }
+    
+    query += ' ORDER BY name';
 
     const result = await pool.query(query, params);
     res.json(result.rows);
@@ -423,8 +510,8 @@ app.get('/api/resources', async (req, res) => {
 // Get schedules
 app.get('/api/schedules', async (req, res) => {
   try {
-    const { date, start_date, end_date, nurse_id } = req.query;
-    console.log('🔍 [DEBUG] 排班查询参数:', { date, start_date, end_date, nurse_id });
+    const { date, start_date, end_date, nurse_id, store_id } = req.query;
+    console.log('🔍 [DEBUG] 排班查询参数:', { date, start_date, end_date, nurse_id, store_id });
     
     let query = `
       SELECT
@@ -433,6 +520,7 @@ app.get('/api/schedules', async (req, res) => {
         a.service_id,
         a.estimated_duration,
         a.is_urgent,
+        a.store_id as appointment_store_id,
         srv.name as service_name,
         srv.category as service_category,
         r.name as room_name,
@@ -471,6 +559,11 @@ app.get('/api/schedules', async (req, res) => {
       conditions.push(`s.nurse_id = $${params.length + 1}`);
       params.push(nurse_id);
     }
+    
+    if (store_id) {
+      conditions.push(`a.store_id = $${params.length + 1}`);
+      params.push(store_id);
+    }
 
     // 如果有条件，添加WHERE子句
     if (conditions.length > 0) {
@@ -505,6 +598,7 @@ app.get('/api/schedules', async (req, res) => {
           service_id: row.service_id,
           estimated_duration: row.estimated_duration,
           is_urgent: row.is_urgent,
+          store_id: row.appointment_store_id,
           service: row.service_id ? {
             id: row.service_id,
             name: row.service_name,
@@ -587,14 +681,30 @@ app.post('/api/appointments', async (req, res) => {
       total_people = 1,
       estimated_duration = 60,
       is_urgent = false,
-      companion_names
+      companion_names,
+      store_id
     } = req.body;
 
+    // Validate store_id is provided
+    if (!store_id) {
+      return res.status(400).json({
+        error: 'Store ID is required'
+      });
+    }
+
+    // Validate that the store exists
+    const storeCheck = await pool.query('SELECT * FROM stores WHERE id = $1', [store_id]);
+    if (storeCheck.rows.length === 0) {
+      return res.status(400).json({
+        error: 'Invalid store ID'
+      });
+    }
+
     const result = await pool.query(
-      `INSERT INTO appointments (customer_name, customer_phone, service_id, requested_date, requested_time_start, requested_time_end, notes, total_people, estimated_duration, is_urgent, companion_names)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `INSERT INTO appointments (customer_name, customer_phone, service_id, requested_date, requested_time_start, requested_time_end, notes, total_people, estimated_duration, is_urgent, companion_names, store_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING *`,
-      [customer_name, customer_phone, service_id, requested_date, requested_time_start, requested_time_end, notes, total_people, estimated_duration, is_urgent, companion_names]
+      [customer_name, customer_phone, service_id, requested_date, requested_time_start, requested_time_end, notes, total_people, estimated_duration, is_urgent, companion_names, store_id]
     );
 
     const appointment = result.rows[0];
@@ -602,8 +712,8 @@ app.post('/api/appointments', async (req, res) => {
     // [DingTalk] Handle Urgent Order Notification
     if (is_urgent) {
       try {
-        // Get Head Nurses
-        const headNurses = await pool.query("SELECT username FROM profiles WHERE role = 'head_nurse' AND status = 'active'");
+        // Get Head Nurses for the specific store
+        const headNurses = await pool.query("SELECT username FROM profiles WHERE role = 'head_nurse' AND status = 'active' AND store_id = $1", [store_id]);
         const headNurseIds = headNurses.rows.map(n => n.username); // Assuming username is DingTalk ID for now
         
         if (headNurseIds.length > 0) {
@@ -633,8 +743,8 @@ app.post('/api/appointments', async (req, res) => {
 // Get appointments
 app.get('/api/appointments', async (req, res) => {
   try {
-    const { status, customer_name, requested_date } = req.query;
-    let query = 'SELECT a.*, s.name as service_name, s.category as service_category, s.base_duration as service_base_duration, s.requires_doctor as service_requires_doctor, s.allow_companions as service_allow_companions, s.is_active as service_is_active FROM appointments a LEFT JOIN services s ON a.service_id = s.id';
+    const { status, customer_name, requested_date, store_id } = req.query;
+    let query = 'SELECT a.*, s.name as service_name, s.category as service_category, s.base_duration as service_base_duration, s.requires_doctor as service_requires_doctor, s.allow_companions as service_allow_companions, s.is_active as service_is_active, st.name as store_name FROM appointments a LEFT JOIN services s ON a.service_id = s.id LEFT JOIN stores st ON a.store_id = st.id';
     let params = [];
     const conditions = [];
 
@@ -642,10 +752,10 @@ app.get('/api/appointments', async (req, res) => {
     if (status) {
       if (status.includes(',')) {
         const statuses = status.split(',');
-        conditions.push(`status = ANY($${params.length + 1})`);
+        conditions.push(`a.status = ANY($${params.length + 1})`);
         params.push(statuses);
       } else {
-        conditions.push(`status = $${params.length + 1}`);
+        conditions.push(`a.status = $${params.length + 1}`);
         params.push(status);
       }
     }
@@ -656,6 +766,10 @@ app.get('/api/appointments', async (req, res) => {
     if (requested_date) {
       conditions.push(`requested_date = $${params.length + 1}`);
       params.push(requested_date);
+    }
+    if (store_id) {
+      conditions.push(`a.store_id = $${params.length + 1}`);
+      params.push(store_id);
     }
 
     if (conditions.length > 0) {
@@ -670,7 +784,7 @@ app.get('/api/appointments', async (req, res) => {
     const result = await pool.query(query, params);
     console.log(`🔍 [DEBUG] 返回预约数量: ${result.rows.length}`);
     
-    // Map flat result to include service object
+    // Map flat result to include service and store objects
     const mappedRows = result.rows.map(row => ({
       ...row,
       service: row.service_name ? {
@@ -681,6 +795,10 @@ app.get('/api/appointments', async (req, res) => {
         requires_doctor: row.service_requires_doctor,
         allow_companions: row.service_allow_companions,
         is_active: row.service_is_active
+      } : null,
+      store: row.store_name ? {
+        id: row.store_id,
+        name: row.store_name
       } : null
     }));
     
@@ -860,11 +978,19 @@ app.get('/api/resources/availability', async (req, res) => {
 // Get available rooms
 app.get('/api/resources/rooms/available', async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT * FROM resources
-       WHERE type = 'room' AND status = 'available'
-       ORDER BY name`
-    );
+    const { store_id } = req.query;
+    let query = `SELECT * FROM resources
+     WHERE type = 'room' AND status = 'available'`;
+    let params = [];
+    
+    if (store_id) {
+      query += ` AND store_id = $${params.length + 1}`;
+      params.push(store_id);
+    }
+    
+    query += ` ORDER BY name`;
+
+    const result = await pool.query(query, params);
 
     res.json(result.rows);
   } catch (error) {
@@ -878,11 +1004,19 @@ app.get('/api/resources/rooms/available', async (req, res) => {
 // Get available nurses
 app.get('/api/profiles/nurses/available', async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT * FROM profiles
-       WHERE role = 'nurse'
-       ORDER BY full_name`
-    );
+    const { store_id } = req.query;
+    let query = `SELECT * FROM profiles
+     WHERE role = 'nurse'`;
+    let params = [];
+    
+    if (store_id) {
+      query += ` AND store_id = $${params.length + 1}`;
+      params.push(store_id);
+    }
+    
+    query += ` ORDER BY full_name`;
+
+    const result = await pool.query(query, params);
 
     res.json(result.rows);
   } catch (error) {
@@ -896,10 +1030,18 @@ app.get('/api/profiles/nurses/available', async (req, res) => {
 // Get doctors
 app.get('/api/doctors', async (req, res) => {
   try {
-    const result = await pool.query(
-      'SELECT id, username, full_name, department, status FROM profiles WHERE role = $1 ORDER BY full_name',
-      ['doctor']
-    );
+    const { store_id } = req.query;
+    let query = 'SELECT id, username, full_name, department, status FROM profiles WHERE role = $1';
+    let params = ['doctor'];
+    
+    if (store_id) {
+      query += ' AND store_id = $2';
+      params.push(store_id);
+    }
+    
+    query += ' ORDER BY full_name';
+    
+    const result = await pool.query(query, params);
     
     // Transform to match frontend expected format
     const doctors = result.rows.map(profile => ({
@@ -921,10 +1063,18 @@ app.get('/api/doctors', async (req, res) => {
 
 app.get('/api/doctors/available', async (req, res) => {
   try {
-    const result = await pool.query(
-      'SELECT id, username, full_name, department FROM profiles WHERE role = $1 AND status = $2 ORDER BY full_name',
-      ['doctor', 'active']
-    );
+    const { store_id } = req.query;
+    let query = 'SELECT id, username, full_name, department FROM profiles WHERE role = $1 AND status = $2';
+    let params = ['doctor', 'active'];
+    
+    if (store_id) {
+      query += ' AND store_id = $3';
+      params.push(store_id);
+    }
+    
+    query += ' ORDER BY full_name';
+    
+    const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (error) {
     res.status(500).json({
@@ -937,12 +1087,20 @@ app.get('/api/doctors/available', async (req, res) => {
 // Get nurses for system config
 app.get('/api/nurses', async (req, res) => {
   try {
-    console.log('🔍 [DEBUG] 开始获取护士数据...');
+    const { store_id } = req.query;
+    console.log('🔍 [DEBUG] 开始获取护士数据...', { store_id });
     
-    const result = await pool.query(
-      'SELECT id, username, full_name, role, department, status FROM profiles WHERE role IN ($1, $2) ORDER BY role, full_name',
-      ['nurse', 'head_nurse']
-    );
+    let query = 'SELECT id, username, full_name, role, department, status FROM profiles WHERE role IN ($1, $2)';
+    let params = ['nurse', 'head_nurse'];
+    
+    if (store_id) {
+      query += ' AND store_id = $3';
+      params.push(store_id);
+    }
+    
+    query += ' ORDER BY role, full_name';
+    
+    const result = await pool.query(query, params);
     
     console.log('🔍 [DEBUG] 护士数据查询结果:');
     console.log('  - 查询到的护士数量:', result.rows.length);
@@ -978,12 +1136,20 @@ app.get('/api/nurses', async (req, res) => {
 // Get rooms for system config
 app.get('/api/rooms', async (req, res) => {
   try {
-    console.log('🔍 [DEBUG] 开始获取房间数据...');
+    const { store_id } = req.query;
+    console.log('🔍 [DEBUG] 开始获取房间数据...', { store_id });
     
-    const result = await pool.query(
-      'SELECT DISTINCT ON (name) id, name, type, status FROM resources WHERE type = $1 ORDER BY name',
-      ['room']
-    );
+    let query = 'SELECT DISTINCT ON (name) id, name, type, status, store_id FROM resources WHERE type = $1';
+    let params = ['room'];
+    
+    if (store_id) {
+      query += ' AND store_id = $2';
+      params.push(store_id);
+    }
+    
+    query += ' ORDER BY name';
+    
+    const result = await pool.query(query, params);
     
     console.log('🔍 [DEBUG] 数据库查询结果:');
     console.log('  - 查询到的房间数量:', result.rows.length);
@@ -1015,6 +1181,7 @@ app.get('/api/rooms', async (req, res) => {
         name: resource.name,
         room_type: room_type,
         is_available: resource.status === 'available',
+        store_id: resource.store_id,
         created_at: resource.created_at || new Date().toISOString()
       };
     });
@@ -1033,6 +1200,206 @@ app.get('/api/rooms', async (req, res) => {
   }
 });
 
+// Update room
+app.put('/api/rooms/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+    
+    console.log(`[DEBUG] Updating room ${id} with:`, JSON.stringify(updates));
+
+    // Check if room exists
+    const existingRoom = await pool.query('SELECT * FROM resources WHERE id = $1 AND type = $2', [id, 'room']);
+    
+    if (existingRoom.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Room not found'
+      });
+    }
+
+    // Build dynamic update query
+    const updateFields = [];
+    const values = [];
+    let paramIndex = 1;
+
+    // Note: room_type is frontend concept, database type should always be 'room'
+    // We don't update the type field as it should remain 'room'
+    // The room_type information is derived from the name in GET operations
+    
+    // Handle is_available to status conversion
+    if (updates.is_available !== undefined) {
+      updateFields.push(`status = $${paramIndex}`);
+      values.push(updates.is_available ? 'available' : 'unavailable');
+      paramIndex++;
+    }
+
+    // Handle other fields
+    for (const [key, value] of Object.entries(updates)) {
+      if (value !== undefined && key !== 'room_type' && key !== 'is_available') {
+        updateFields.push(`${key} = $${paramIndex}`);
+        values.push(value);
+        paramIndex++;
+      }
+    }
+    
+    // Debug log to verify store_id is being processed
+    if (updates.store_id !== undefined) {
+      console.log(`[DEBUG] Updating room store_id to: ${updates.store_id}`);
+    }
+    
+    if (updateFields.length === 0) {
+      return res.status(400).json({
+        error: 'No valid fields to update'
+      });
+    }
+
+    values.push(id);
+
+    const result = await pool.query(
+      `UPDATE resources SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $${paramIndex} AND type = 'room'
+       RETURNING *`,
+      values
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Room not found'
+      });
+    }
+
+    // Transform response to match frontend expected format
+    const updatedRoom = result.rows[0];
+    
+    // Use the room_type from the request if provided, otherwise infer from name
+    let room_type = 'treatment'; // default
+    if (updates.room_type !== undefined) {
+      room_type = updates.room_type;
+    } else {
+      // Fallback to name-based inference
+      if (updatedRoom.name && updatedRoom.name.includes('VIP')) {
+        room_type = 'vip';
+      } else if (updatedRoom.name && updatedRoom.name.includes('咨询')) {
+        room_type = 'consultation';
+      }
+    }
+
+    const response = {
+      id: updatedRoom.id,
+      name: updatedRoom.name,
+      room_type: room_type,
+      is_available: updatedRoom.status === 'available',
+      store_id: updatedRoom.store_id,
+      created_at: updatedRoom.created_at,
+      updated_at: updatedRoom.updated_at
+    };
+
+    console.log(`[DEBUG] Room updated successfully:`, response);
+    res.json(response);
+  } catch (error) {
+    console.error('Failed to update room:', error);
+    res.status(500).json({
+      error: 'Failed to update room',
+      message: error.message
+    });
+  }
+});
+
+// Delete room
+app.delete('/api/rooms/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check if room exists
+    const existingRoom = await pool.query('SELECT * FROM resources WHERE id = $1 AND type = $2', [id, 'room']);
+    
+    if (existingRoom.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Room not found'
+      });
+    }
+
+    // Check if room is being used by any schedules
+    const scheduleCheck = await pool.query(
+      'SELECT COUNT(*) as count FROM schedules WHERE room_id = $1',
+      [id]
+    );
+
+    if (parseInt(scheduleCheck.rows[0].count) > 0) {
+      return res.status(400).json({
+        error: 'Cannot delete room',
+        message: 'Room is being used by existing schedules'
+      });
+    }
+
+    const result = await pool.query(
+      'DELETE FROM resources WHERE id = $1 AND type = $2 RETURNING *',
+      [id, 'room']
+    );
+
+    res.json({ message: 'Room deleted successfully' });
+  } catch (error) {
+    console.error('Failed to delete room:', error);
+    res.status(500).json({
+      error: 'Failed to delete room',
+      message: error.message
+    });
+  }
+});
+
+// Create room
+app.post('/api/rooms', async (req, res) => {
+  try {
+    const {
+      name,
+      type,
+      is_available = true,
+      store_id
+    } = req.body;
+
+    // Validate required fields
+    if (!name || !type) {
+      return res.status(400).json({
+        error: 'Missing required fields: name, type'
+      });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO resources (name, type, status, store_id)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+      [name, type, is_available ? 'available' : 'unavailable', store_id]
+    );
+
+    // Transform response to match frontend expected format
+    const newRoom = result.rows[0];
+    let room_type = 'treatment'; // default
+    if (newRoom.name.includes('VIP')) {
+      room_type = 'vip';
+    } else if (newRoom.name.includes('咨询')) {
+      room_type = 'consultation';
+    }
+
+    const response = {
+      id: newRoom.id,
+      name: newRoom.name,
+      room_type: room_type,
+      is_available: newRoom.status === 'available',
+      store_id: newRoom.store_id,
+      created_at: newRoom.created_at,
+      updated_at: newRoom.updated_at
+    };
+
+    res.status(201).json(response);
+  } catch (error) {
+    console.error('Failed to create room:', error);
+    res.status(500).json({
+      error: 'Failed to create room',
+      message: error.message
+    });
+  }
+});
+
 // Create schedule
 app.post('/api/schedules', async (req, res) => {
   try {
@@ -1045,6 +1412,36 @@ app.post('/api/schedules', async (req, res) => {
       nurse_id,
       notes
     } = req.body;
+
+    // Validate that all resources belong to the same store as the appointment
+    const appointmentResult = await pool.query('SELECT store_id FROM appointments WHERE id = $1', [appointment_id]);
+    if (appointmentResult.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Appointment not found'
+      });
+    }
+    
+    const appointmentStoreId = appointmentResult.rows[0].store_id;
+    
+    // Check if room belongs to the same store
+    if (room_id) {
+      const roomResult = await pool.query('SELECT store_id FROM resources WHERE id = $1', [room_id]);
+      if (roomResult.rows.length === 0 || roomResult.rows[0].store_id !== appointmentStoreId) {
+        return res.status(400).json({
+          error: 'Room does not belong to the same store as the appointment'
+        });
+      }
+    }
+    
+    // Check if nurse belongs to the same store
+    if (nurse_id) {
+      const nurseResult = await pool.query('SELECT store_id FROM profiles WHERE id = $1', [nurse_id]);
+      if (nurseResult.rows.length === 0 || nurseResult.rows[0].store_id !== appointmentStoreId) {
+        return res.status(400).json({
+          error: 'Nurse does not belong to the same store as the appointment'
+        });
+      }
+    }
 
     const result = await pool.query(
       `INSERT INTO schedules (appointment_id, scheduled_date, scheduled_time_start, scheduled_time_end, room_id, nurse_id, notes)
@@ -1218,10 +1615,12 @@ app.put('/api/task-executions/:id', async (req, res) => {
 app.get('/api/users', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, username, email, full_name, role, department, status, 
-              created_at, updated_at, dingtalk_userid
-       FROM profiles
-       ORDER BY created_at DESC`
+      `SELECT p.id, p.username, p.email, p.full_name, p.role, p.department, p.status,
+              p.created_at, p.updated_at, p.dingtalk_userid, p.store_id,
+              s.name as store_name
+       FROM profiles p
+       LEFT JOIN stores s ON p.store_id = s.id
+       ORDER BY p.created_at DESC`
     );
     
     console.log(`获取所有用户: ${result.rows.length} 条记录`);
@@ -1239,7 +1638,7 @@ app.get('/api/users', async (req, res) => {
 app.put('/api/users/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { full_name, role, department, status } = req.body;
+    const { full_name, role, department, status, store_id } = req.body;
     
     console.log('🔍 [DEBUG] 更新用户请求:', {
       targetUserId: id,
@@ -1282,6 +1681,10 @@ app.put('/api/users/:id', async (req, res) => {
     if (status !== undefined) {
       updateFields.push(`status = $${paramIndex++}`);
       updateValues.push(status);
+    }
+    if (store_id !== undefined) {
+      updateFields.push(`store_id = $${paramIndex++}`);
+      updateValues.push(store_id);
     }
 
     if (updateFields.length === 0) {
@@ -1769,6 +2172,448 @@ app.get('/api/dingtalk/sync/logs', async (req, res) => {
     console.error('Failed to fetch sync logs:', error);
     res.status(500).json({
       error: 'Failed to fetch sync logs',
+      message: error.message
+    });
+  }
+});
+
+// ==================== Store Management Endpoints ====================
+
+// Middleware to extract user info from token
+async function getUserFromToken(req) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return null;
+    }
+    
+    const token = authHeader.substring(7);
+    // For mock tokens, decode the payload
+    if (token.startsWith('mock.')) {
+      const base64Payload = token.split('.')[1];
+      const payload = JSON.parse(Buffer.from(base64Payload, 'base64').toString());
+      return payload;
+    }
+    
+    // In production, verify JWT token here
+    return null;
+  } catch (error) {
+    console.error('Error extracting user from token:', error);
+    return null;
+  }
+}
+
+// Middleware to check store access permissions
+async function checkStoreAccess(req, res, next) {
+  try {
+    const user = await getUserFromToken(req);
+    if (!user) {
+      return res.status(401).json({
+        error: 'Authentication required'
+      });
+    }
+    
+    // Get user details from database
+    let userResult;
+    if (user && user.userId) {
+      // Check if userId is a valid UUID format, if not, skip database query
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(user.userId)) {
+        userResult = await pool.query(
+          'SELECT id, role, store_id FROM profiles WHERE id = $1',
+          [user.userId]
+        );
+      } else {
+        // For mock users with non-UUID IDs, create a mock user result
+        userResult = { rows: [{
+          id: user.userId,
+          role: user.role,
+          store_id: null
+        }] };
+      }
+    } else {
+      return res.status(401).json({
+        error: 'Authentication required'
+      });
+    }
+    
+    if (userResult.rows.length === 0) {
+      return res.status(401).json({
+        error: 'User not found'
+      });
+    }
+    
+    const userProfile = userResult.rows[0];
+    req.user = userProfile;
+    
+    // Super admin and sales can access all stores
+    if (userProfile.role === 'super_admin' || userProfile.role === 'sales') {
+      return next();
+    }
+    
+    // For other roles, check if they have access to the requested store
+    const storeId = req.params.id || req.query.store_id || req.body.store_id;
+    
+    if (storeId && userProfile.store_id !== storeId) {
+      return res.status(403).json({
+        error: 'Access denied. You can only access your own store data.'
+      });
+    }
+    
+    next();
+  } catch (error) {
+    console.error('Store access check error:', error);
+    res.status(500).json({
+      error: 'Failed to check store access',
+      message: error.message
+    });
+  }
+}
+
+// Get all stores
+app.get('/api/stores', async (req, res) => {
+  try {
+    const { status, search, page = 1, limit = 20 } = req.query;
+    const offset = (page - 1) * limit;
+    
+    let query = 'SELECT * FROM stores';
+    let countQuery = 'SELECT COUNT(*) as total FROM stores';
+    const params = [];
+    const conditions = [];
+    
+    // Build WHERE conditions
+    if (status) {
+      conditions.push(`status = $${params.length + 1}`);
+      params.push(status);
+    }
+    
+    if (search) {
+      conditions.push(`name ILIKE $${params.length + 1}`);
+      params.push(`%${search}%`);
+    }
+    
+    if (conditions.length > 0) {
+      const whereClause = ' WHERE ' + conditions.join(' AND ');
+      query += whereClause;
+      countQuery += whereClause;
+    }
+    
+    // Add pagination
+    query += ` ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    params.push(limit, offset);
+    
+    // Execute queries
+    const [result, countResult] = await Promise.all([
+      pool.query(query, params),
+      pool.query(countQuery, params.slice(0, -2))
+    ]);
+    
+    const total = parseInt(countResult.rows[0].total);
+    const totalPages = Math.ceil(total / limit);
+    
+    res.json({
+      stores: result.rows,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        totalPages
+      }
+    });
+  } catch (error) {
+    console.error('Failed to fetch stores:', error);
+    res.status(500).json({
+      error: 'Failed to fetch stores',
+      message: error.message
+    });
+  }
+});
+
+// Get store by ID
+app.get('/api/stores/:id', checkStoreAccess, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const result = await pool.query('SELECT * FROM stores WHERE id = $1', [id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Store not found'
+      });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Failed to fetch store:', error);
+    res.status(500).json({
+      error: 'Failed to fetch store',
+      message: error.message
+    });
+  }
+});
+
+// Create new store
+app.post('/api/stores', async (req, res) => {
+  try {
+    const {
+      name,
+      address,
+      phone,
+      contact_person,
+      status = 'active',
+      description,
+      business_hours
+    } = req.body;
+    
+    // Validate required fields
+    if (!name) {
+      return res.status(400).json({
+        error: 'Store name is required'
+      });
+    }
+    
+    // Get user info for created_by field
+    const user = await getUserFromToken(req);
+    let createdBy = null;
+    
+    if (user && user.userId) {
+      // Check if userId is a valid UUID format, if not, set to null
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      createdBy = uuidRegex.test(user.userId) ? user.userId : null;
+    }
+    
+    const result = await pool.query(
+      `INSERT INTO stores (name, address, phone, contact_person, status, description, business_hours, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [name, address, phone, contact_person, status, description, JSON.stringify(business_hours), createdBy]
+    );
+    
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Failed to create store:', error);
+    res.status(500).json({
+      error: 'Failed to create store',
+      message: error.message
+    });
+  }
+});
+
+// Update store
+app.put('/api/stores/:id', checkStoreAccess, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+    
+    // Check if store exists
+    const existingStore = await pool.query('SELECT * FROM stores WHERE id = $1', [id]);
+    
+    if (existingStore.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Store not found'
+      });
+    }
+    
+    // Build dynamic update query
+    const updateFields = [];
+    const values = [];
+    let paramIndex = 1;
+    
+    for (const [key, value] of Object.entries(updates)) {
+      if (value !== undefined) {
+        if (key === 'business_hours') {
+          updateFields.push(`${key} = $${paramIndex}`);
+          values.push(JSON.stringify(value));
+        } else {
+          updateFields.push(`${key} = $${paramIndex}`);
+          values.push(value);
+        }
+        paramIndex++;
+      }
+    }
+    
+    if (updateFields.length === 0) {
+      return res.status(400).json({
+        error: 'No valid fields to update'
+      });
+    }
+    
+    // Get user info for updated_by field
+    const user = await getUserFromToken(req);
+    if (user && user.userId) {
+      // Check if userId is a valid UUID format, if not, set to null
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      const updatedBy = uuidRegex.test(user.userId) ? user.userId : null;
+      updateFields.push(`updated_by = $${paramIndex}`);
+      values.push(updatedBy);
+      paramIndex++;
+    }
+    
+    updateFields.push(`updated_at = CURRENT_TIMESTAMP`);
+    values.push(id);
+    
+    const result = await pool.query(
+      `UPDATE stores SET ${updateFields.join(', ')}
+       WHERE id = $${paramIndex}
+       RETURNING *`,
+      values
+    );
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Failed to update store:', error);
+    res.status(500).json({
+      error: 'Failed to update store',
+      message: error.message
+    });
+  }
+});
+
+// Delete store
+app.delete('/api/stores/:id', checkStoreAccess, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Check if store exists
+    const existingStore = await pool.query('SELECT * FROM stores WHERE id = $1', [id]);
+    
+    if (existingStore.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Store not found'
+      });
+    }
+    
+    // Check for dependencies
+    const [profilesCheck, resourcesCheck, appointmentsCheck] = await Promise.all([
+      pool.query('SELECT COUNT(*) as count FROM profiles WHERE store_id = $1', [id]),
+      pool.query('SELECT COUNT(*) as count FROM resources WHERE store_id = $1', [id]),
+      pool.query('SELECT COUNT(*) as count FROM appointments WHERE store_id = $1', [id])
+    ]);
+    
+    const hasDependencies =
+      parseInt(profilesCheck.rows[0].count) > 0 ||
+      parseInt(resourcesCheck.rows[0].count) > 0 ||
+      parseInt(appointmentsCheck.rows[0].count) > 0;
+    
+    if (hasDependencies) {
+      return res.status(400).json({
+        error: 'Cannot delete store',
+        message: 'Store has associated users, resources, or appointments. Please reassign or delete them first.',
+        dependencies: {
+          users: parseInt(profilesCheck.rows[0].count),
+          resources: parseInt(resourcesCheck.rows[0].count),
+          appointments: parseInt(appointmentsCheck.rows[0].count)
+        }
+      });
+    }
+    
+    // Delete store
+    await pool.query('DELETE FROM stores WHERE id = $1', [id]);
+    
+    res.json({ message: 'Store deleted successfully' });
+  } catch (error) {
+    console.error('Failed to delete store:', error);
+    res.status(500).json({
+      error: 'Failed to delete store',
+      message: error.message
+    });
+  }
+});
+
+// Get store resources
+app.get('/api/stores/:id/resources', checkStoreAccess, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { type } = req.query;
+    
+    // Check if store exists
+    const storeCheck = await pool.query('SELECT * FROM stores WHERE id = $1', [id]);
+    
+    if (storeCheck.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Store not found'
+      });
+    }
+    
+    // Get resources using the database function
+    const result = await pool.query(
+      'SELECT * FROM get_store_resources($1, $2)',
+      [id, type || null]
+    );
+    
+    // Group resources by type
+    const resources = {
+      nurses: [],
+      doctors: [],
+      rooms: [],
+      equipment: []
+    };
+    
+    result.rows.forEach(resource => {
+      switch (resource.type) {
+        case 'nurse':
+          resources.nurses.push(resource);
+          break;
+        case 'doctor':
+          resources.doctors.push(resource);
+          break;
+        case 'room':
+          resources.rooms.push(resource);
+          break;
+        case 'equipment':
+          resources.equipment.push(resource);
+          break;
+        default:
+          // Handle other resource types if needed
+          if (!resources[resource.type]) {
+            resources[resource.type] = [];
+          }
+          resources[resource.type].push(resource);
+      }
+    });
+    
+    res.json({
+      store_id: id,
+      resources
+    });
+  } catch (error) {
+    console.error('Failed to fetch store resources:', error);
+    res.status(500).json({
+      error: 'Failed to fetch store resources',
+      message: error.message
+    });
+  }
+});
+
+// Get store staff
+app.get('/api/stores/:id/staff', checkStoreAccess, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { role } = req.query;
+    
+    // Check if store exists
+    const storeCheck = await pool.query('SELECT * FROM stores WHERE id = $1', [id]);
+    
+    if (storeCheck.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Store not found'
+      });
+    }
+    
+    // Get staff using the database function
+    const result = await pool.query(
+      'SELECT * FROM get_store_staff($1, $2)',
+      [id, role || null]
+    );
+    
+    res.json({
+      store_id: id,
+      staff: result.rows
+    });
+  } catch (error) {
+    console.error('Failed to fetch store staff:', error);
+    res.status(500).json({
+      error: 'Failed to fetch store staff',
       message: error.message
     });
   }

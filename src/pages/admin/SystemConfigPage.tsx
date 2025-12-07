@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Plus, Pencil, Trash2, AlertCircle } from 'lucide-react';
+import { Plus, Pencil, Trash2, AlertCircle, Store as StoreIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -18,7 +18,9 @@ import { toast } from 'sonner';
 import { getNurses, createNurse, updateNurse, deleteNurse, getDoctors, createDoctor, updateDoctor, deleteDoctor, getRooms, createRoom, updateRoom, deleteRoom } from '@/db/api';
 import clientApi from '@/services/api-client';
 import type { Nurse, Doctor, Room } from '@/types/types';
-import type { Service } from '@/services/api-client';
+import type { Service, Store } from '@/services/api-client';
+import StoreQuickActions from '@/components/admin/StoreQuickActions';
+import { useAuth } from '@/contexts/AuthContext';
 
 // 服务项目表单Schema
 const serviceSchema = z.object({
@@ -26,31 +28,32 @@ const serviceSchema = z.object({
   description: z.string().min(1, '请输入服务项目描述'),
   category: z.enum(['nursing', 'consultation', 'report']),
   base_duration: z.number().min(15, '基础时长至少15分钟').max(480, '基础时长不能超过8小时'),
-  requires_doctor: z.boolean().default(false),
-  allow_companions: z.boolean().default(true),
+  requires_doctor: z.boolean(),
+  allow_companions: z.boolean(),
   max_companions: z.number().min(0, '最大同行人数不能为负数').max(10, '最大同行人数不能超过10人'),
-  is_active: z.boolean().default(true),
+  is_active: z.boolean(),
 });
 
 // 护士表单Schema
 const nurseSchema = z.object({
   name: z.string().min(1, '请输入护士姓名'),
   skill_level: z.enum(['junior', 'intermediate', 'senior']),
-  is_available: z.boolean().default(true),
+  is_available: z.boolean(),
 });
 
 // 医生表单Schema
 const doctorSchema = z.object({
   name: z.string().min(1, '请输入医生姓名'),
   specialty: z.string().min(1, '请输入专业领域'),
-  is_available: z.boolean().default(true),
+  is_available: z.boolean(),
 });
 
 // 房间表单Schema
 const roomSchema = z.object({
   name: z.string().min(1, '请输入房间名称'),
   room_type: z.enum(['vip', 'treatment', 'consultation']),
-  is_available: z.boolean().default(true),
+  is_available: z.boolean(),
+  store_id: z.string().optional(),
 });
 
 type ServiceFormValues = z.infer<typeof serviceSchema>;
@@ -59,11 +62,14 @@ type DoctorFormValues = z.infer<typeof doctorSchema>;
 type RoomFormValues = z.infer<typeof roomSchema>;
 
 export default function SystemConfigPage() {
+  const { profile } = useAuth();
   const [activeTab, setActiveTab] = useState('services');
   const [services, setServices] = useState<Service[]>([]);
   const [nurses, setNurses] = useState<Nurse[]>([]);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [stores, setStores] = useState<Store[]>([]);
+  const [selectedStoreId, setSelectedStoreId] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
 
   // 对话框状态
@@ -117,6 +123,7 @@ export default function SystemConfigPage() {
       name: '',
       room_type: 'treatment',
       is_available: true,
+      store_id: '',
     },
   });
 
@@ -124,19 +131,60 @@ export default function SystemConfigPage() {
     loadData();
   }, []);
 
+  useEffect(() => {
+    if (profile) {
+      loadData();
+    }
+  }, [selectedStoreId, profile]);
+
   const loadData = async () => {
     try {
+      console.log('🔍 [DEBUG] loadData 开始执行:', {
+        userRole: profile?.role,
+        userStoreId: profile?.store_id,
+        selectedStoreId,
+        timestamp: new Date().toISOString()
+      });
+      
+      // 加载门店数据（如果是管理员）
+      if (profile?.role === 'super_admin' || profile?.role === 'admin') {
+        try {
+          const storesData = await clientApi.getStores();
+          console.log('🔍 [DEBUG] 加载门店数据成功:', storesData.length, '个门店');
+          setStores(storesData);
+        } catch (error) {
+          console.error('加载门店数据失败:', error);
+        }
+      }
+      
+      // 获取用户门店ID
+      const userStoreId = profile?.store_id || '';
+      
+      // 确定要查询的门店ID
+      const storeIdToQuery = selectedStoreId === 'all' ? undefined : (selectedStoreId || userStoreId);
+      
+      console.log('🔍 [DEBUG] 房间查询参数:', {
+        selectedStoreId,
+        userStoreId,
+        storeIdToQuery
+      });
+      
       const [servicesData, nursesData, doctorsData, roomsData] = await Promise.all([
         clientApi.getServices(),
         getNurses(),
         getDoctors(),
-        getRooms(),
+        getRooms(storeIdToQuery),
       ]);
+      
+      console.log('🔍 [DEBUG] 房间数据加载成功:', roomsData.length, '个房间');
+      console.log('🔍 [DEBUG] 房间数据样本:', roomsData[0]);
+      
       setServices(servicesData);
       setNurses(nursesData);
       setDoctors(doctorsData);
       setRooms(roomsData);
     } catch (error) {
+      console.error('🔍 [DEBUG] loadData 失败:', error);
       toast.error('加载数据失败');
     }
   };
@@ -314,20 +362,27 @@ export default function SystemConfigPage() {
 
   const handleAddRoom = () => {
     setEditingRoom(null);
+    
+    // 获取用户默认门店
+    const defaultStoreId = profile?.store_id || '';
+    
     roomForm.reset({
       name: '',
       room_type: 'treatment',
       is_available: true,
+      store_id: defaultStoreId,
     });
     setRoomDialogOpen(true);
   };
 
   const handleEditRoom = (room: Room) => {
     setEditingRoom(room);
+    console.log('🔍 [DEBUG] 编辑房间数据:', room);
     roomForm.reset({
       name: room.name,
       room_type: room.room_type,
       is_available: room.is_available,
+      store_id: room.store_id || '',
     });
     setRoomDialogOpen(true);
   };
@@ -347,6 +402,43 @@ export default function SystemConfigPage() {
   const onSubmitRoom = async (values: RoomFormValues) => {
     setIsLoading(true);
     try {
+      // 验证门店权限
+      const userStoreId = profile?.store_id || '';
+      const userRole = profile?.role || '';
+      
+      // 验证门店选择
+      if (userRole === 'super_admin' || userRole === 'admin') {
+        if (!values.store_id) {
+          toast.error('请选择所属门店');
+          return;
+        }
+        
+        // 验证门店是否存在
+        const storeExists = stores.some(store => store.id === values.store_id);
+        if (!storeExists) {
+          toast.error('选择的门店不存在');
+          return;
+        }
+      } else {
+        // 非管理员只能管理自己门店的房间
+        if (values.store_id && values.store_id !== userStoreId) {
+          toast.error('您只能管理自己门店的房间');
+          return;
+        }
+      }
+      
+      // 验证房间名称是否重复（在同一门店内）
+      const existingRoom = rooms.find(room =>
+        room.name === values.name &&
+        room.store_id === (values.store_id || userStoreId) &&
+        room.id !== editingRoom?.id
+      );
+      
+      if (existingRoom) {
+        toast.error('同一门店内已存在相同名称的房间');
+        return;
+      }
+      
       if (editingRoom) {
         await updateRoom(editingRoom.id, values);
         toast.success('更新成功');
@@ -354,14 +446,22 @@ export default function SystemConfigPage() {
         await createRoom({
           name: values.name,
           type: values.room_type,
-          is_available: values.is_available
+          is_available: values.is_available,
+          store_id: values.store_id || userStoreId
         });
         toast.success('添加成功');
       }
       setRoomDialogOpen(false);
       loadData();
     } catch (error: any) {
-      toast.error(error.message || '操作失败');
+      console.error('房间操作失败:', error);
+      if (error.message.includes('duplicate key') || error.message.includes('already exists')) {
+        toast.error('房间名称已存在');
+      } else if (error.message.includes('foreign key constraint')) {
+        toast.error('选择的门店不存在');
+      } else {
+        toast.error(error.message || '操作失败');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -396,11 +496,30 @@ export default function SystemConfigPage() {
     return labels[category] || category;
   };
 
+  // 检查用户是否有权限访问门店管理
+  const canManageStores = profile?.role === 'super_admin' || profile?.role === 'admin';
+
+  // 门店管理相关处理函数
+  const handleNavigateToStores = () => {
+    // 导航到门店管理页面
+    window.location.href = '/admin/stores';
+  };
+
+  const handleAddStore = () => {
+    // 导航到门店管理页面并触发添加门店
+    window.location.href = '/admin/stores?action=add';
+  };
+
+  const handleViewStore = (store: Store) => {
+    // 导航到门店管理页面并查看特定门店
+    window.location.href = `/admin/stores?action=view&id=${store.id}`;
+  };
+
   return (
     <div className="container mx-auto py-8 px-4">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-foreground mb-2">系统配置</h1>
-        <p className="text-muted-foreground">管理系统资源：服务项目、护士、医生、房间</p>
+        <p className="text-muted-foreground">管理系统资源：服务项目、护士、医生、房间{canManageStores ? '、门店' : ''}</p>
       </div>
 
       <Alert className="mb-6">
@@ -411,11 +530,17 @@ export default function SystemConfigPage() {
       </Alert>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className={`grid w-full ${canManageStores ? 'grid-cols-5' : 'grid-cols-4'}`}>
           <TabsTrigger value="services">服务项目</TabsTrigger>
           <TabsTrigger value="nurses">护士管理</TabsTrigger>
           <TabsTrigger value="doctors">医生管理</TabsTrigger>
           <TabsTrigger value="rooms">房间管理</TabsTrigger>
+          {canManageStores && (
+            <TabsTrigger value="stores" className="flex items-center gap-2">
+              <StoreIcon className="h-4 w-4" />
+              门店管理
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* ==================== 服务项目管理 ==================== */}
@@ -1004,95 +1129,144 @@ export default function SystemConfigPage() {
                   <CardTitle>房间列表</CardTitle>
                   <CardDescription>管理房间资源和类型</CardDescription>
                 </div>
-                <Dialog open={roomDialogOpen} onOpenChange={setRoomDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button onClick={handleAddRoom}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      添加房间
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>{editingRoom ? '编辑房间' : '添加房间'}</DialogTitle>
-                      <DialogDescription>
-                        填写房间信息，设置房间类型和可用状态
-                      </DialogDescription>
-                    </DialogHeader>
-                    <Form {...roomForm}>
-                      <form onSubmit={roomForm.handleSubmit(onSubmitRoom)} className="space-y-4">
-                        <FormField
-                          control={roomForm.control}
-                          name="name"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>房间名称 *</FormLabel>
-                              <FormControl>
-                                <Input placeholder="例如：VIP室1、治疗区A" {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
+                <div className="flex items-center gap-2">
+                  {/* 门店过滤 - 只有管理员可以看到所有门店的房间 */}
+                  {(profile?.role === 'super_admin' || profile?.role === 'admin') && (
+                    <Select value={selectedStoreId} onValueChange={setSelectedStoreId}>
+                      <SelectTrigger className="w-[200px]">
+                        <SelectValue placeholder="选择门店" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">全部门店</SelectItem>
+                        {stores.map((store) => (
+                          <SelectItem key={store.id} value={store.id}>
+                            {store.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <Dialog open={roomDialogOpen} onOpenChange={setRoomDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button onClick={handleAddRoom}>
+                        <Plus className="mr-2 h-4 w-4" />
+                        添加房间
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>{editingRoom ? '编辑房间' : '添加房间'}</DialogTitle>
+                        <DialogDescription>
+                          填写房间信息，设置房间类型和可用状态
+                        </DialogDescription>
+                      </DialogHeader>
+                      <Form {...roomForm}>
+                        <form onSubmit={roomForm.handleSubmit(onSubmitRoom)} className="space-y-4">
+                          {/* 门店选择 - 只有管理员可以选择不同门店 */}
+                          {(profile?.role === 'super_admin' || profile?.role === 'admin') && (
+                            <FormField
+                              control={roomForm.control}
+                              name="store_id"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>所属门店 *</FormLabel>
+                                  <Select onValueChange={field.onChange} value={field.value || ''}>
+                                    <FormControl>
+                                      <SelectTrigger>
+                                        <SelectValue placeholder="选择门店" />
+                                      </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                      {stores.map((store) => (
+                                        <SelectItem key={store.id} value={store.id}>
+                                          {store.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <FormDescription>
+                                    选择房间所属的门店
+                                  </FormDescription>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
                           )}
-                        />
 
-                        <FormField
-                          control={roomForm.control}
-                          name="room_type"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>房间类型 *</FormLabel>
-                              <Select onValueChange={field.onChange} value={field.value}>
+                          <FormField
+                            control={roomForm.control}
+                            name="name"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>房间名称 *</FormLabel>
                                 <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="选择房间类型" />
-                                  </SelectTrigger>
+                                  <Input placeholder="例如：VIP室1、治疗区A" {...field} />
                                 </FormControl>
-                                <SelectContent>
-                                  <SelectItem value="vip">VIP室</SelectItem>
-                                  <SelectItem value="treatment">治疗区</SelectItem>
-                                  <SelectItem value="consultation">咨询室</SelectItem>
-                                </SelectContent>
-                              </Select>
-                              <FormDescription>
-                                不同类型的房间适用于不同的服务场景
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
 
-                        <FormField
-                          control={roomForm.control}
-                          name="is_available"
-                          render={({ field }) => (
-                            <FormItem className="flex items-center justify-between rounded-lg border p-4">
-                              <div className="space-y-0.5">
-                                <FormLabel className="text-base">可用状态</FormLabel>
+                          <FormField
+                            control={roomForm.control}
+                            name="room_type"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>房间类型 *</FormLabel>
+                                <Select onValueChange={field.onChange} value={field.value}>
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="选择房间类型" />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    <SelectItem value="vip">VIP室</SelectItem>
+                                    <SelectItem value="treatment">治疗区</SelectItem>
+                                    <SelectItem value="consultation">咨询室</SelectItem>
+                                  </SelectContent>
+                                </Select>
                                 <FormDescription>
-                                  关闭后该房间将不会出现在排班选择中
+                                  不同类型的房间适用于不同的服务场景
                                 </FormDescription>
-                              </div>
-                              <FormControl>
-                                <Switch
-                                  checked={field.value}
-                                  onCheckedChange={field.onChange}
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
 
-                        <DialogFooter>
-                          <Button type="button" variant="outline" onClick={() => setRoomDialogOpen(false)}>
-                            取消
-                          </Button>
-                          <Button type="submit" disabled={isLoading}>
-                            {isLoading ? '保存中...' : '保存'}
-                          </Button>
-                        </DialogFooter>
-                      </form>
-                    </Form>
-                  </DialogContent>
-                </Dialog>
+                          <FormField
+                            control={roomForm.control}
+                            name="is_available"
+                            render={({ field }) => (
+                              <FormItem className="flex items-center justify-between rounded-lg border p-4">
+                                <div className="space-y-0.5">
+                                  <FormLabel className="text-base">可用状态</FormLabel>
+                                  <FormDescription>
+                                    关闭后该房间将不会出现在排班选择中
+                                  </FormDescription>
+                                </div>
+                                <FormControl>
+                                  <Switch
+                                    checked={field.value}
+                                    onCheckedChange={field.onChange}
+                                  />
+                                </FormControl>
+                              </FormItem>
+                            )}
+                          />
+
+                          <DialogFooter>
+                            <Button type="button" variant="outline" onClick={() => setRoomDialogOpen(false)}>
+                              取消
+                            </Button>
+                            <Button type="submit" disabled={isLoading}>
+                              {isLoading ? '保存中...' : '保存'}
+                            </Button>
+                          </DialogFooter>
+                        </form>
+                      </Form>
+                    </DialogContent>
+                  </Dialog>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -1101,6 +1275,9 @@ export default function SystemConfigPage() {
                   <TableRow>
                     <TableHead>房间名称</TableHead>
                     <TableHead>房间类型</TableHead>
+                    {(profile?.role === 'super_admin' || profile?.role === 'admin') && (
+                      <TableHead>所属门店</TableHead>
+                    )}
                     <TableHead>状态</TableHead>
                     <TableHead className="text-right">操作</TableHead>
                   </TableRow>
@@ -1108,7 +1285,7 @@ export default function SystemConfigPage() {
                 <TableBody>
                   {rooms.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={(profile?.role === 'super_admin' || profile?.role === 'admin') ? 5 : 4} className="text-center text-muted-foreground py-8">
                         暂无房间数据，请点击"添加房间"按钮添加
                       </TableCell>
                     </TableRow>
@@ -1119,6 +1296,11 @@ export default function SystemConfigPage() {
                         <TableCell>
                           <Badge variant="outline">{getRoomTypeLabel(room.room_type)}</Badge>
                         </TableCell>
+                        {(profile?.role === 'super_admin' || profile?.role === 'admin') && (
+                          <TableCell>
+                            {stores.find(s => s.id === room.store_id)?.name || room.store_id || '未分配'}
+                          </TableCell>
+                        )}
                         <TableCell>
                           <Badge variant={room.is_available ? 'default' : 'secondary'}>
                             {room.is_available ? '可用' : '不可用'}
@@ -1150,6 +1332,30 @@ export default function SystemConfigPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* ==================== 门店管理 ==================== */}
+        {canManageStores && (
+          <TabsContent value="stores">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <StoreIcon className="h-5 w-5" />
+                  门店管理
+                </CardTitle>
+                <CardDescription>
+                  管理系统门店信息、营业状态和资源分配
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <StoreQuickActions
+                  onNavigateToStores={handleNavigateToStores}
+                  onAddStore={handleAddStore}
+                  onViewStore={handleViewStore}
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

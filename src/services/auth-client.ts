@@ -9,6 +9,7 @@ interface ApiUser {
   role: string;
   phone?: string;
   department?: string;
+  store_id?: string;
 }
 
 // Token interface

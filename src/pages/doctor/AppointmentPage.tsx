@@ -17,6 +17,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import clientApi from '@/services/api-client';
 import type { Appointment } from '@/services/api-client';
 import StatusBadge from '@/components/appointment/StatusBadge';
+import { canViewStoreSchedule } from '@/utils/permissions';
+import { handleApiError } from '@/utils/validation';
 
 const rejectFormSchema = z.object({
   doctor_note: z.string().min(1, '请填写拒绝原因或建议时间'),
@@ -48,8 +50,16 @@ export default function DoctorAppointmentPage() {
     try {
       if (!user) return;
       
+      // 获取当前用户的门店ID
+      const userStoreId = user.profile?.store_id;
+      
       const data = await clientApi.getAppointments({});
       const doctorAppointments = data.filter(a => {
+        // 使用权限工具函数检查是否可以查看该预约
+        if (!canViewStoreSchedule(user.profile, a.store_id)) {
+          return false;
+        }
+        
         // 1. 已分配给当前医生的预约
         if (a.doctor_id === user.id) {
           return true;
@@ -83,7 +93,8 @@ export default function DoctorAppointmentPage() {
       toast.success('预约已接受');
       loadAppointments();
     } catch (error: any) {
-      toast.error(error.message || '操作失败');
+      const errorMessage = handleApiError(error, '接受预约');
+      toast.error(errorMessage);
     }
   };
 
@@ -114,7 +125,8 @@ export default function DoctorAppointmentPage() {
       setIsRejectDialogOpen(false);
       loadAppointments();
     } catch (error: any) {
-      toast.error(error.message || '操作失败');
+      const errorMessage = handleApiError(error, '拒绝预约');
+      toast.error(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -176,7 +188,7 @@ export default function DoctorAppointmentPage() {
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-lg">{appointment.customer_name}</CardTitle>
-                      <StatusBadge status={appointment.doctor_status || 'pending'} />
+                      <StatusBadge status={(appointment.doctor_status as any) || 'pending'} />
                     </div>
                     <CardDescription>{appointment.service?.name}</CardDescription>
                   </CardHeader>
@@ -208,6 +220,12 @@ export default function DoctorAppointmentPage() {
                         <div className="col-span-2">
                           <span className="text-muted-foreground">销售：</span>
                           <span className="font-medium">{appointment.sales.full_name || appointment.sales.username}</span>
+                        </div>
+                      )}
+                      {appointment.store && (
+                        <div className="col-span-2">
+                          <span className="text-muted-foreground">门店：</span>
+                          <span className="font-medium">{appointment.store.name}</span>
                         </div>
                       )}
                     </div>
@@ -245,7 +263,7 @@ export default function DoctorAppointmentPage() {
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-lg">{appointment.customer_name}</CardTitle>
-                      <StatusBadge status={appointment.doctor_status || 'accepted'} />
+                      <StatusBadge status={(appointment.doctor_status as any) || 'accepted'} />
                     </div>
                     <CardDescription>{appointment.service?.name}</CardDescription>
                   </CardHeader>
@@ -267,7 +285,7 @@ export default function DoctorAppointmentPage() {
                       )}
                       <div>
                         <span className="text-muted-foreground">状态：</span>
-                        <StatusBadge status={appointment.status} />
+                        <StatusBadge status={appointment.status as any} />
                       </div>
                     </div>
                   </CardContent>
@@ -286,7 +304,7 @@ export default function DoctorAppointmentPage() {
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-lg">{appointment.customer_name}</CardTitle>
-                      <StatusBadge status={appointment.doctor_status || 'rejected'} />
+                      <StatusBadge status={(appointment.doctor_status as any) || 'rejected'} />
                     </div>
                     <CardDescription>{appointment.service?.name}</CardDescription>
                   </CardHeader>
