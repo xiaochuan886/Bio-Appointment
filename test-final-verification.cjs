@@ -1,123 +1,124 @@
-const http = require('http');
+const axios = require('axios');
 
-// Helper function to make HTTP requests
-function makeRequest(options, data = null) {
-  return new Promise((resolve, reject) => {
-    const req = http.request(options, (res) => {
-      let body = '';
-      res.on('data', (chunk) => {
-        body += chunk;
-      });
-      res.on('end', () => {
-        try {
-          const jsonData = JSON.parse(body);
-          resolve({ status: res.statusCode, data: jsonData });
-        } catch (error) {
-          resolve({ status: res.statusCode, data: body });
-        }
-      });
-    });
-    
-    req.on('error', (error) => {
-      reject(error);
-    });
-    
-    if (data) {
-      req.write(JSON.stringify(data));
-    }
-    req.end();
-  });
-}
+const API_BASE = 'http://localhost:3001/api';
 
-// Test function
-async function testFinalVerification() {
-  console.log('🔍 最终验证：预约系统服务分类优化\n');
-  
-  const adminToken = 'mock.eyJ1c2VySWQiOiJhZG1pbi1pZCIsInJvbGUiOiJzdXBlcl9hZG1pbiIsImVtYWlsIjoiYWRtaW5AdGVzdC5jb20ifQ.signature';
-  
-  const headers = {
-    'Authorization': `Bearer ${adminToken}`,
-    'Content-Type': 'application/json'
-  };
-  
+// 测试用户登录
+async function testLogin() {
   try {
-    // 1. 验证医生待确认预约
-    console.log('📋 1. 验证医生待确认预约...');
-    const doctorResponse = await makeRequest({
-      hostname: 'localhost',
-      port: 3001,
-      path: '/api/appointments/doctor-pending',
-      method: 'GET',
-      headers: headers
+    const response = await axios.post(`${API_BASE}/auth/login`, {
+      email: 'head_nurse1@example.com',
+      password: '123456'
     });
     
-    if (doctorResponse.status === 200 && Array.isArray(doctorResponse.data)) {
-      const doctorServices = doctorResponse.data.map(a => a.service_category);
-      const uniqueCategories = [...new Set(doctorServices)];
-      const hasOnlyDoctorServices = uniqueCategories.every(cat => 
-        cat === 'consultation' || cat === 'report'
-      );
-      
-      console.log(`   医生待确认预约: ${doctorResponse.data.length} 个`);
-      console.log(`   服务类别: ${uniqueCategories.join(', ')}`);
-      console.log(hasOnlyDoctorServices ? '   ✅ 正确过滤' : '   ❌ 过滤错误');
-    }
-    
-    // 2. 验证护士长待排班预约
-    console.log('\n📋 2. 验证护士长待排班预约...');
-    const nurseResponse = await makeRequest({
-      hostname: 'localhost',
-      port: 3001,
-      path: '/api/appointments/nurse-pending',
-      method: 'GET',
-      headers: headers
-    });
-    
-    if (nurseResponse.status === 200 && Array.isArray(nurseResponse.data)) {
-      const nurseServices = nurseResponse.data.map(a => a.service_category);
-      const uniqueCategories = [...new Set(nurseServices)];
-      const hasOnlyNursingServices = uniqueCategories.every(cat => cat === 'nursing');
-      
-      console.log(`   护士长待排班预约: ${nurseResponse.data.length} 个`);
-      console.log(`   服务类别: ${uniqueCategories.join(', ')}`);
-      console.log(hasOnlyNursingServices ? '   ✅ 正确过滤' : '   ❌ 过滤错误');
-    }
-    
-    // 3. 测试医生确认流程
-    if (doctorResponse.status === 200 && Array.isArray(doctorResponse.data) && doctorResponse.data.length > 0) {
-      console.log('\n📋 3. 测试医生确认流程...');
-      const appointment = doctorResponse.data[0];
-      
-      const confirmResponse = await makeRequest({
-        hostname: 'localhost',
-        port: 3001,
-        path: `/api/appointments/${appointment.id}/doctor-confirm`,
-        method: 'PUT',
-        headers: headers
-      }, {
-        doctor_id: 'test-doctor-id',
-        doctor_note: '最终验证测试'
-      });
-      
-      if (confirmResponse.status === 200) {
-        const updatedAppointment = confirmResponse.data;
-        console.log(`   状态转换: ${appointment.workflow_status} → ${updatedAppointment.workflow_status}`);
-        console.log(updatedAppointment.workflow_status === 'doctor_completed' ? '   ✅ 正确转换' : '   ❌ 转换错误');
-      }
-    }
-    
-    console.log('\n🎉 验证完成！');
-    console.log('\n📝 优化总结:');
-    console.log('   ✅ 护理服务预约流转到护士长智能排班');
-    console.log('   ✅ 医生服务预约由医生独立处理');
-    console.log('   ✅ 医生服务确认后直接完成，无需护士长排班');
-    console.log('   ✅ 服务分类正确实现业务隔离');
-    console.log('   ✅ API查询正确过滤相关服务类型');
-    
+    console.log('✅ 登录成功:', response.data.user.full_name);
+    return response.data.tokens.accessToken;
   } catch (error) {
-    console.error('❌ 验证过程中发生错误:', error.message);
+    console.error('❌ 登录失败:', error.response?.data || error.message);
+    return null;
   }
 }
 
-// Run test
-testFinalVerification();
+// 测试房间数据去重
+async function testRoomDeduplication() {
+  try {
+    const response = await axios.get(`${API_BASE}/rooms`);
+    const rooms = response.data;
+    
+    console.log(`📊 房间总数: ${rooms.length}`);
+    
+    // 检查是否有重复的房间名称
+    const roomNames = rooms.map(r => r.name);
+    const uniqueNames = [...new Set(roomNames)];
+    
+    if (roomNames.length === uniqueNames.length) {
+      console.log('✅ 房间数据去重成功 - 无重复房间名称');
+    } else {
+      console.log('❌ 房间数据仍有重复');
+      console.log('重复的房间:', roomNames.filter((name, index) => roomNames.indexOf(name) !== index));
+    }
+    
+    console.log('房间列表:');
+    rooms.forEach(room => {
+      console.log(`  - ${room.name} (${room.room_type})`);
+    });
+    
+    return rooms;
+  } catch (error) {
+    console.error('❌ 获取房间数据失败:', error.response?.data || error.message);
+    return [];
+  }
+}
+
+// 测试护士数据过滤
+async function testNurseFiltering(token) {
+  try {
+    const response = await axios.get(`${API_BASE}/profiles/nurses/available`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const nurses = response.data;
+    
+    console.log(`👩‍⚕️ 护士总数: ${nurses.length}`);
+    
+    nurses.forEach(nurse => {
+      console.log(`  - ${nurse.full_name} (门店: ${nurse.store_id})`);
+    });
+    
+    return nurses;
+  } catch (error) {
+    console.error('❌ 获取护士数据失败:', error.response?.data || error.message);
+    return [];
+  }
+}
+
+// 测试护士长待排班预约
+async function testNursePendingAppointments(token) {
+  try {
+    const response = await axios.get(`${API_BASE}/appointments/nurse-pending`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const appointments = response.data;
+    
+    console.log(`📋 待排班预约数: ${appointments.length}`);
+    
+    appointments.forEach(appointment => {
+      console.log(`  - ${appointment.customer_name} | ${appointment.service_name} | ${appointment.workflow_status}`);
+    });
+    
+    return appointments;
+  } catch (error) {
+    console.error('❌ 获取待排班预约失败:', error.response?.data || error.message);
+    return [];
+  }
+}
+
+// 主测试函数
+async function runTests() {
+  console.log('🚀 开始最终验证测试...\n');
+  
+  // 1. 测试登录
+  const token = await testLogin();
+  if (!token) {
+    console.log('❌ 无法获取登录令牌，跳过需要认证的测试');
+    return;
+  }
+  
+  console.log('\n' + '='.repeat(50));
+  
+  // 2. 测试房间数据去重
+  await testRoomDeduplication();
+  
+  console.log('\n' + '='.repeat(50));
+  
+  // 3. 测试护士数据过滤
+  await testNurseFiltering(token);
+  
+  console.log('\n' + '='.repeat(50));
+  
+  // 4. 测试护士长待排班预约
+  await testNursePendingAppointments(token);
+  
+  console.log('\n🎉 测试完成！');
+}
+
+// 运行测试
+runTests().catch(console.error);

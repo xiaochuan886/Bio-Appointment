@@ -8,6 +8,7 @@ import type { ScheduleWithDetails, Nurse, Room } from '@/types/types';
 import ScheduleDetailDialog from './ScheduleDetailDialog';
 import type { ResourceFilterType } from './ResourceFilter';
 import { getNurseColor, getRoomColor, getCombinedGradient } from '@/utils/colorSystem';
+import { MapPin } from 'lucide-react';
 
 
 export type ViewMode = 'day' | 'week' | 'month';
@@ -36,24 +37,6 @@ export default function GanttChart({
   onScheduleClick 
 }: GanttChartProps) {
 
-  // 🔧 调试函数：记录房间匹配信息
-  const logRoomMatch = (
-    context: string,
-    scheduleRoomId: string | undefined,
-    scheduleRoomName: string | undefined,
-    targetRoomId: string,
-    targetRoomName: string,
-    isMatch: boolean,
-    matchType: 'ID' | 'Name'
-  ) => {
-    console.log(`🔍 [DEBUG] ${context}:`);
-    console.log(`  - 排班房间ID: ${scheduleRoomId || 'undefined'}`);
-    console.log(`  - 排班房间名称: ${scheduleRoomName || 'undefined'}`);
-    console.log(`  - 目标房间ID: ${targetRoomId}`);
-    console.log(`  - 目标房间名称: ${targetRoomName}`);
-    console.log(`  - 匹配方式: ${matchType}匹配`);
-    console.log(`  - 匹配结果: ${isMatch ? '✅ 成功' : '❌ 失败'}`);
-  };
 
   // 对话框状态
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -126,11 +109,6 @@ export default function GanttChart({
     resourceName: string,
     resourceType: 'room' | 'nurse'
   ) => {
-    console.log(`🔍 [DEBUG] handleCellClick 被调用:`);
-    console.log(`  - 日期: ${date}`);
-    console.log(`  - 资源ID: ${resourceId}`);
-    console.log(`  - 资源名称: ${resourceName}`);
-    console.log(`  - 资源类型: ${resourceType}`);
     
     let cellSchedules;
     
@@ -154,18 +132,6 @@ export default function GanttChart({
           matchType = 'Name';
         }
         
-        // 使用统一的调试日志函数
-        logRoomMatch(
-          'handleCellClick',
-          schedule.room_id,
-          schedule.room?.name,
-          resourceId,
-          resourceName,
-          roomMatch,
-          matchType
-        );
-        
-        console.log(`  - 日期匹配=${dateMatch}, 房间匹配=${roomMatch}`);
         
         return dateMatch && roomMatch;
       });
@@ -176,7 +142,6 @@ export default function GanttChart({
       );
     }
     
-    console.log(`  - 找到的排班数量: ${cellSchedules.length}`);
     
     if (cellSchedules.length > 0) {
       setSelectedSchedules(cellSchedules);
@@ -184,9 +149,6 @@ export default function GanttChart({
       setSelectedResourceName(resourceName);
       setSelectedResourceType(resourceType);
       setDialogOpen(true);
-      console.log(`  - ✅ 对话框已打开`);
-    } else {
-      console.log(`  - ❌ 没有找到排班，不打开对话框`);
     }
   };
 
@@ -271,6 +233,7 @@ export default function GanttChart({
     const nurse = nurses.find(n => n.id === schedule.nurse_id);
     const room = rooms.find(r => r.id === schedule.room_id);
     
+    
     return (
       <TooltipProvider key={schedule.id}>
         <Tooltip>
@@ -319,7 +282,7 @@ export default function GanttChart({
                   style={{ backgroundColor: nurseColor.bg }}
                 />
                 <span className="text-xs">
-                  护士: {nurse?.name} ({nurse?.skill_level})
+                  护士: {nurse?.full_name || nurse?.name || '未分配'}
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -331,7 +294,7 @@ export default function GanttChart({
                   }}
                 />
                 <span className="text-xs">
-                  房间: {room?.name} ({room?.room_type})
+                  房间: {room?.name || '未分配'}
                 </span>
               </div>
             </div>
@@ -376,7 +339,6 @@ export default function GanttChart({
         // 获取当前房间的信息
         const currentRoom = rooms.find(r => r.id === resourceId);
         if (!currentRoom) {
-          console.log(`⚠️ [WARNING] 未找到房间ID: ${resourceId}`);
           return false;
         }
         
@@ -394,23 +356,12 @@ export default function GanttChart({
           matchType = 'Name';
         }
         
-        // 使用统一的调试日志函数
-        logRoomMatch(
-          'getSchedulesForResource',
-          schedule.room_id,
-          schedule.room?.name,
-          resourceId,
-          currentRoom.name,
-          isMatch,
-          matchType
-        );
         
         return isMatch;
       }
       return schedule.nurse_id === resourceId;
     });
 
-    console.log(`🔍 [DEBUG] 资源 ${resourceType}:${resourceId} 的排班数量: ${filtered.length}`);
     return filtered;
   };
 
@@ -533,18 +484,6 @@ export default function GanttChart({
                         matchType = 'Name';
                       }
                       
-                      // 使用统一的调试日志函数
-                      if (dateMatch) {
-                        logRoomMatch(
-                          '周视图',
-                          schedule.room_id,
-                          schedule.room?.name,
-                          room.id,
-                          room.name,
-                          roomMatch,
-                          matchType
-                        );
-                      }
                       
                       return dateMatch && roomMatch;
                     });
@@ -661,7 +600,7 @@ export default function GanttChart({
                           className="w-2.5 h-2.5 rounded-full flex-shrink-0" 
                           style={{ backgroundColor: nurseColor.bg }}
                         ></span>
-                        <span>{nurse.name}</span>
+                        <span>{nurse.full_name || nurse.name}</span>
                       </div>
                     </div>
                   {weekDays.map(day => {
@@ -862,16 +801,6 @@ export default function GanttChart({
                         const roomExists = rooms.some(r => r.id === schedule.room_id);
                         if (!roomExists && schedule.room?.name) {
                           const roomExistsByName = rooms.some(r => r.name === schedule.room!.name);
-                          logRoomMatch(
-                            '月视图',
-                            schedule.room_id,
-                            schedule.room!.name,
-                            schedule.room_id,
-                            schedule.room!.name,
-                            roomExistsByName,
-                            'Name'
-                          );
-                          console.log(`  - ID匹配: ${roomExists}, 名称匹配: ${roomExistsByName}`);
                         }
                       }
                       
@@ -1090,7 +1019,7 @@ export default function GanttChart({
                           style={{ backgroundColor: nurseColor.bg }}
                         ></span>
                         <div>
-                          {nurse.name}
+                          {nurse.full_name || nurse.name}
                           {scheduleRows.length > 1 && (
                             <div className="text-xs text-amber-600 dark:text-amber-400 mt-1">
                               ⚠️ {scheduleRows.length}个重叠排班

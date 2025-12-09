@@ -14,7 +14,25 @@ async function apiCall(endpoint: string, options?: RequestInit) {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      
+      // 创建增强的错误对象，包含所有可能的错误信息
+      const enhancedError = new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`) as any;
+      
+      // 添加额外的错误信息
+      if (errorData.message) {
+        enhancedError.detailedMessage = errorData.message;
+      }
+      if (errorData.appointmentCount) {
+        enhancedError.appointmentCount = errorData.appointmentCount;
+      }
+      if (errorData.appointments) {
+        enhancedError.appointments = errorData.appointments;
+      }
+      
+      // 保留原始错误数据
+      enhancedError.originalError = errorData;
+      
+      throw enhancedError;
     }
 
     return await response.json();
@@ -294,6 +312,19 @@ export const clientApi = {
     return authenticatedApiCall(`/appointments/nurse-pending${query}`);
   },
 
+  async getCancelledAppointments(filters?: Record<string, any>): Promise<Appointment[]> {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          params.append(key, String(value));
+        }
+      });
+    }
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return authenticatedApiCall(`/appointments/cancelled${query}`);
+  },
+
   async getDoctorPendingAppointments(filters?: Record<string, any>): Promise<Appointment[]> {
     const params = new URLSearchParams();
     if (filters) {
@@ -509,7 +540,15 @@ export const clientApi = {
   // Helper functions for specific needs
   async getAvailableNurses(store_id?: string) {
     const query = store_id ? `?store_id=${store_id}` : '';
-    return authenticatedApiCall(`/profiles/nurses/available${query}`);
+    console.log('🔍 [DEBUG] 前端调用getAvailableNurses API:', { store_id, query });
+    try {
+      const result = await authenticatedApiCall(`/profiles/nurses/available${query}`);
+      console.log('🔍 [DEBUG] getAvailableNurses API返回成功:', { result, count: result?.length || 0, type: typeof result });
+      return result;
+    } catch (error) {
+      console.error('🔍 [DEBUG] getAvailableNurses API调用失败:', error);
+      throw error;
+    }
   },
 
   async getAvailableRooms(store_id?: string) {

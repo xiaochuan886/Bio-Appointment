@@ -57,6 +57,7 @@ export default function HeadNurseSchedulePage() {
   const [selectedNurseIds, setSelectedNurseIds] = useState<string[]>([]);
   const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>([]);
   const [pendingAppointments, setPendingAppointments] = useState<any[]>([]);
+  const [cancelledAppointments, setCancelledAppointments] = useState<any[]>([]);
   const [schedules, setSchedules] = useState<any[]>([]);
   const [nurses, setNurses] = useState<any[]>([]);
   const [rooms, setRooms] = useState<any[]>([]);
@@ -69,6 +70,7 @@ export default function HeadNurseSchedulePage() {
   const [isConflictDialogOpen, setIsConflictDialogOpen] = useState(false);
   const [pendingScheduleData, setPendingScheduleData] = useState<ScheduleFormValues | null>(null);
   const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'pending' | 'cancelled'>('pending');
 
   const form = useForm<ScheduleFormValues>({
     resolver: zodResolver(scheduleFormSchema),
@@ -76,7 +78,7 @@ export default function HeadNurseSchedulePage() {
 
   useEffect(() => {
     loadData();
-  }, [selectedDate, viewMode]);
+  }, [selectedDate, viewMode, activeTab]);
 
   const loadData = async () => {
     try {
@@ -109,34 +111,56 @@ export default function HeadNurseSchedulePage() {
       // 使用权限工具函数获取可访问的门店ID
       const storeFilter = getAccessibleStoreIds(user?.profile || null);
       
-      const [appointmentsData, schedulesData, nursesData, roomsData] = await Promise.all([
-        clientApi.getNursePendingAppointments({
-          requested_date_from: startDate,
-          requested_date_to: endDate,
-          store_id: storeFilter || undefined // 根据权限过滤门店
-        }),
-        clientApi.getSchedules({
-          date: viewMode === 'day' ? startDate : undefined,
-          start_date: viewMode !== 'day' ? startDate : undefined,
-          end_date: viewMode !== 'day' ? endDate : undefined,
-          store_id: storeFilter || undefined // 根据权限过滤门店
-        }),
-        clientApi.getAvailableNurses(storeFilter || undefined), // 根据权限过滤门店
-        clientApi.getAvailableRooms(storeFilter || undefined), // 根据权限过滤门店
-      ]);
-      // 按工作流状态分组显示，并确保只显示护理服务
-      const pendingNurseAssignment = appointmentsData.filter(a =>
-        a.workflow_status === 'pending_nurse_assignment' && a.service?.category === 'nursing'
-      );
-      const doctorConfirmed = appointmentsData.filter(a =>
-        a.workflow_status === 'doctor_confirmed' && a.service?.category === 'nursing'
-      );
-      
-      setPendingAppointments([...pendingNurseAssignment, ...doctorConfirmed]);
+      if (activeTab === 'pending') {
+        const [appointmentsData, schedulesData, nursesData, roomsData] = await Promise.all([
+          clientApi.getNursePendingAppointments({
+            requested_date_from: startDate,
+            requested_date_to: endDate,
+            store_id: storeFilter || undefined // 根据权限过滤门店
+          }).catch(error => {
+            return [];
+          }),
+          clientApi.getSchedules({
+            date: viewMode === 'day' ? startDate : undefined,
+            start_date: viewMode !== 'day' ? startDate : undefined,
+            end_date: viewMode !== 'day' ? endDate : undefined,
+            store_id: storeFilter || undefined // 根据权限过滤门店
+          }),
+          clientApi.getAvailableNurses(user?.profile?.store_id || undefined), // 使用用户门店ID过滤护士
+          clientApi.getAvailableRooms(user?.profile?.store_id || undefined), // 使用用户门店ID过滤房间
+        ]);
 
-      setSchedules(schedulesData);
-      setNurses(nursesData);
-      setRooms(roomsData);
+        // 按工作流状态分组显示，并确保只显示护理服务
+        const pendingNurseAssignment = appointmentsData.filter(a =>
+          a.workflow_status === 'pending_nurse_assignment' && a.service?.category === 'nursing'
+        );
+        const doctorConfirmed = appointmentsData.filter(a =>
+          a.workflow_status === 'doctor_confirmed' && a.service?.category === 'nursing'
+        );
+        
+        setPendingAppointments([...pendingNurseAssignment, ...doctorConfirmed]);
+        setSchedules(schedulesData);
+        setNurses(nursesData);
+        setRooms(roomsData);
+      } else if (activeTab === 'cancelled') {
+        // 加载已取消的预约
+        const [cancelledAppointmentsData, nursesData, roomsData] = await Promise.all([
+          clientApi.getCancelledAppointments({
+            requested_date_from: startDate,
+            requested_date_to: endDate,
+            store_id: storeFilter || undefined // 根据权限过滤门店
+          }).catch(error => {
+            return [];
+          }),
+          clientApi.getAvailableNurses(user?.profile?.store_id || undefined), // 使用用户门店ID过滤护士
+          clientApi.getAvailableRooms(user?.profile?.store_id || undefined), // 使用用户门店ID过滤房间
+        ]);
+        
+        setCancelledAppointments(cancelledAppointmentsData);
+        setSchedules([]); // 已取消预约不需要显示排班
+        setNurses(nursesData);
+        setRooms(roomsData);
+      }
     } catch (error) {
       console.error('加载数据失败:', error);
       const errorMessage = error instanceof Error ? error.message : '未知错误';
@@ -221,7 +245,6 @@ export default function HeadNurseSchedulePage() {
         const matchedRoom = rooms.find(r => r.name === roomName);
         if (matchedRoom) {
           roomId = matchedRoom.id;
-          console.log(`[DEBUG] 房间ID自动修正: ${schedule.room_id} -> ${roomId} (${roomName})`);
         }
       }
     }
@@ -323,7 +346,6 @@ export default function HeadNurseSchedulePage() {
           nurse_id: values.nurse_id,
           status: 'published',
         });
-        console.log(`[操作日志] 更新排班: ID ${selectedSchedule.id}, 预约人 ${selectedAppointment.customer_name}`);
         toast.success(forceOverride ? '排班已强制更新（存在资源冲突）' : '排班已更新');
       } else {
         await clientApi.createSchedule({
@@ -339,7 +361,6 @@ export default function HeadNurseSchedulePage() {
           workflow_status: 'nurse_scheduled',
           note: '护士长已排班'
         });
-        console.log(`[操作日志] 创建排班: 预约ID ${selectedAppointment.id}, 预约人 ${selectedAppointment.customer_name}`);
         toast.success(forceOverride ? '排班已强制创建（存在资源冲突）' : '排班已创建');
       }
 
@@ -375,14 +396,12 @@ export default function HeadNurseSchedulePage() {
       // 1. 如果是已排班的预约，先删除排班记录
       if (selectedSchedule) {
         await clientApi.deleteSchedule(selectedSchedule.id);
-        console.log(`[操作日志] 删除排班: ID ${selectedSchedule.id}`);
       }
 
       // 2. 更新预约状态为 'cancelled'
       await clientApi.updateAppointment(selectedAppointment.id, {
         status: 'cancelled',
       });
-      console.log(`[操作日志] 取消预约: ID ${selectedAppointment.id}, 客户 ${selectedAppointment.customer_name}`);
 
       toast.success('预约已手动取消');
       setIsCancelDialogOpen(false);
@@ -410,7 +429,6 @@ export default function HeadNurseSchedulePage() {
       if (scheduleWithRoom && scheduleWithRoom.room_name) {
         room = rooms.find(r => r.name === scheduleWithRoom.room_name);
         if (room) {
-          console.log(`[DEBUG] getRoomDetails: 通过名称匹配成功 - ID ${roomId} -> ${room.name} (${room.id})`);
         }
       }
     }
@@ -421,12 +439,17 @@ export default function HeadNurseSchedulePage() {
       'treatment': '治疗室',
       'consultation': '咨询室',
     };
-    return `${room.name} (${typeMap[room.room_type] || room.room_type})`;
+    const roomTypeLabel = typeMap[room.room_type] || room.room_type;
+    // 只有当房间类型存在且不为undefined时才显示
+    if (roomTypeLabel && roomTypeLabel !== 'undefined') {
+      return `${room.name} (${roomTypeLabel})`;
+    }
+    return room.name;
   };
 
   const getNurseName = (nurseId: string) => {
     const nurse = nurses.find(n => n.id === nurseId);
-    return nurse ? nurse.name : '未分配';
+    return nurse ? (nurse.full_name || nurse.name) : '未分配';
   };
 
   const urgentAppointments = pendingAppointments.filter(a => a.is_urgent);
@@ -501,18 +524,57 @@ export default function HeadNurseSchedulePage() {
         />
       </div>
 
-      {/* 排班待办 */}
-      <div className="grid gap-4 xl:grid-cols-[1fr_auto] mb-4">
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">护理服务排班待办</CardTitle>
-              <div className="flex gap-3 text-xs">
-                <span className="text-confirmed">● 已确认</span>
-                <span className="text-pending">● 待排班</span>
+      {/* 标签页切换 */}
+      <div className="mb-6">
+        <div className="border-b border-gray-200">
+          <nav className="-mb-px flex space-x-8">
+            <button
+              onClick={() => setActiveTab('pending')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'pending'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              待排班预约
+              {pendingAppointments.length > 0 && (
+                <span className="ml-2 bg-blue-100 text-blue-600 py-0.5 px-2.5 rounded-full text-xs">
+                  {pendingAppointments.length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('cancelled')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'cancelled'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              已取消预约
+              {cancelledAppointments.length > 0 && (
+                <span className="ml-2 bg-gray-100 text-gray-600 py-0.5 px-2.5 rounded-full text-xs">
+                  {cancelledAppointments.length}
+                </span>
+              )}
+            </button>
+          </nav>
+        </div>
+      </div>
+
+      {/* 排班待办 - 只在待排班标签页显示 */}
+      {activeTab === 'pending' && (
+        <div className="grid gap-4 xl:grid-cols-[1fr_auto] mb-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">护理服务排班待办</CardTitle>
+                <div className="flex gap-3 text-xs">
+                  <span className="text-confirmed">● 已确认</span>
+                  <span className="text-pending">● 待排班</span>
+                </div>
               </div>
-            </div>
-          </CardHeader>
+            </CardHeader>
           <CardContent>
             <div className="flex gap-3 overflow-x-auto pb-2">
               {urgentAppointments.map(appointment => (
@@ -629,41 +691,97 @@ export default function HeadNurseSchedulePage() {
           </CardContent>
         </Card>
       </div>
+      )}
 
-      {/* 资源看板 */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>资源看板</CardTitle>
-              <CardDescription>
-                视图：房间维度 (08:00 - 18:00)
-              </CardDescription>
+      {/* 已取消预约列表 - 只在已取消标签页显示 */}
+      {activeTab === 'cancelled' && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">已取消预约记录</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {cancelledAppointments.length === 0 ? (
+              <div className="flex items-center justify-center py-6 text-muted-foreground">
+                <div className="text-center">
+                  <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">暂无已取消预约</p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {cancelledAppointments.map(appointment => (
+                  <Card key={appointment.id} className="p-4 hover:shadow-md transition-shadow">
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-2 mb-2">
+                          <span className="font-medium text-gray-900">{appointment.customer_name}</span>
+                          <span className="px-2 py-1 text-xs font-medium bg-red-100 text-red-800 rounded-full">
+                            已取消
+                          </span>
+                          {appointment.is_urgent && (
+                            <span className="px-2 py-1 text-xs font-medium bg-orange-100 text-orange-800 rounded-full">
+                              紧急
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-sm text-gray-600 space-y-1">
+                          <div>服务: {appointment.service_name}</div>
+                          <div>医生: {appointment.doctor_name}</div>
+                          <div>预约时间: {appointment.requested_date} {appointment.requested_time_start}</div>
+                          <div>预计时长: {appointment.estimated_duration || appointment.service_duration || 30}分钟</div>
+                          {appointment.cancelled_reason && (
+                            <div className="text-red-600">取消原因: {appointment.cancelled_reason}</div>
+                          )}
+                          {appointment.cancelled_at && (
+                            <div>取消时间: {new Date(appointment.cancelled_at).toLocaleString()}</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 资源看板 - 只在待排班标签页显示 */}
+      {activeTab === 'pending' && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>资源看板</CardTitle>
+                <CardDescription>
+                  视图：房间维度 (08:00 - 18:00)
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-3">
+                <ViewSwitcher currentView={viewMode} onViewChange={setViewMode} />
+                <DateRangePicker
+                  selectedDate={selectedDate}
+                  onDateChange={setSelectedDate}
+                  viewMode={viewMode}
+                />
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <ViewSwitcher currentView={viewMode} onViewChange={setViewMode} />
-              <DateRangePicker
-                selectedDate={selectedDate}
-                onDateChange={setSelectedDate}
-                viewMode={viewMode}
-              />
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <GanttChart
-            schedules={schedules}
-            nurses={nurses}
-            rooms={rooms}
-            selectedDate={format(selectedDate, 'yyyy-MM-dd')}
-            viewMode={viewMode}
-            resourceFilters={resourceFilters}
-            selectedNurseIds={selectedNurseIds}
-            selectedRoomIds={selectedRoomIds}
-            onScheduleClick={handleEditSchedule}
-          />
-        </CardContent>
-      </Card>
+          </CardHeader>
+          <CardContent>
+            <GanttChart
+              schedules={schedules}
+              nurses={nurses}
+              rooms={rooms}
+              selectedDate={format(selectedDate, 'yyyy-MM-dd')}
+              viewMode={viewMode}
+              resourceFilters={resourceFilters}
+              selectedNurseIds={selectedNurseIds}
+              selectedRoomIds={selectedRoomIds}
+              onScheduleClick={handleEditSchedule}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {/* 排班详情/编辑对话框 */}
       <Dialog open={isScheduleDialogOpen} onOpenChange={setIsScheduleDialogOpen}>
@@ -900,7 +1018,7 @@ export default function HeadNurseSchedulePage() {
                             <SelectItem key={nurse.id} value={nurse.id}>
                               <div className="flex items-center gap-2">
                                 <Users className="h-4 w-4" />
-                                {nurse.name}
+                                {nurse.name || nurse.full_name}
                               </div>
                             </SelectItem>
                           ))}

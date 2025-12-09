@@ -14,7 +14,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 
 const loginSchema = z.object({
-  email: z.string().email('请输入有效的邮箱地址'),
+  email: z.string().min(1, '请输入邮箱或用户名'),
   password: z.string().min(6, '密码至少6个字符'),
 });
 
@@ -47,7 +47,7 @@ export default function LoginPage() {
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
-      email: 'admin@test.com',
+      email: 'admin',
       password: 'admin123',
     },
   });
@@ -123,12 +123,12 @@ export default function LoginPage() {
                     name="email"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>邮箱</FormLabel>
+                        <FormLabel>邮箱/用户名</FormLabel>
                         <FormControl>
                           <Input
-                            placeholder="请输入邮箱"
-                            type="email"
-                            autoComplete="email"
+                            placeholder="请输入邮箱或用户名"
+                            type="text"
+                            autoComplete="username"
                             {...field}
                           />
                         </FormControl>
@@ -180,7 +180,7 @@ export default function LoginPage() {
               <div className="mt-6 p-4 bg-muted/50 rounded-lg">
                 <p className="text-xs text-muted-foreground text-center">
                   💡 测试账号：<br/>
-                  邮箱: admin@test.com<br/>
+                  用户名: admin (或邮箱: admin@test.com)<br/>
                   密码: admin123
                 </p>
               </div>

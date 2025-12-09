@@ -383,6 +383,68 @@ export async function updateCurrentUserProfile(input: UpdateProfileInput) {
   }
 }
 
+/**
+ * 重置用户密码
+ */
+export async function resetUserPassword(user_id: string, new_password: string) {
+  console.log('🔍 [DEBUG] resetUserPassword 被调用，参数:', { user_id });
+  
+  try {
+    const response = await fetch(`http://localhost:3001/api/users/${user_id}/reset-password`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+      body: JSON.stringify({ new_password })
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('🔍 [DEBUG] 重置密码失败:', errorData);
+      throw new Error(errorData.message || 'Failed to reset password');
+    }
+    
+    const data = await response.json();
+    console.log('🔍 [DEBUG] 密码重置成功:', data);
+    return data;
+  } catch (error: any) {
+    console.error('🔍 [DEBUG] resetUserPassword 完整错误:', error);
+    throw error;
+  }
+}
+
+/**
+ * 更新用户邮箱
+ */
+export async function updateUserEmail(user_id: string, email: string) {
+  console.log('🔍 [DEBUG] updateUserEmail 被调用，参数:', { user_id, email });
+  
+  try {
+    const response = await fetch(`http://localhost:3001/api/users/${user_id}/email`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+      },
+      body: JSON.stringify({ email })
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('🔍 [DEBUG] 更新邮箱失败:', errorData);
+      throw new Error(errorData.message || 'Failed to update email');
+    }
+    
+    const data = await response.json();
+    console.log('🔍 [DEBUG] 邮箱更新成功:', data);
+    return data;
+  } catch (error: any) {
+    console.error('🔍 [DEBUG] updateUserEmail 完整错误:', error);
+    throw error;
+  }
+}
+
 // ==================== Profiles ====================
 
 export async function getProfiles() {

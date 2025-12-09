@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>房间显示测试</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        .room-item { margin: 5px 0; padding: 5px; background: #f5f5f5; }
+        .duplicate { background: #ffebee; color: #c62828; }
+        .success { background: #e8f5e8; color: #2e7d32; }
+    </style>
+</head>
+<body>
+    <h1>🔍 房间显示重复问题测试</h1>
+    
+    <div class="test-section">
+        <h2>1. API房间数据测试</h2>
+        <button onclick="testRoomAPI()">测试房间API</button>
+        <div id="api-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>2. 前端渲染模拟测试</h2>
+        <button onclick="simulateFrontendRender()">模拟前端渲染</button>
+        <div id="frontend-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>3. 视图重复检查</h2>
+        <button onclick="checkViewDuplication()">检查视图重复</button>
+        <div id="view-result"></div>
+    </div>
+
+    <script>
+        let authToken = '';
+        
+        async function testRoomAPI() {
+            const resultDiv = document.getElementById('api-result');
+            resultDiv.innerHTML = '<p>正在测试房间API...</p>';
+            
+            try {
+                // 登录获取token
+                const loginResponse = await fetch('http://127.0.0.1:3001/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: 'admin@example.com',
+                        password: 'admin123'
+                    })
+                });
+                
+                const loginData = await loginResponse.json();
+                authToken = loginData.token;
+                
+                // 获取房间数据
+                const roomsResponse = await fetch('http://127.0.0.1:3001/api/rooms', {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+                
+                const rooms = await roomsResponse.json();
+                
+                // 检查重复
+                const roomNames = rooms.map(r => r.name);
+                const duplicates = roomNames.filter((name, index) => roomNames.indexOf(name) !== index);
+                const uniqueDuplicates = [...new Set(duplicates)];
+                
+                let html = `<p>✅ API返回 ${rooms.length} 个房间</p>`;
+                html += '<h3>房间列表:</h3>';
+                
+                rooms.forEach((room, index) => {
+                    const isDuplicate = uniqueDuplicates.includes(room.name);
+                    html += `<div class="room-item ${isDuplicate ? 'duplicate' : 'success'}">
+                        ${index + 1}. ${room.name} (${room.room_type}) - ID: ${room.id}
+                    </div>`;
+                });
+                
+                if (uniqueDuplicates.length > 0) {
+                    html += `<p class="duplicate">❌ 发现重复房间名称: ${uniqueDuplicates.join(', ')}</p>`;
+                } else {
+                    html += '<p class="success">✅ 房间名称无重复</p>';
+                }
+                
+                resultDiv.innerHTML = html;
+                
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="duplicate">❌ 测试失败: ${error.message}</p>`;
+            }
+        }
+        
+        function simulateFrontendRender() {
+            const resultDiv = document.getElementById('frontend-result');
+            
+            // 模拟房间数据（从API获取的8个房间）
+            const mockRooms = [
+                { id: '1', name: 'VIP室1', room_type: 'vip' },
+                { id: '2', name: 'VIP室2', room_type: 'vip' },
+                { id: '3', name: 'VIP室3', room_type: 'vip' },
+                { id: '4', name: '咨询室1', room_type: 'consultation' },
+                { id: '5', name: '咨询室2', room_type: 'consultation' },
+                { id: '6', name: '治疗区A', room_type: 'treatment' },
+                { id: '7', name: '治疗区B', room_type: 'treatment' },
+                { id: '8', name: '治疗区C', room_type: 'treatment' }
+            ];
+            
+            let html = '<h3>模拟前端渲染过程:</h3>';
+            
+            // 模拟日视图渲染
+            html += '<h4>日视图房间渲染:</h4>';
+            mockRooms.forEach((room, index) => {
+                html += `<div class="room-item">日视图 ${index + 1}. ${room.name}</div>`;
+            });
+            
+            // 模拟周视图渲染
+            html += '<h4>周视图房间渲染:</h4>';
+            mockRooms.forEach((room, index) => {
+                html += `<div class="room-item">周视图 ${index + 1}. ${room.name}</div>`;
+            });
+            
+            // 模拟月视图渲染（月视图不直接显示房间列表）
+            html += '<h4>月视图: 显示排班汇总，不直接显示房间列表</h4>';
+            
+            // 检查是否有重复渲染
+            const totalRendered = mockRooms.length * 2; // 日视图 + 周视图
+            html += `<p><strong>总渲染次数:</strong> ${totalRendered} (日视图8个 + 周视图8个)</p>`;
+            html += '<p><em>注意: 这不是重复，而是不同视图的正常显示</em></p>';
+            
+            resultDiv.innerHTML = html;
+        }
+        
+        function checkViewDuplication() {
+            const resultDiv = document.getElementById('view-result');
+            
+            let html = '<h3>视图重复分析:</h3>';
+            
+            // 分析可能的重复源
+            html += '<h4>可能的重复显示源:</h4>';
+            html += '<ol>';
+            html += '<li><strong>多视图同时显示:</strong> 日视图、周视图、月视图可能同时显示房间</li>';
+            html += '<li><strong>组件重复渲染:</strong> React组件可能在某些情况下重复渲染</li>';
+            html += '<li><strong>状态管理问题:</strong> 房间数据在状态中可能被重复存储</li>';
+            html += '<li><strong>筛选逻辑错误:</strong> 房间筛选逻辑可能导致重复显示</li>';
+            html += '<li><strong>数据缓存问题:</strong> API缓存可能返回重复数据</li>';
+            html += '</ol>';
+            
+            html += '<h4>建议的调试步骤:</h4>';
+            html += '<ol>';
+            html += '<li>打开浏览器开发者工具</li>';
+            html += '<li>在护士长排班页面打开 Elements 面板</li>';
+            html += '<li>搜索房间名称，看是否有重复的DOM元素</li>';
+            html += '<li>检查 Console 面板是否有错误信息</li>';
+            html += '<li>在 Network 面板检查 /api/rooms 请求的响应</li>';
+            html += '<li>在 React DevTools 中检查组件状态</li>';
+            html += '</ol>';
+            
+            resultDiv.innerHTML = html;
+        }
+    </script>
+</body>
+</html>

@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { getAllUsers, createUser, updateUser, deleteUser } from '@/db/api';
+import { getAllUsers, createUser, updateUser, deleteUser, resetUserPassword, updateUserEmail } from '@/db/api';
 import { Profile, UserRole, CreateUserInput, UpdateUserInput } from '@/types/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { useForm } from 'react-hook-form';
@@ -58,13 +58,32 @@ const editUserSchema = z.object({
   full_name: z.string()
     .min(2, '姓名至少2个字符')
     .max(50, '姓名最多50个字符'),
+  email: z.string().email('请输入有效的邮箱地址').optional(),
   role: z.enum(['super_admin', 'sales', 'head_nurse', 'nurse', 'doctor']),
   department: z.string().optional(),
   store_id: z.string().optional(),
 });
 
+// 重置密码表单验证
+const resetPasswordSchema = z.object({
+  new_password: z.string()
+    .min(6, '密码至少6个字符')
+    .max(50, '密码最多50个字符'),
+  confirm_password: z.string()
+}).refine((data) => data.new_password === data.confirm_password, {
+  message: '两次输入的密码不一致',
+  path: ['confirm_password'],
+});
+
+// 编辑邮箱表单验证
+const editEmailSchema = z.object({
+  email: z.string().email('请输入有效的邮箱地址'),
+});
+
 type CreateUserFormData = z.infer<typeof createUserSchema>;
 type EditUserFormData = z.infer<typeof editUserSchema>;
+type ResetPasswordFormData = z.infer<typeof resetPasswordSchema>;
+type EditEmailFormData = z.infer<typeof editEmailSchema>;
 
 export default function UserManagementPage() {
   const { profile: currentProfile } = useAuth();
@@ -77,6 +96,10 @@ export default function UserManagementPage() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
+  const [editEmailDialogOpen, setEditEmailDialogOpen] = useState(false);
+  const [resettingUser, setResettingUser] = useState<Profile | null>(null);
+  const [editingEmailUser, setEditingEmailUser] = useState<Profile | null>(null);
 
   // 创建用户表单
   const createForm = useForm<CreateUserFormData>({
@@ -99,6 +122,23 @@ export default function UserManagementPage() {
       role: 'sales',
       department: '',
       store_id: '',
+    },
+  });
+
+  // 重置密码表单
+  const resetPasswordForm = useForm<ResetPasswordFormData>({
+    resolver: zodResolver(resetPasswordSchema),
+    defaultValues: {
+      new_password: '',
+      confirm_password: '',
+    },
+  });
+
+  // 编辑邮箱表单
+  const editEmailForm = useForm<EditEmailFormData>({
+    resolver: zodResolver(editEmailSchema),
+    defaultValues: {
+      email: '',
     },
   });
 
@@ -185,6 +225,57 @@ export default function UserManagementPage() {
     } catch (error: any) {
       console.error('创建用户失败:', error);
       toast.error(error.message || '创建用户失败');
+    }
+  };
+
+  // 打开重置密码对话框
+  const handleOpenResetPasswordDialog = (user: Profile) => {
+    setResettingUser(user);
+    resetPasswordForm.reset({
+      new_password: '',
+      confirm_password: '',
+    });
+    setResetPasswordDialogOpen(true);
+  };
+
+  // 重置用户密码
+  const handleResetPassword = async (data: ResetPasswordFormData) => {
+    if (!resettingUser) return;
+
+    try {
+      await resetUserPassword(resettingUser.id, data.new_password);
+      toast.success('密码重置成功');
+      setResetPasswordDialogOpen(false);
+      setResettingUser(null);
+      resetPasswordForm.reset();
+    } catch (error: any) {
+      console.error('重置密码失败:', error);
+      toast.error(error.message || '重置密码失败');
+    }
+  };
+
+  // 打开编辑邮箱对话框
+  const handleOpenEditEmailDialog = (user: Profile) => {
+    setEditingEmailUser(user);
+    editEmailForm.reset({
+      email: user.email || '',
+    });
+    setEditEmailDialogOpen(true);
+  };
+
+  // 更新用户邮箱
+  const handleUpdateEmail = async (data: EditEmailFormData) => {
+    if (!editingEmailUser) return;
+
+    try {
+      await updateUserEmail(editingEmailUser.id, data.email);
+      toast.success('邮箱更新成功');
+      setEditEmailDialogOpen(false);
+      setEditingEmailUser(null);
+      await loadUsers();
+    } catch (error: any) {
+      console.error('更新邮箱失败:', error);
+      toast.error(error.message || '更新邮箱失败');
     }
   };
 
@@ -502,6 +593,7 @@ export default function UserManagementPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>用户名</TableHead>
+                  <TableHead>邮箱</TableHead>
                   <TableHead>真实姓名</TableHead>
                   <TableHead>角色</TableHead>
                   <TableHead>部门</TableHead>
@@ -515,6 +607,7 @@ export default function UserManagementPage() {
                 {filteredUsers.map((user) => (
                   <TableRow key={user.id}>
                     <TableCell className="font-medium">{user.username}</TableCell>
+                    <TableCell>{user.email || '-'}</TableCell>
                     <TableCell>{user.full_name || '-'}</TableCell>
                     <TableCell>
                       <Badge className={roleColors[user.role]}>
@@ -523,9 +616,7 @@ export default function UserManagementPage() {
                     </TableCell>
                     <TableCell>{user.department || '-'}</TableCell>
                     <TableCell>
-                      {user.store_id && user.store_name ? (
-                        user.store_name
-                      ) : user.store_id ? (
+                      {user.store_id ? (
                         (() => {
                           const store = stores.find(s => s.id === user.store_id);
                           return store ? store.name : '未知门店';
@@ -560,6 +651,26 @@ export default function UserManagementPage() {
                         >
                           <Edit className="h-4 w-4 mr-1" />
                           编辑
+                        </Button>
+
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleOpenResetPasswordDialog(user)}
+                          disabled={user.id === currentProfile?.id}
+                        >
+                          <Shield className="h-4 w-4 mr-1" />
+                          重置密码
+                        </Button>
+
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleOpenEditEmailDialog(user)}
+                          disabled={user.id === currentProfile?.id}
+                        >
+                          <Edit className="h-4 w-4 mr-1" />
+                          编辑邮箱
                         </Button>
 
                         <Button
@@ -790,6 +901,92 @@ export default function UserManagementPage() {
               确认删除
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+ 
+      {/* 重置密码对话框 */}
+      <Dialog open={resetPasswordDialogOpen} onOpenChange={setResetPasswordDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>重置用户密码</DialogTitle>
+            <DialogDescription>
+              为用户 {resettingUser?.username} 重置密码
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...resetPasswordForm}>
+            <form onSubmit={resetPasswordForm.handleSubmit(handleResetPassword)} className="space-y-4">
+              <FormField
+                control={resetPasswordForm.control}
+                name="new_password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>新密码</FormLabel>
+                    <FormControl>
+                      <Input type="password" placeholder="输入新密码（至少6位）" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              <FormField
+                control={resetPasswordForm.control}
+                name="confirm_password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>确认密码</FormLabel>
+                    <FormControl>
+                      <Input type="password" placeholder="再次输入新密码" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setResetPasswordDialogOpen(false)}>
+                  取消
+                </Button>
+                <Button type="submit">重置密码</Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* 编辑邮箱对话框 */}
+      <Dialog open={editEmailDialogOpen} onOpenChange={setEditEmailDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>编辑用户邮箱</DialogTitle>
+            <DialogDescription>
+              修改用户 {editingEmailUser?.username} 的邮箱地址
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...editEmailForm}>
+            <form onSubmit={editEmailForm.handleSubmit(handleUpdateEmail)} className="space-y-4">
+              <FormField
+                control={editEmailForm.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>邮箱地址</FormLabel>
+                    <FormControl>
+                      <Input placeholder="输入邮箱地址" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setEditEmailDialogOpen(false)}>
+                  取消
+                </Button>
+                <Button type="submit">保存</Button>
+              </DialogFooter>
+            </form>
+          </Form>
         </DialogContent>
       </Dialog>
     </div>

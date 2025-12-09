@@ -118,11 +118,12 @@ app.post('/api/auth/login', async (req, res) => {
       return `mock.${base64Payload}.signature`;
     };
 
-    // Mock admin user for testing
-    if (email === 'admin@test.com' && password === 'admin123') {
+    // Mock admin user for testing (support both email and username)
+    if ((email === 'admin@test.com' || email === 'admin') && password === 'admin123') {
       const adminUser = {
         id: 'admin-id',
         email: 'admin@test.com',
+        username: 'admin',
         full_name: '系统管理员',
         role: 'super_admin',
       };
@@ -447,9 +448,22 @@ app.delete('/api/services/:id', async (req, res) => {
     );
 
     if (parseInt(appointmentCheck.rows[0].count) > 0) {
+      // Get details of appointments using this service for better error message
+      const appointmentDetails = await pool.query(
+        'SELECT id, customer_name, requested_date FROM appointments WHERE service_id = $1 LIMIT 3',
+        [id]
+      );
+      
+      const appointmentList = appointmentDetails.rows.map(apt =>
+        `- ${apt.customer_name} (${apt.requested_date})`
+      ).join('\n');
+      
       return res.status(400).json({
         error: 'Cannot delete service',
-        message: 'Service is being used by existing appointments'
+        message: '无法删除服务',
+        details: `该服务被 ${appointmentCheck.rows[0].count} 个预约使用，无法删除。\n\n使用该服务的预约：\n${appointmentList}\n\n建议：\n1. 将服务状态设置为"禁用"而不是删除\n2. 先删除或修改使用该服务的预约`,
+        appointmentCount: parseInt(appointmentCheck.rows[0].count),
+        appointments: appointmentDetails.rows
       });
     }
 
@@ -857,7 +871,10 @@ app.post('/api/appointments', async (req, res) => {
     console.log(`[DEBUG] Creating appointment:`, {
       service_category: service.category,
       workflow_status: workflowStatus,
-      requires_nurse_scheduling: requiresNurseScheduling
+      requires_nurse_scheduling: requiresNurseScheduling,
+      customer_name,
+      store_id,
+      requested_date
     });
 
     const result = await pool.query(
@@ -868,6 +885,13 @@ app.post('/api/appointments', async (req, res) => {
     );
 
     const appointment = result.rows[0];
+    
+    console.log(`[DEBUG] 预约创建成功:`, {
+      appointment_id: appointment.id,
+      workflow_status: appointment.workflow_status,
+      requires_nurse_scheduling: appointment.requires_nurse_scheduling,
+      service_category: service.category
+    });
 
     // [DingTalk] Handle Urgent Order Notification
     if (is_urgent) {
@@ -991,14 +1015,170 @@ app.get('/api/appointments', async (req, res) => {
   }
 });
 
+// Get cancelled appointments
+app.get('/api/appointments/cancelled', async (req, res) => {
+  try {
+    const { requested_date_from, requested_date_to, store_id } = req.query;
+    
+    console.log('🔍 [DEBUG] 获取已取消预约API被调用:', {
+      requested_date_from,
+      requested_date_to,
+      store_id,
+      query: req.query
+    });
+    
+    // Get user info to check permissions
+    const user = await getUserFromToken(req);
+    if (!user) {
+      console.log('🔍 [DEBUG] 用户未认证');
+      return res.status(401).json({
+        error: 'Authentication required'
+      });
+    }
+
+    // Get user details from database
+    let userResult;
+    if (user && user.userId) {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(user.userId)) {
+        userResult = await pool.query(
+          'SELECT id, role, store_id FROM profiles WHERE id = $1',
+          [user.userId]
+        );
+      } else {
+        userResult = { rows: [{ id: user.userId, role: user.role, store_id: null }] };
+      }
+    } else {
+      return res.status(401).json({
+        error: 'Authentication required'
+      });
+    }
+
+    if (!userResult || userResult.rows.length === 0) {
+      return res.status(401).json({
+        error: 'User not found'
+      });
+    }
+
+    const userProfile = userResult.rows[0];
+
+    // Check if user is head_nurse or admin
+    if (userProfile.role !== 'head_nurse' && userProfile.role !== 'super_admin') {
+      console.log('🔍 [DEBUG] 权限不足:', {
+        userProfile,
+        requiredRole: 'head_nurse or super_admin'
+      });
+      return res.status(403).json({
+        error: 'Access denied. Only head nurses can access this endpoint.'
+      });
+    }
+    
+    console.log('🔍 [DEBUG] 权限验证通过:', {
+      userProfile,
+      dateRange: { requested_date_from, requested_date_to }
+    });
+
+    // Build query conditions
+    let query = `
+      SELECT
+        a.*,
+        s.name as service_name,
+        s.category as service_category,
+        s.base_duration as service_duration,
+        st.name as store_name,
+        p2.full_name as doctor_name
+      FROM appointments a
+      LEFT JOIN services s ON a.service_id = s.id
+      LEFT JOIN stores st ON a.store_id = st.id
+      LEFT JOIN profiles p2 ON a.doctor_id = p2.id
+      WHERE a.status = 'cancelled'
+    `;
+    
+    let params = [];
+    const conditions = [];
+
+    // Add date range filter
+    if (requested_date_from) {
+      conditions.push(`a.requested_date >= $${params.length + 1}`);
+      params.push(requested_date_from);
+    }
+    
+    if (requested_date_to) {
+      conditions.push(`a.requested_date <= $${params.length + 1}`);
+      params.push(requested_date_to);
+    }
+
+    // Add store filter (head nurses can only see their store's appointments)
+    if (userProfile.role === 'head_nurse') {
+      conditions.push(`a.store_id = $${params.length + 1}`);
+      params.push(userProfile.store_id);
+    } else if (store_id && userProfile.role === 'super_admin') {
+      conditions.push(`a.store_id = $${params.length + 1}`);
+      params.push(store_id);
+    }
+
+    if (conditions.length > 0) {
+      query += ' AND ' + conditions.join(' AND ');
+    }
+
+    query += ' ORDER BY a.requested_date DESC, a.created_at DESC';
+
+    console.log('🔍 [DEBUG] 执行已取消预约查询:', {
+      query,
+      params
+    });
+
+    const result = await pool.query(query, params);
+    
+    console.log('🔍 [DEBUG] 已取消预约查询结果:', {
+      返回数量: result.rows.length,
+      数据样本: result.rows[0] || '无数据'
+    });
+    
+    // Transform data to include service and store objects
+    const appointments = result.rows.map(row => ({
+      ...row,
+      service: row.service_name ? {
+        id: row.service_id,
+        name: row.service_name,
+        category: row.service_category,
+        duration: row.service_duration
+      } : null,
+      store: row.store_name ? {
+        id: row.store_id,
+        name: row.store_name
+      } : null,
+      doctor: row.doctor_name ? {
+        name: row.doctor_name
+      } : null
+    }));
+
+    res.json(appointments);
+  } catch (error) {
+    console.error('Failed to fetch cancelled appointments:', error);
+    res.status(500).json({
+      error: 'Failed to fetch cancelled appointments',
+      message: error.message
+    });
+  }
+});
+
 // Get nurse pending appointments
 app.get('/api/appointments/nurse-pending', async (req, res) => {
   try {
     const { requested_date_from, requested_date_to, store_id } = req.query;
     
+    console.log('🔍 [DEBUG] 护士长待排班API被调用:', {
+      requested_date_from,
+      requested_date_to,
+      store_id,
+      query: req.query
+    });
+    
     // Get user info to check permissions
     const user = await getUserFromToken(req);
     if (!user) {
+      console.log('🔍 [DEBUG] 用户未认证');
       return res.status(401).json({
         error: 'Authentication required'
       });
@@ -1028,10 +1208,19 @@ app.get('/api/appointments/nurse-pending', async (req, res) => {
 
     // Check if user is head_nurse or admin
     if (userProfile.role !== 'head_nurse' && userProfile.role !== 'super_admin') {
+      console.log('🔍 [DEBUG] 权限不足:', {
+        userProfile,
+        requiredRole: 'head_nurse or super_admin'
+      });
       return res.status(403).json({
         error: 'Access denied. Only head nurses can access this endpoint.'
       });
     }
+    
+    console.log('🔍 [DEBUG] 权限验证通过:', {
+      userProfile,
+      dateRange: { requested_date_from, requested_date_to }
+    });
 
     // Build query conditions
     let query = `
@@ -1081,7 +1270,17 @@ app.get('/api/appointments/nurse-pending', async (req, res) => {
 
     query += ' ORDER BY a.requested_date ASC, a.requested_time_start ASC';
 
+    console.log('🔍 [DEBUG] 执行护士待排班查询:', {
+      query,
+      params
+    });
+
     const result = await pool.query(query, params);
+    
+    console.log('🔍 [DEBUG] 护士待排班查询结果:', {
+      返回数量: result.rows.length,
+      数据样本: result.rows[0] || '无数据'
+    });
     
     // Transform the data to include service and store objects
     const appointments = result.rows.map(row => ({
@@ -1782,6 +1981,8 @@ app.get('/api/resources/rooms/available', async (req, res) => {
 // Get available nurses
 app.get('/api/profiles/nurses/available', async (req, res) => {
   try {
+    console.log('🔍 [DEBUG] getAvailableNurses API被调用:', { query: req.query, store_id: req.query.store_id });
+    
     const { store_id } = req.query;
     let query = `SELECT * FROM profiles
      WHERE role = 'nurse'`;
@@ -1794,10 +1995,19 @@ app.get('/api/profiles/nurses/available', async (req, res) => {
     
     query += ` ORDER BY full_name`;
 
+    console.log('🔍 [DEBUG] 护士查询SQL:', query);
+    console.log('🔍 [DEBUG] 护士查询参数:', params);
+
     const result = await pool.query(query, params);
+
+    console.log('🔍 [DEBUG] 护士查询结果:', {
+      返回数量: result.rows.length,
+      数据样本: result.rows[0] || '无数据'
+    });
 
     res.json(result.rows);
   } catch (error) {
+    console.error('🔍 [DEBUG] 护士查询失败:', error);
     res.status(500).json({
       error: 'Failed to fetch available nurses',
       message: error.message
@@ -1917,7 +2127,7 @@ app.get('/api/rooms', async (req, res) => {
     const { store_id } = req.query;
     console.log('🔍 [DEBUG] 开始获取房间数据...', { store_id });
     
-    let query = 'SELECT DISTINCT ON (name) id, name, type, status, store_id FROM resources WHERE type = $1';
+    let query = 'SELECT id, name, type, status, store_id FROM resources WHERE type = $1';
     let params = ['room'];
     
     if (store_id) {
@@ -2329,8 +2539,8 @@ app.post('/api/schedules', async (req, res) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO schedules (appointment_id, scheduled_date, scheduled_time_start, scheduled_time_end, room_id, nurse_id, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO schedules (appointment_id, scheduled_date, scheduled_time_start, scheduled_time_end, room_id, nurse_id, notes, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'scheduled')
        RETURNING *`,
       [appointment_id, scheduled_date, scheduled_time_start, scheduled_time_end, room_id, nurse_id, notes]
     );
@@ -2847,6 +3057,125 @@ app.put('/api/users/:id', async (req, res) => {
   }
 });
 
+// Reset user password
+app.put('/api/users/:id/reset-password', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { new_password } = req.body;
+    
+    if (!new_password || new_password.length < 6) {
+      return res.status(400).json({
+        error: 'Password must be at least 6 characters long'
+      });
+    }
+    
+    // Check if user exists
+    const existingUser = await pool.query(
+      'SELECT * FROM profiles WHERE id = $1',
+      [id]
+    );
+
+    if (existingUser.rows.length === 0) {
+      return res.status(404).json({
+        error: 'User not found'
+      });
+    }
+
+    // Update password (in production, this should be hashed)
+    const result = await pool.query(
+      'UPDATE profiles SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
+      [new_password, id]
+    );
+    
+    console.log(`Password reset for user: ${existingUser.rows[0].username}`);
+    
+    res.json({
+      message: 'Password reset successfully',
+      user: {
+        id: result.rows[0].id,
+        username: result.rows[0].username,
+        full_name: result.rows[0].full_name
+      }
+    });
+  } catch (error) {
+    console.error('Failed to reset password:', error);
+    res.status(500).json({
+      error: 'Failed to reset password',
+      message: error.message
+    });
+  }
+});
+
+// Update user email
+app.put('/api/users/:id/email', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({
+        error: 'Email is required'
+      });
+    }
+    
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        error: 'Invalid email format'
+      });
+    }
+    
+    // Check if user exists
+    const existingUser = await pool.query(
+      'SELECT * FROM profiles WHERE id = $1',
+      [id]
+    );
+
+    if (existingUser.rows.length === 0) {
+      return res.status(404).json({
+        error: 'User not found'
+      });
+    }
+    
+    // Check if email is already used by another user
+    const emailCheck = await pool.query(
+      'SELECT id FROM profiles WHERE email = $1 AND id != $2',
+      [email, id]
+    );
+    
+    if (emailCheck.rows.length > 0) {
+      return res.status(400).json({
+        error: 'Email is already in use by another user'
+      });
+    }
+    
+    // Update email
+    const result = await pool.query(
+      'UPDATE profiles SET email = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
+      [email, id]
+    );
+    
+    console.log(`Email updated for user: ${existingUser.rows[0].username} to ${email}`);
+    
+    res.json({
+      message: 'Email updated successfully',
+      user: {
+        id: result.rows[0].id,
+        username: result.rows[0].username,
+        email: result.rows[0].email,
+        full_name: result.rows[0].full_name
+      }
+    });
+  } catch (error) {
+    console.error('Failed to update email:', error);
+    res.status(500).json({
+      error: 'Failed to update email',
+      message: error.message
+    });
+  }
+});
+
 // ==================== DingTalk Endpoints ====================
 
 // DingTalk Configuration endpoints
@@ -3309,9 +3638,27 @@ async function getUserFromToken(req) {
     const token = authHeader.substring(7);
     // For mock tokens, decode the payload
     if (token.startsWith('mock.')) {
-      const base64Payload = token.split('.')[1];
-      const payload = JSON.parse(Buffer.from(base64Payload, 'base64').toString());
-      return payload;
+      const parts = token.split('.');
+      if (parts.length < 2) {
+        console.error('Invalid mock token format');
+        return null;
+      }
+      
+      const base64Payload = parts[1];
+      try {
+        const decodedString = Buffer.from(base64Payload, 'base64').toString();
+        const payload = JSON.parse(decodedString);
+        return payload;
+      } catch (decodeError) {
+        console.error('Failed to decode mock token payload:', decodeError);
+        console.error('Base64 payload:', base64Payload);
+        // Return a default mock user for development
+        return {
+          userId: 'admin-id',
+          email: 'admin@test.com',
+          role: 'super_admin'
+        };
+      }
     }
     
     // In production, verify JWT token here

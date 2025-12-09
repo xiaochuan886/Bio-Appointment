@@ -16,7 +16,7 @@ export type AppointmentWorkflowStatus = 'pending_nurse_assignment' | 'pending_do
 
 export type DoctorStatus = 'pending' | 'accepted' | 'rejected';
 
-export type ScheduleStatus = 'draft' | 'published' | 'locked';
+export type ScheduleStatus = 'pending' | 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
 
 export type TaskExecutionStatus = 'pending' | 'checked_in' | 'in_progress' | 'completed';
 
@@ -113,6 +113,7 @@ export interface Service {
 export interface Resource {
   id: string;
   name: string;
+  full_name?: string; // 护士资源可能有 full_name 字段
   type: ResourceType;
   category?: string;
   status: 'available' | 'unavailable';
@@ -299,6 +300,7 @@ export type RoomType = 'vip' | 'treatment' | 'consultation';
 export interface Nurse {
   id: string;
   name: string;
+  full_name?: string;
   skill_level: SkillLevel;
   is_available: boolean;
   created_at: string;

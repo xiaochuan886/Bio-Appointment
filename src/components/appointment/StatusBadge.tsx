@@ -15,10 +15,7 @@ const statusConfig: Record<string, { label: string; variant: string; className?:
   completed: { label: '已完成', variant: 'default', className: 'bg-completed text-completed-foreground' },
   cancelled: { label: '已取消', variant: 'default', className: 'bg-muted text-muted-foreground' },
   
-  // 排班状态
-  draft: { label: '草稿', variant: 'outline' },
-  published: { label: '已发布', variant: 'default', className: 'bg-scheduled text-scheduled-foreground' },
-  locked: { label: '已锁定', variant: 'default', className: 'bg-confirmed text-confirmed-foreground' },
+  // 排班状态 (与预约状态共享相同的值，无需重复定义)
   
   // 任务执行状态
   checked_in: { label: '已到达', variant: 'default', className: 'bg-scheduled text-scheduled-foreground' },

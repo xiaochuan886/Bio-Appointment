@@ -166,7 +166,7 @@ export default function ScheduleDetailDialog({
                     <div>
                       <span className="text-muted-foreground">护士:</span>
                       <span className="ml-2 font-medium">
-                        {schedule.nurse?.name || '未分配'}
+                        {schedule.nurse?.full_name || schedule.nurse?.name || '未分配'}
                       </span>
                     </div>
                   </div>

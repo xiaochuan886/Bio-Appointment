@@ -229,7 +229,38 @@ export default function SystemConfigPage() {
       toast.success('删除成功');
       loadData();
     } catch (error: any) {
-      toast.error(error.message || '删除失败');
+      console.error('删除服务失败:', error);
+      
+      // 尝试从错误对象中获取详细信息
+      let errorMessage = error.message || '删除失败';
+      let detailedMessage = '';
+      
+      // 检查是否有增强的错误信息
+      if (error.detailedMessage) {
+        // 使用增强的错误信息
+        detailedMessage = error.detailedMessage;
+        errorMessage = '无法删除服务';
+      } else if (error.message && error.message.includes('被') && error.message.includes('个预约使用')) {
+        // 处理已有的错误消息格式
+        detailedMessage = error.message;
+        errorMessage = '无法删除服务，该服务正在被预约使用';
+      }
+      
+      // 显示错误提示
+      if (detailedMessage) {
+        toast.error(errorMessage, {
+          duration: 10000,
+          description: detailedMessage,
+          action: {
+            label: '查看详情',
+            onClick: () => {
+              alert(detailedMessage);
+            }
+          }
+        });
+      } else {
+        toast.error(errorMessage);
+      }
     }
   };
 
@@ -249,6 +280,21 @@ export default function SystemConfigPage() {
       toast.error(error.message || '操作失败');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleToggleServiceStatus = async (service: Service) => {
+    const newStatus = !service.is_active;
+    const action = newStatus ? '启用' : '禁用';
+    
+    if (!confirm(`确定要${action}服务"${service.name}"吗？`)) return;
+    
+    try {
+      await clientApi.updateService(service.id, { is_active: newStatus });
+      toast.success(`服务${action}成功`);
+      loadData();
+    } catch (error: any) {
+      toast.error(error.message || `${action}失败`);
     }
   };
 
@@ -535,7 +581,10 @@ export default function SystemConfigPage() {
       <Alert className="mb-6">
         <AlertCircle className="h-4 w-4" />
         <AlertDescription>
-          提示：修改资源状态为"不可用"后，该资源将不会出现在预约和排班的选择列表中。
+          <div className="space-y-2">
+            <p>提示：修改资源状态为"不可用"后，该资源将不会出现在预约和排班的选择列表中。</p>
+            <p><strong>服务管理</strong>：如果服务正在被预约使用，可以点击<span className="text-orange-500">⚠️ 禁用按钮</span>将其禁用而不是删除。禁用的服务不会出现在新的预约选择中，但历史记录保留。</p>
+          </div>
         </AlertDescription>
       </Alert>
 
@@ -854,6 +903,18 @@ export default function SystemConfigPage() {
                               onClick={() => handleEditService(service)}
                             >
                               <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleToggleServiceStatus(service)}
+                              title={service.is_active ? "禁用服务" : "启用服务"}
+                            >
+                              {service.is_active ? (
+                                <AlertCircle className="h-4 w-4 text-orange-500" />
+                              ) : (
+                                <AlertCircle className="h-4 w-4 text-green-500" />
+                              )}
                             </Button>
                             <Button
                               variant="ghost"
