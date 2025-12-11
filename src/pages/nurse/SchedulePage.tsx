@@ -14,7 +14,7 @@ import clientApi from '@/services/api-client';
 import type { Schedule, Appointment } from '@/services/api-client';
 import StatusBadge from '@/components/appointment/StatusBadge';
 import { useAuth } from '@/contexts/AuthContext';
-import { canViewStoreSchedule, getAccessibleStoreIds } from '@/utils/permissions';
+// 护士排班页面不需要门店权限检查，只查看分配给护士本人的排班
 import { handleApiError } from '@/utils/validation';
 
 type ViewMode = 'day' | 'week' | 'month';
@@ -58,12 +58,7 @@ export default function NurseSchedulePage() {
 
     setIsLoading(true);
     try {
-      // 使用权限工具函数获取可访问的门店ID
-      const storeFilter = getAccessibleStoreIds(user?.profile || null);
-      
-      let params: any = {
-        store_id: storeFilter || undefined
-      };
+      let params: any = {};
 
       // 根据视图模式设置日期范围
       if (dateRange) {
@@ -119,11 +114,8 @@ export default function NurseSchedulePage() {
       
       // 过滤并验证排班数据
       const validSchedules = schedulesWithAppointment.filter(schedule => {
-        // 使用权限工具函数验证是否可以查看该排班
-        const taskStoreId = schedule.store_id || schedule.appointment?.store_id;
-        if (!canViewStoreSchedule(user?.profile || null, taskStoreId)) {
-          return false;
-        }
+        // 护士排班页面应该只显示分配给当前护士的排班
+        // 服务端API已经根据nurse_id筛选了数据，这里只需要基本验证
         
         // 确保排班有关联的预约
         if (!schedule.appointment_id) {

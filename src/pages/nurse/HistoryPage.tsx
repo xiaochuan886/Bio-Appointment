@@ -36,7 +36,7 @@ import clientApi from '@/services/api-client';
 import type { Schedule, Appointment } from '@/services/api-client';
 import StatusBadge from '@/components/appointment/StatusBadge';
 import { useAuth } from '@/contexts/AuthContext';
-import { canViewStoreSchedule, getAccessibleStoreIds } from '@/utils/permissions';
+// 护士历史页面不需要门店权限检查，只查看分配给护士本人的任务
 import { handleApiError } from '@/utils/validation';
 
 // 扩展Schedule接口以包含完整的预约信息
@@ -167,16 +167,13 @@ export default function NurseHistoryPage() {
 
     setIsLoading(true);
     try {
-      // 使用权限工具函数获取可访问的门店ID
-      const storeFilter = getAccessibleStoreIds(user?.profile || null);
-      
       const params: any = {
         start_date: format(dateRange.start, 'yyyy-MM-dd'),
-        end_date: format(dateRange.end, 'yyyy-MM-dd'),
-        store_id: storeFilter || undefined
+        end_date: format(dateRange.end, 'yyyy-MM-dd')
       };
 
-      // 获取当前护士的排班
+      // 护士历史页面只查看分配给当前护士的任务，不考虑门店限制
+      // 因为护士可能临时支援其他门店
       if (user.profile?.id) {
         params.nurse_id = user.profile.id;
       }
@@ -206,11 +203,8 @@ export default function NurseHistoryPage() {
       
       // 过滤并验证排班数据
       const validSchedules = schedulesWithAppointment.filter(schedule => {
-        // 使用权限工具函数验证是否可以查看该排班
-        const taskStoreId = schedule.store_id || schedule.appointment?.store_id;
-        if (!canViewStoreSchedule(user?.profile || null, taskStoreId)) {
-          return false;
-        }
+        // 护士历史页面应该只显示分配给当前护士的任务
+        // 服务端API已经根据nurse_id筛选了数据，这里只需要基本验证
         
         // 确保排班有关联的预约
         if (!schedule.appointment_id) {

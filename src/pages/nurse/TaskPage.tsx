@@ -19,7 +19,7 @@ import clientApi from '@/services/api-client';
 import type { Schedule, TaskExecution } from '@/services/api-client';
 import StatusBadge from '@/components/appointment/StatusBadge';
 import { useAuth } from '@/contexts/AuthContext';
-import { canManageStoreSchedule, getAccessibleStoreIds } from '@/utils/permissions';
+import { canManageStoreSchedule } from '@/utils/permissions';
 import { handleApiError } from '@/utils/validation';
 
 const finishFormSchema = z.object({
@@ -136,14 +136,13 @@ export default function NurseTaskPage() {
       console.log('🔍 [DEBUG] TaskPage: 开始加载任务，时间:', new Date().toISOString());
       setNetworkError(null);
       const today = format(new Date(), 'yyyy-MM-dd');
-      // 使用权限工具函数获取可访问的门店ID
-      const storeFilter = getAccessibleStoreIds(user?.profile || null);
       
       console.log('🔍 [DEBUG] TaskPage: API调用 getSchedules (修复后只调用一次)');
-      // 修复：只调用一次API，避免重复
+      // 修复：护士只查看分配给自己的任务，不考虑门店限制
+      // 因为护士可能临时支援其他门店
       const schedulesData = await clientApi.getSchedules({
         date: today,
-        store_id: storeFilter || undefined // 根据权限过滤门店
+        nurse_id: user?.profile?.id // 只筛选分配给当前护士的任务
       });
       
       console.log('🔍 [DEBUG] TaskPage: API返回结果:', schedulesData.length, '个任务');
@@ -152,30 +151,8 @@ export default function NurseTaskPage() {
       const allTasks = schedulesData;
       console.log('🔍 [DEBUG] TaskPage: 最终任务数:', allTasks.length);
       const validTasks = allTasks.filter(task => {
-        const userProfile = user?.profile || null;
-        
-        // 护士任务页面应该只显示分配给当前用户的任务
-        // 无论是护士还是护士长，都只能看到自己的任务
-        if (userProfile && (userProfile.role === 'nurse' || userProfile.role === 'head_nurse')) {
-          // 只显示分配给自己的任务
-          if (task.nurse_id !== userProfile.id) {
-            return false;
-          }
-          
-          // 确保任务有关联的预约
-          if (!task.appointment_id) {
-            console.warn('任务缺少关联预约:', task.id);
-            return false;
-          }
-          
-          return true;
-        }
-        
-        // 对于超级管理员，使用原有的权限检查逻辑
-        const taskStoreId = task.store_id || task.appointment?.store_id;
-        if (!canManageStoreSchedule(userProfile, taskStoreId)) {
-          return false;
-        }
+        // 护士任务页面应该只显示分配给当前护士的任务
+        // 服务端API已经根据nurse_id筛选了数据，这里只需要基本验证
         
         // 确保任务有关联的预约
         if (!task.appointment_id) {
