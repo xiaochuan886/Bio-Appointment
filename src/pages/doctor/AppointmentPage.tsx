@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
-import { CheckCircle, XCircle, Calendar as CalendarIcon } from 'lucide-react';
+import { CheckCircle, XCircle, Calendar as CalendarIcon, CalendarDays } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -9,6 +9,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDes
 import { Textarea } from '@/components/ui/textarea';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -17,8 +18,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import clientApi from '@/services/api-client';
 import type { Appointment } from '@/services/api-client';
 import StatusBadge from '@/components/appointment/StatusBadge';
-import { canViewStoreSchedule, canAccessDoctorPendingAppointments, getWorkflowStatusDisplayName, getWorkflowStatusColor } from '@/utils/permissions';
+import ViewSwitcher, { type ViewMode } from '@/components/appointment/ViewSwitcher';
+import DateRangePicker from '@/components/appointment/DateRangePicker';
+import GanttChart from '@/components/appointment/GanttChart';
+import { canAccessDoctorPendingAppointments, getWorkflowStatusDisplayName } from '@/utils/permissions';
 import { handleApiError } from '@/utils/validation';
+import { getNurses, getRooms } from '@/db/api';
+import type { ScheduleWithDetails, Nurse, Room } from '@/types/types';
 
 const rejectFormSchema = z.object({
   doctor_note: z.string().min(1, '请填写拒绝原因或建议时间'),
@@ -34,6 +40,14 @@ export default function DoctorAppointmentPage() {
   const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
+  // 新增排班视图状态
+  const [activeTab, setActiveTab] = useState<'appointments' | 'schedule'>('appointments');
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [viewMode, setViewMode] = useState<ViewMode>('day');
+  const [schedules, setSchedules] = useState<ScheduleWithDetails[]>([]);
+  const [nurses, setNurses] = useState<Nurse[]>([]);
+  const [rooms, setRooms] = useState<Room[]>([]);
+
   const form = useForm<RejectFormValues>({
     resolver: zodResolver(rejectFormSchema),
   });
@@ -41,10 +55,23 @@ export default function DoctorAppointmentPage() {
   useEffect(() => {
     if (user) {
       loadAppointments();
-      const interval = setInterval(loadAppointments, 30000);
+      loadScheduleData();
+      const interval = setInterval(() => {
+        loadAppointments();
+        if (activeTab === 'schedule') {
+          loadScheduleData();
+        }
+      }, 30000);
       return () => clearInterval(interval);
     }
-  }, [user]);
+  }, [user, activeTab]);
+
+  // 当日期或视图模式改变时重新加载排班数据
+  useEffect(() => {
+    if (user && activeTab === 'schedule') {
+      loadScheduleData();
+    }
+  }, [selectedDate, viewMode, user, activeTab]);
 
   const loadAppointments = async () => {
     try {
@@ -70,6 +97,82 @@ export default function DoctorAppointmentPage() {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       toast.error(`加载预约失败: ${errorMessage}`);
     }
+  };
+
+  // 加载排班数据
+  const loadScheduleData = async () => {
+    try {
+      if (!user) return;
+
+      // 获取当前用户的门店ID
+      const userStoreId = user.profile?.store_id;
+
+      // 计算日期范围
+      const { startDate, endDate } = getDateRange();
+
+      // 并行加载排班、护士和房间数据
+      const [schedulesData, nursesData, roomsData] = await Promise.all([
+        clientApi.getSchedules({
+          store_id: userStoreId,
+          start_date: startDate,
+          end_date: endDate
+        }),
+        getNurses(),
+        getRooms(userStoreId)
+      ]);
+
+      // 过滤医生相关的排班数据
+      const doctorSchedules = filterDoctorSchedules(schedulesData as ScheduleWithDetails[], user.id);
+
+      setSchedules(doctorSchedules);
+      setNurses(nursesData);
+      setRooms(roomsData);
+    } catch (error) {
+      console.error('加载排班数据失败:', error);
+      const errorMessage = error instanceof Error ? error.message : '未知错误';
+      toast.error(`加载排班数据失败: ${errorMessage}`);
+    }
+  };
+
+  // 医生排班数据过滤逻辑
+  const filterDoctorSchedules = (schedules: ScheduleWithDetails[], doctorId: string) => {
+    return schedules.filter(schedule => 
+      schedule.appointment?.doctor_id === doctorId &&
+      schedule.appointment?.service?.category === 'consultation'
+    );
+  };
+
+  // 根据视图模式计算日期范围
+  const getDateRange = () => {
+    const date = selectedDate;
+    let startDate: string;
+    let endDate: string;
+
+    switch (viewMode) {
+      case 'day':
+        startDate = format(date, 'yyyy-MM-dd');
+        endDate = format(date, 'yyyy-MM-dd');
+        break;
+      case 'week':
+        const weekStart = new Date(date);
+        weekStart.setDate(date.getDate() - date.getDay() + 1); // 周一
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekStart.getDate() + 6); // 周日
+        startDate = format(weekStart, 'yyyy-MM-dd');
+        endDate = format(weekEnd, 'yyyy-MM-dd');
+        break;
+      case 'month':
+        const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+        const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+        startDate = format(monthStart, 'yyyy-MM-dd');
+        endDate = format(monthEnd, 'yyyy-MM-dd');
+        break;
+      default:
+        startDate = format(date, 'yyyy-MM-dd');
+        endDate = format(date, 'yyyy-MM-dd');
+    }
+
+    return { startDate, endDate };
   };
 
   const handleAccept = async (appointment: Appointment) => {
@@ -131,240 +234,304 @@ export default function DoctorAppointmentPage() {
   );
   const rejectedAppointments = appointments.filter(a => a.workflow_status === 'doctor_rejected');
 
+  // 渲染预约管理内容
+  const renderAppointmentManagement = () => {
+    return (
+      <div className="space-y-6">
+        <div className="grid gap-6 xl:grid-cols-3 mb-8">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">待确认</CardTitle>
+              <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-pending">{pendingAppointments.length}</div>
+              <p className="text-xs text-muted-foreground mt-1">等待处理</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">已完成</CardTitle>
+              <CheckCircle className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-confirmed">{acceptedAppointments.length}</div>
+              <p className="text-xs text-muted-foreground mt-1">已完成预约</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">已拒绝</CardTitle>
+              <XCircle className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-muted-foreground">{rejectedAppointments.length}</div>
+              <p className="text-xs text-muted-foreground mt-1">已拒绝预约</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="space-y-6">
+          {pendingAppointments.length > 0 && (
+            <div>
+              <h2 className="text-xl font-bold mb-4">待确认预约</h2>
+              <div className="grid gap-4 xl:grid-cols-2">
+                {pendingAppointments.map(appointment => (
+                  <Card key={appointment.id} className="border-pending">
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-lg">{appointment.customer_name}</CardTitle>
+                        <div className="flex items-center gap-2">
+                          {/* 显示工作流状态 */}
+                          {appointment.workflow_status && (
+                            <div className="px-2 py-1 bg-blue/10 text-blue rounded text-xs">
+                              {getWorkflowStatusDisplayName(appointment.workflow_status)}
+                            </div>
+                          )}
+                          <StatusBadge status="pending" />
+                        </div>
+                      </div>
+                      <CardDescription>{appointment.service?.name}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="text-muted-foreground">预约日期：</span>
+                          <span className="font-medium">
+                            {format(new Date(appointment.requested_date), 'yyyy-MM-dd')}
+                          </span>
+                        </div>
+                        {appointment.requested_time_start && (
+                          <div>
+                            <span className="text-muted-foreground">期望时间：</span>
+                            <span className="font-medium">
+                              {appointment.requested_time_start.substring(0, 5)}
+                            </span>
+                          </div>
+                        )}
+                        <div>
+                          <span className="text-muted-foreground">人数：</span>
+                          <span className="font-medium">{appointment.total_people} 人</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">预估时长：</span>
+                          <span className="font-medium">{appointment.estimated_duration} 分钟</span>
+                        </div>
+                        {appointment.store && (
+                          <div className="col-span-2">
+                            <span className="text-muted-foreground">门店：</span>
+                            <span className="font-medium">{appointment.store.name}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex gap-2">
+                        <Button
+                          className="flex-1"
+                          onClick={() => handleAccept(appointment)}
+                        >
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          确认
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="flex-1"
+                          onClick={() => handleReject(appointment)}
+                        >
+                          <XCircle className="h-4 w-4 mr-2" />
+                          拒绝
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {acceptedAppointments.length > 0 && (
+            <div>
+              <h2 className="text-xl font-bold mb-4">已完成预约</h2>
+              <div className="grid gap-4 xl:grid-cols-2">
+                {acceptedAppointments.map(appointment => (
+                  <Card key={appointment.id}>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-lg">{appointment.customer_name}</CardTitle>
+                        <div className="flex items-center gap-2">
+                          {/* 显示工作流状态 */}
+                          {appointment.workflow_status && (
+                            <div className={`px-2 py-1 rounded text-xs ${
+                              appointment.workflow_status === 'doctor_completed'
+                                ? 'bg-blue/10 text-blue'
+                                : 'bg-green/10 text-green'
+                            }`}>
+                              {getWorkflowStatusDisplayName(appointment.workflow_status)}
+                            </div>
+                          )}
+                          <StatusBadge status="confirmed" />
+                        </div>
+                      </div>
+                      <CardDescription>{appointment.service?.name}</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="text-muted-foreground">预约日期：</span>
+                          <span className="font-medium">
+                            {format(new Date(appointment.requested_date), 'yyyy-MM-dd')}
+                          </span>
+                        </div>
+                        {appointment.requested_time_start && (
+                          <div>
+                            <span className="text-muted-foreground">时间：</span>
+                            <span className="font-medium">
+                              {appointment.requested_time_start.substring(0, 5)}
+                            </span>
+                          </div>
+                        )}
+                        <div>
+                          <span className="text-muted-foreground">状态：</span>
+                          <StatusBadge status={appointment.workflow_status === 'doctor_completed' ? 'completed' : (appointment.status as any)} />
+                        </div>
+                        {appointment.doctor_confirmed_at && (
+                          <div>
+                            <span className="text-muted-foreground">确认时间：</span>
+                            <span className="font-medium">
+                              {format(new Date(appointment.doctor_confirmed_at), 'yyyy-MM-dd HH:mm')}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {rejectedAppointments.length > 0 && (
+            <div>
+              <h2 className="text-xl font-bold mb-4">已拒绝预约</h2>
+              <div className="grid gap-4 xl:grid-cols-2">
+                {rejectedAppointments.map(appointment => (
+                  <Card key={appointment.id} className="opacity-75">
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-lg">{appointment.customer_name}</CardTitle>
+                        <div className="flex items-center gap-2">
+                          {/* 显示工作流状态 */}
+                          {appointment.workflow_status && (
+                            <div className="px-2 py-1 bg-red/10 text-red rounded text-xs">
+                              {getWorkflowStatusDisplayName(appointment.workflow_status)}
+                            </div>
+                          )}
+                          <StatusBadge status="cancelled" />
+                        </div>
+                      </div>
+                      <CardDescription>{appointment.service?.name}</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2 text-sm">
+                        <div>
+                          <span className="text-muted-foreground">预约日期：</span>
+                          <span className="font-medium">
+                            {format(new Date(appointment.requested_date), 'yyyy-MM-dd')}
+                          </span>
+                        </div>
+                        {appointment.doctor_note && (
+                          <div>
+                            <span className="text-muted-foreground">拒绝原因：</span>
+                            <p className="mt-1 text-muted-foreground whitespace-pre-wrap">
+                              {appointment.doctor_note}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {appointments.length === 0 && (
+            <Card>
+              <CardContent className="py-12">
+                <p className="text-center text-muted-foreground">暂无预约待办</p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // 渲染排班视图内容
+  const renderScheduleView = () => {
+    return (
+      <div className="space-y-6">
+        {/* 视图控制器 */}
+        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+          <ViewSwitcher currentView={viewMode} onViewChange={setViewMode} />
+          <DateRangePicker 
+            selectedDate={selectedDate} 
+            onDateChange={setSelectedDate} 
+            viewMode={viewMode} 
+          />
+        </div>
+
+        {/* 排班图表 */}
+        <GanttChart
+          schedules={schedules}
+          nurses={nurses}
+          rooms={rooms}
+          selectedDate={format(selectedDate, 'yyyy-MM-dd')}
+          viewMode={viewMode}
+          onScheduleClick={(schedule) => {
+            // 可以在这里添加排班详情查看逻辑
+            console.log('查看排班详情:', schedule);
+          }}
+        />
+
+        {/* 空状态提示 */}
+        {schedules.length === 0 && (
+          <Card className="p-8">
+            <div className="text-center text-muted-foreground">
+              <CalendarDays className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p className="text-lg mb-2">暂无排班数据</p>
+              <p className="text-sm">当前时间段内没有您的预约排班</p>
+            </div>
+          </Card>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="container py-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2">医生服务管理</h1>
-        <p className="text-muted-foreground">处理医生服务预约（确认后直接完成，无需护士长排班）</p>
+        <p className="text-muted-foreground">处理医生服务预约和查看排班情况</p>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-3 mb-8">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">待确认</CardTitle>
-            <CalendarIcon className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-pending">{pendingAppointments.length}</div>
-            <p className="text-xs text-muted-foreground mt-1">等待处理</p>
-          </CardContent>
-        </Card>
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'appointments' | 'schedule')} className="w-full">
+        <TabsList className="grid w-full grid-cols-2 max-w-md">
+          <TabsTrigger value="appointments" className="flex items-center gap-2">
+            <CalendarIcon className="h-4 w-4" />
+            预约管理
+          </TabsTrigger>
+          <TabsTrigger value="schedule" className="flex items-center gap-2">
+            <CalendarDays className="h-4 w-4" />
+            排班视图
+          </TabsTrigger>
+        </TabsList>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">已完成</CardTitle>
-            <CheckCircle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-confirmed">{acceptedAppointments.length}</div>
-            <p className="text-xs text-muted-foreground mt-1">已完成预约</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">已拒绝</CardTitle>
-            <XCircle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-muted-foreground">{rejectedAppointments.length}</div>
-            <p className="text-xs text-muted-foreground mt-1">已拒绝预约</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="space-y-6">
-        {pendingAppointments.length > 0 && (
-          <div>
-            <h2 className="text-xl font-bold mb-4">待确认预约</h2>
-            <div className="grid gap-4 xl:grid-cols-2">
-              {pendingAppointments.map(appointment => (
-                <Card key={appointment.id} className="border-pending">
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-lg">{appointment.customer_name}</CardTitle>
-                      <div className="flex items-center gap-2">
-                        {/* 显示工作流状态 */}
-                        {appointment.workflow_status && (
-                          <div className="px-2 py-1 bg-blue/10 text-blue rounded text-xs">
-                            {getWorkflowStatusDisplayName(appointment.workflow_status)}
-                          </div>
-                        )}
-                        <StatusBadge status="pending" />
-                      </div>
-                    </div>
-                    <CardDescription>{appointment.service?.name}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <span className="text-muted-foreground">预约日期：</span>
-                        <span className="font-medium">
-                          {format(new Date(appointment.requested_date), 'yyyy-MM-dd')}
-                        </span>
-                      </div>
-                      {appointment.requested_time_start && (
-                        <div>
-                          <span className="text-muted-foreground">期望时间：</span>
-                          <span className="font-medium">
-                            {appointment.requested_time_start.substring(0, 5)}
-                          </span>
-                        </div>
-                      )}
-                      <div>
-                        <span className="text-muted-foreground">人数：</span>
-                        <span className="font-medium">{appointment.total_people} 人</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">预估时长：</span>
-                        <span className="font-medium">{appointment.estimated_duration} 分钟</span>
-                      </div>
-                      {appointment.store && (
-                        <div className="col-span-2">
-                          <span className="text-muted-foreground">门店：</span>
-                          <span className="font-medium">{appointment.store.name}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex gap-2">
-                      <Button
-                        className="flex-1"
-                        onClick={() => handleAccept(appointment)}
-                      >
-                        <CheckCircle className="h-4 w-4 mr-2" />
-                        确认
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="flex-1"
-                        onClick={() => handleReject(appointment)}
-                      >
-                        <XCircle className="h-4 w-4 mr-2" />
-                        拒绝
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {acceptedAppointments.length > 0 && (
-          <div>
-            <h2 className="text-xl font-bold mb-4">已完成预约</h2>
-            <div className="grid gap-4 xl:grid-cols-2">
-              {acceptedAppointments.map(appointment => (
-                <Card key={appointment.id}>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-lg">{appointment.customer_name}</CardTitle>
-                      <div className="flex items-center gap-2">
-                        {/* 显示工作流状态 */}
-                        {appointment.workflow_status && (
-                          <div className={`px-2 py-1 rounded text-xs ${
-                            appointment.workflow_status === 'doctor_completed'
-                              ? 'bg-blue/10 text-blue'
-                              : 'bg-green/10 text-green'
-                          }`}>
-                            {getWorkflowStatusDisplayName(appointment.workflow_status)}
-                          </div>
-                        )}
-                        <StatusBadge status="confirmed" />
-                      </div>
-                    </div>
-                    <CardDescription>{appointment.service?.name}</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <span className="text-muted-foreground">预约日期：</span>
-                        <span className="font-medium">
-                          {format(new Date(appointment.requested_date), 'yyyy-MM-dd')}
-                        </span>
-                      </div>
-                      {appointment.requested_time_start && (
-                        <div>
-                          <span className="text-muted-foreground">时间：</span>
-                          <span className="font-medium">
-                            {appointment.requested_time_start.substring(0, 5)}
-                          </span>
-                        </div>
-                      )}
-                      <div>
-                        <span className="text-muted-foreground">状态：</span>
-                        <StatusBadge status={appointment.workflow_status === 'doctor_completed' ? 'completed' : (appointment.status as any)} />
-                      </div>
-                      {appointment.doctor_confirmed_at && (
-                        <div>
-                          <span className="text-muted-foreground">确认时间：</span>
-                          <span className="font-medium">
-                            {format(new Date(appointment.doctor_confirmed_at), 'yyyy-MM-dd HH:mm')}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {rejectedAppointments.length > 0 && (
-          <div>
-            <h2 className="text-xl font-bold mb-4">已拒绝预约</h2>
-            <div className="grid gap-4 xl:grid-cols-2">
-              {rejectedAppointments.map(appointment => (
-                <Card key={appointment.id} className="opacity-75">
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-lg">{appointment.customer_name}</CardTitle>
-                      <div className="flex items-center gap-2">
-                        {/* 显示工作流状态 */}
-                        {appointment.workflow_status && (
-                          <div className="px-2 py-1 bg-red/10 text-red rounded text-xs">
-                            {getWorkflowStatusDisplayName(appointment.workflow_status)}
-                          </div>
-                        )}
-                        <StatusBadge status="cancelled" />
-                      </div>
-                    </div>
-                    <CardDescription>{appointment.service?.name}</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2 text-sm">
-                      <div>
-                        <span className="text-muted-foreground">预约日期：</span>
-                        <span className="font-medium">
-                          {format(new Date(appointment.requested_date), 'yyyy-MM-dd')}
-                        </span>
-                      </div>
-                      {appointment.doctor_note && (
-                        <div>
-                          <span className="text-muted-foreground">拒绝原因：</span>
-                          <p className="mt-1 text-muted-foreground whitespace-pre-wrap">
-                            {appointment.doctor_note}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {appointments.length === 0 && (
-          <Card>
-            <CardContent className="py-12">
-              <p className="text-center text-muted-foreground">暂无预约待办</p>
-            </CardContent>
-          </Card>
-        )}
-      </div>
+        <TabsContent value="appointments" className="mt-6">{renderAppointmentManagement()}</TabsContent>
+        <TabsContent value="schedule" className="mt-6">{renderScheduleView()}</TabsContent>
+      </Tabs>
 
       <Dialog open={isRejectDialogOpen} onOpenChange={setIsRejectDialogOpen}>
         <DialogContent>

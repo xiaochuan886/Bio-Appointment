@@ -10,6 +10,7 @@ interface ApiUser {
   phone?: string;
   department?: string;
   store_id?: string;
+  store_name?: string;
 }
 
 // Token interface

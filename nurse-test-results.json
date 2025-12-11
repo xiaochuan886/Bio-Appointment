@@ -1,0 +1,207 @@
+{
+  "startTime": "2025-12-09T01:12:42.628Z",
+  "endTime": "2025-12-09T01:13:16.420Z",
+  "totalTests": 5,
+  "passedTests": 4,
+  "failedTests": 1,
+  "errors": [
+    {
+      "message": "等待元素失败: text=日视图",
+      "error": "page.waitForSelector: Timeout 10000ms exceeded.\nCall log:\n  - waiting for locator('text=日视图') to be visible\n",
+      "timestamp": "2025-12-09T01:13:01.396Z"
+    },
+    {
+      "message": "点击元素失败: 日视图按钮",
+      "error": "page.waitForSelector: Timeout 10000ms exceeded.\nCall log:\n  - waiting for locator('text=日视图') to be visible\n",
+      "timestamp": "2025-12-09T01:13:01.397Z"
+    },
+    {
+      "message": "排班页面功能测试失败",
+      "error": "page.waitForSelector: Timeout 10000ms exceeded.\nCall log:\n  - waiting for locator('text=日视图') to be visible\n",
+      "timestamp": "2025-12-09T01:13:01.397Z"
+    },
+    {
+      "message": "排班页面测试 失败",
+      "error": null,
+      "timestamp": "2025-12-09T01:13:01.480Z"
+    }
+  ],
+  "warnings": [],
+  "features": {
+    "login": {
+      "status": "passed",
+      "issues": []
+    },
+    "schedule": {
+      "status": "failed",
+      "issues": [
+        "日视图按钮不存在",
+        "月视图按钮不存在",
+        "page.waitForSelector: Timeout 10000ms exceeded.\nCall log:\n  - waiting for locator('text=日视图') to be visible\n"
+      ]
+    },
+    "tasks": {
+      "status": "passed",
+      "issues": [
+        "缺少任务操作按钮"
+      ]
+    },
+    "history": {
+      "status": "passed",
+      "issues": [
+        "缺少筛选功能",
+        "统计卡片数量不足"
+      ]
+    }
+  },
+  "performance": {
+    "pageLoadTimes": [
+      {
+        "page": "登录页面",
+        "loadTime": 488
+      },
+      {
+        "page": "排班页面",
+        "loadTime": 171
+      },
+      {
+        "page": "任务页面",
+        "loadTime": 163
+      },
+      {
+        "page": "历史页面",
+        "loadTime": 160
+      }
+    ],
+    "apiResponseTimes": [
+      {
+        "api": "http://localhost:3001/api/auth/login",
+        "responseTime": 1765242767982
+      },
+      {
+        "api": "http://localhost:3001/api/dashboard/stats?date=2025-12-09",
+        "responseTime": 1765242768016
+      },
+      {
+        "api": "http://localhost:3001/api/dashboard/stats?date=2025-12-09",
+        "responseTime": 1765242768016
+      },
+      {
+        "api": "http://localhost:3001/api/task-executions?status=in_progress",
+        "responseTime": 1765242768020
+      },
+      {
+        "api": "http://localhost:3001/api/task-executions?status=in_progress",
+        "responseTime": 1765242768021
+      },
+      {
+        "api": "http://localhost:3001/api/profiles/c3120b4f-2c3d-42d3-a89a-a39f367b3e15",
+        "responseTime": 1765242771259
+      },
+      {
+        "api": "http://localhost:3001/api/profiles/c3120b4f-2c3d-42d3-a89a-a39f367b3e15",
+        "responseTime": 1765242771259
+      },
+      {
+        "api": "http://localhost:3001/api/schedules?start_date=2025-12-08&end_date=2025-12-14&nurse_id=c3120b4f-2c3d-42d3-a89a-a39f367b3e15&store_id=33e624b3-854d-4889-bcc0-12e7e908b0d5",
+        "responseTime": 1765242771276
+      },
+      {
+        "api": "http://localhost:3001/api/schedules?start_date=2025-12-08&end_date=2025-12-14&nurse_id=c3120b4f-2c3d-42d3-a89a-a39f367b3e15&store_id=33e624b3-854d-4889-bcc0-12e7e908b0d5",
+        "responseTime": 1765242771276
+      },
+      {
+        "api": "http://localhost:3001/api/profiles/c3120b4f-2c3d-42d3-a89a-a39f367b3e15",
+        "responseTime": 1765242781570
+      },
+      {
+        "api": "http://localhost:3001/api/profiles/c3120b4f-2c3d-42d3-a89a-a39f367b3e15",
+        "responseTime": 1765242781578
+      },
+      {
+        "api": "http://localhost:3001/api/schedules?date=2025-12-09&store_id=33e624b3-854d-4889-bcc0-12e7e908b0d5",
+        "responseTime": 1765242781581
+      },
+      {
+        "api": "http://localhost:3001/api/schedules?date=2025-12-09&store_id=33e624b3-854d-4889-bcc0-12e7e908b0d5",
+        "responseTime": 1765242781586
+      },
+      {
+        "api": "http://localhost:3001/api/schedules?date=2025-12-09&store_id=33e624b3-854d-4889-bcc0-12e7e908b0d5",
+        "responseTime": 1765242781589
+      },
+      {
+        "api": "http://localhost:3001/api/schedules?date=2025-12-09&store_id=33e624b3-854d-4889-bcc0-12e7e908b0d5",
+        "responseTime": 1765242781592
+      },
+      {
+        "api": "http://localhost:3001/api/schedules?date=2025-12-09&store_id=33e624b3-854d-4889-bcc0-12e7e908b0d5",
+        "responseTime": 1765242782911
+      },
+      {
+        "api": "http://localhost:3001/api/schedules?date=2025-12-09&store_id=33e624b3-854d-4889-bcc0-12e7e908b0d5",
+        "responseTime": 1765242782915
+      },
+      {
+        "api": "http://localhost:3001/api/profiles/c3120b4f-2c3d-42d3-a89a-a39f367b3e15",
+        "responseTime": 1765242785181
+      },
+      {
+        "api": "http://localhost:3001/api/profiles/c3120b4f-2c3d-42d3-a89a-a39f367b3e15",
+        "responseTime": 1765242785181
+      },
+      {
+        "api": "http://localhost:3001/api/schedules?start_date=2025-11-09&end_date=2025-12-09&nurse_id=c3120b4f-2c3d-42d3-a89a-a39f367b3e15&store_id=33e624b3-854d-4889-bcc0-12e7e908b0d5",
+        "responseTime": 1765242785204
+      },
+      {
+        "api": "http://localhost:3001/api/schedules?start_date=2025-11-09&end_date=2025-12-09&nurse_id=c3120b4f-2c3d-42d3-a89a-a39f367b3e15&store_id=33e624b3-854d-4889-bcc0-12e7e908b0d5",
+        "responseTime": 1765242785210
+      },
+      {
+        "api": "http://localhost:3001/api/dashboard/stats?date=2025-12-09",
+        "responseTime": 1765242787766
+      },
+      {
+        "api": "http://localhost:3001/api/dashboard/stats?date=2025-12-09",
+        "responseTime": 1765242787766
+      },
+      {
+        "api": "http://localhost:3001/api/task-executions?status=in_progress",
+        "responseTime": 1765242787768
+      },
+      {
+        "api": "http://localhost:3001/api/task-executions?status=in_progress",
+        "responseTime": 1765242787769
+      },
+      {
+        "api": "http://localhost:3001/api/schedules?date=2025-12-09&store_id=33e624b3-854d-4889-bcc0-12e7e908b0d5",
+        "responseTime": 1765242789946
+      },
+      {
+        "api": "http://localhost:3001/api/schedules?date=2025-12-09&store_id=33e624b3-854d-4889-bcc0-12e7e908b0d5",
+        "responseTime": 1765242789946
+      },
+      {
+        "api": "http://localhost:3001/api/schedules?date=2025-12-09&store_id=33e624b3-854d-4889-bcc0-12e7e908b0d5",
+        "responseTime": 1765242789949
+      },
+      {
+        "api": "http://localhost:3001/api/schedules?date=2025-12-09&store_id=33e624b3-854d-4889-bcc0-12e7e908b0d5",
+        "responseTime": 1765242789952
+      },
+      {
+        "api": "http://localhost:3001/api/schedules?start_date=2025-12-08&end_date=2025-12-14&nurse_id=c3120b4f-2c3d-42d3-a89a-a39f367b3e15&store_id=33e624b3-854d-4889-bcc0-12e7e908b0d5",
+        "responseTime": 1765242792123
+      },
+      {
+        "api": "http://localhost:3001/api/schedules?start_date=2025-12-08&end_date=2025-12-14&nurse_id=c3120b4f-2c3d-42d3-a89a-a39f367b3e15&store_id=33e624b3-854d-4889-bcc0-12e7e908b0d5",
+        "responseTime": 1765242792123
+      },
+      {
+        "api": "http://localhost:3001/api/schedules?start_date=2025-11-09&end_date=2025-12-09&nurse_id=c3120b4f-2c3d-42d3-a89a-a39f367b3e15&store_id=33e624b3-854d-4889-bcc0-12e7e908b0d5",
+        "responseTime": 1765242794311
+      }
+    ]
+  }
+}

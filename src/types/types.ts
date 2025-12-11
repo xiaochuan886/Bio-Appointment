@@ -30,6 +30,7 @@ export interface Profile {
   role: UserRole;
   department?: string;
   store_id?: string;
+  store_name?: string;
   status: UserStatus;
   created_at: string;
   updated_at: string;

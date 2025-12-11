@@ -93,7 +93,7 @@ const routes: RouteConfig[] = [
     element: <NurseTaskPage />,
     visible: true,
     requireAuth: true,
-    requiredRole: ['nurse', 'super_admin'],
+    requiredRole: ['nurse', 'head_nurse', 'super_admin'],
   },
   {
     name: '我的排班',
@@ -101,7 +101,7 @@ const routes: RouteConfig[] = [
     element: <NurseSchedulePage />,
     visible: true,
     requireAuth: true,
-    requiredRole: ['nurse', 'super_admin'],
+    requiredRole: ['nurse', 'head_nurse', 'super_admin'],
   },
   {
     name: '任务历史',
@@ -109,7 +109,7 @@ const routes: RouteConfig[] = [
     element: <NurseHistoryPage />,
     visible: true,
     requireAuth: true,
-    requiredRole: ['nurse', 'super_admin'],
+    requiredRole: ['nurse', 'head_nurse', 'super_admin'],
   },
   {
     name: '预约待办',

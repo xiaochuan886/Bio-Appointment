@@ -28,6 +28,14 @@ export function canManageStoreSchedule(user: BaseUser | null, storeId?: string):
     return !storeId || user.store_id === storeId;
   }
   
+  // 护士可以查看和管理自己的排班任务
+  // 修复问题：护士用户 store_id 为 null 时，仍应能查看自己的排班
+  if (user.role === 'nurse') {
+    // 如果任务没有指定门店ID，或者任务门店与护士门店匹配，则允许访问
+    // 对于护士角色，即使 store_id 为 null 也允许查看自己的排班
+    return !storeId || user.store_id === storeId;
+  }
+  
   // 其他角色默认不能管理排班
   return false;
 }
@@ -189,8 +197,8 @@ export function getNextWorkflowStatuses(currentStatus: string, userRole: string)
     }
   }
   
-  // 护士可以操作的状态
-  if (userRole === 'nurse') {
+  // 护士和护士长可以操作的状态
+  if (userRole === 'nurse' || userRole === 'head_nurse') {
     if (currentStatus === 'nurse_scheduled') {
       validStatuses.push('in_progress');
     }
@@ -499,6 +507,123 @@ export function canCancelAppointment(user: BaseUser | null, appointment: any): b
   // 医生可以取消待确认的预约
   if (user.role === 'doctor') {
     return currentStatus === 'pending_doctor_confirmation';
+  }
+  
+  return false;
+}
+
+/**
+ * 检查用户是否可以访问护士任务页面
+ * @param user 当前用户
+ * @returns 是否有权限
+ */
+export function canAccessNurseTasks(user: BaseUser | null): boolean {
+  if (!user) return false;
+  
+  // 护士、护士长和超级管理员可以访问护士任务
+  return ['nurse', 'head_nurse', 'super_admin'].includes(user.role);
+}
+
+/**
+ * 检查用户是否可以处理护士任务
+ * @param user 当前用户
+ * @param task 任务信息
+ * @returns 是否有权限
+ */
+export function canProcessNurseTask(user: BaseUser | null, task: any): boolean {
+  if (!user || !task) return false;
+  
+  // 超级管理员可以处理所有任务
+  if (user.role === 'super_admin') return true;
+  
+  // 检查门店权限
+  if (task.store_id && user.store_id !== task.store_id) {
+    return false;
+  }
+  
+  // 护士只能处理分配给自己的任务
+  if (user.role === 'nurse') {
+    return task.nurse_id === user.id;
+  }
+  
+  // 护士长可以处理自己门店的所有任务，也可以给自己分配任务
+  if (user.role === 'head_nurse') {
+    // 可以处理分配给自己的任务
+    if (task.nurse_id === user.id) return true;
+    
+    // 可以处理自己门店的任务（用于管理和重新分配）
+    return !task.store_id || user.store_id === task.store_id;
+  }
+  
+  return false;
+}
+
+/**
+ * 检查用户是否可以开始执行任务
+ * @param user 当前用户
+ * @param task 任务信息
+ * @returns 是否有权限
+ */
+export function canStartTask(user: BaseUser | null, task: any): boolean {
+  if (!user || !task) return false;
+  
+  // 超级管理员可以开始所有任务
+  if (user.role === 'super_admin') return true;
+  
+  // 只有分配给自己的任务才能开始
+  if (task.nurse_id !== user.id) return false;
+  
+  // 护士和护士长都可以开始任务
+  if (['nurse', 'head_nurse'].includes(user.role)) {
+    return task.status === 'scheduled';
+  }
+  
+  return false;
+}
+
+/**
+ * 检查用户是否可以完成任务
+ * @param user 当前用户
+ * @param task 任务信息
+ * @returns 是否有权限
+ */
+export function canCompleteTask(user: BaseUser | null, task: any): boolean {
+  if (!user || !task) return false;
+  
+  // 超级管理员可以完成所有任务
+  if (user.role === 'super_admin') return true;
+  
+  // 只有分配给自己的任务才能完成
+  if (task.nurse_id !== user.id) return false;
+  
+  // 护士和护士长都可以完成任务
+  if (['nurse', 'head_nurse'].includes(user.role)) {
+    return task.status === 'in_progress';
+  }
+  
+  return false;
+}
+
+/**
+ * 检查用户是否可以给自己分配任务
+ * @param user 当前用户
+ * @param schedule 排班信息
+ * @returns 是否有权限
+ */
+export function canSelfAssignTask(user: BaseUser | null, schedule: any): boolean {
+  if (!user || !schedule) return false;
+  
+  // 超级管理员可以分配所有任务
+  if (user.role === 'super_admin') return true;
+  
+  // 检查门店权限
+  if (schedule.store_id && user.store_id !== schedule.store_id) {
+    return false;
+  }
+  
+  // 护士长可以给自己分配任务
+  if (user.role === 'head_nurse') {
+    return schedule.status === 'scheduled' && !schedule.nurse_id;
   }
   
   return false;

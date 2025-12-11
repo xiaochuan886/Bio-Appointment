@@ -270,7 +270,7 @@ app.post('/api/appointments', async (req, res) => {
 app.get('/api/profiles/nurses/available', async (req, res) => {
     try {
         await ensureDatabase();
-        const result = await (0, connection_1.query)('SELECT id, username, full_name, department FROM profiles WHERE role = $1 AND status = $2 ORDER BY full_name', ['nurse', 'active']);
+        const result = await (0, connection_1.query)('SELECT id, username, full_name, department FROM profiles WHERE (role = $1 OR role = $2) AND status = $3 ORDER BY full_name', ['nurse', 'head_nurse', 'active']);
         res.json(result.rows);
     }
     catch (error) {

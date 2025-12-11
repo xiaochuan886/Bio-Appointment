@@ -43,7 +43,7 @@ async function apiCall(endpoint: string, options?: RequestInit) {
 }
 
 // Helper function to handle authenticated API calls
-async function authenticatedApiCall(endpoint: string, options?: RequestInit) {
+export async function authenticatedApiCall(endpoint: string, options?: RequestInit) {
   const tokens = getStoredTokens();
   if (!tokens) {
     throw new Error('No authentication tokens available');
@@ -156,6 +156,12 @@ export interface Appointment {
   doctor_id?: string;
   doctor_status?: string;
   doctor_note?: string;
+  // 销售信息字段
+  sales_name?: string;
+  sales_username?: string;
+  sales_role?: string;
+  // 客户信息字段
+  companion_names?: string[];
   sales?: {
     id: string;
     username: string;
@@ -200,12 +206,27 @@ export interface Schedule {
   status: string;
   notes?: string;
   store_id?: string;
+  // 新增：销售信息字段
+  sales_name?: string;
+  sales_username?: string;
+  sales_role?: string;
+  // 新增：客户信息字段
+  customer_name?: string;
+  companion_names?: string[];
+  total_people?: number;
   appointment?: {
     customer_name?: string;
+    companion_names?: string[];
+    total_people?: number;
+    is_urgent?: boolean;
     store_id?: string;
     store?: {
       id: string;
       name: string;
+    };
+    service?: {
+      name: string;
+      category: string;
     };
   };
   room?: {

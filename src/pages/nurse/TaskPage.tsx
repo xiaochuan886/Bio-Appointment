@@ -41,6 +41,10 @@ export default function NurseTaskPage() {
   const [sortBy, setSortBy] = useState<string>('time');
   const [lastUpdateTime, setLastUpdateTime] = useState<Date>(new Date());
   const [networkError, setNetworkError] = useState<string | null>(null);
+  
+  // 添加防抖和状态管理
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [updatingTaskIds, setUpdatingTaskIds] = useState<Set<string>>(new Set());
 
   const form = useForm<FinishFormValues>({
     resolver: zodResolver(finishFormSchema),
@@ -122,28 +126,54 @@ export default function NurseTaskPage() {
   }, []);
 
   const loadTasks = async () => {
+    // 防止重复加载
+    if (isRefreshing) {
+      console.log('🔍 [DEBUG] TaskPage: 防止重复加载，跳过本次调用');
+      return;
+    }
+
     try {
+      console.log('🔍 [DEBUG] TaskPage: 开始加载任务，时间:', new Date().toISOString());
       setNetworkError(null);
       const today = format(new Date(), 'yyyy-MM-dd');
       // 使用权限工具函数获取可访问的门店ID
       const storeFilter = getAccessibleStoreIds(user?.profile || null);
       
+      console.log('🔍 [DEBUG] TaskPage: API调用 getSchedules (修复后只调用一次)');
+      // 修复：只调用一次API，避免重复
       const schedulesData = await clientApi.getSchedules({
         date: today,
         store_id: storeFilter || undefined // 根据权限过滤门店
       });
-
-      const lockedSchedules = await clientApi.getSchedules({
-        date: today,
-        store_id: storeFilter || undefined // 根据权限过滤门店
-      });
       
-      // 过滤并验证任务数据
-      const allTasks = [...schedulesData, ...lockedSchedules];
+      console.log('🔍 [DEBUG] TaskPage: API返回结果:', schedulesData.length, '个任务');
+      
+      // 修复：直接使用API返回的结果，不再合并重复数据
+      const allTasks = schedulesData;
+      console.log('🔍 [DEBUG] TaskPage: 最终任务数:', allTasks.length);
       const validTasks = allTasks.filter(task => {
-        // 使用权限工具函数验证是否可以管理该任务
+        const userProfile = user?.profile || null;
+        
+        // 护士任务页面应该只显示分配给当前用户的任务
+        // 无论是护士还是护士长，都只能看到自己的任务
+        if (userProfile && (userProfile.role === 'nurse' || userProfile.role === 'head_nurse')) {
+          // 只显示分配给自己的任务
+          if (task.nurse_id !== userProfile.id) {
+            return false;
+          }
+          
+          // 确保任务有关联的预约
+          if (!task.appointment_id) {
+            console.warn('任务缺少关联预约:', task.id);
+            return false;
+          }
+          
+          return true;
+        }
+        
+        // 对于超级管理员，使用原有的权限检查逻辑
         const taskStoreId = task.store_id || task.appointment?.store_id;
-        if (!canManageStoreSchedule(user?.profile || null, taskStoreId)) {
+        if (!canManageStoreSchedule(userProfile, taskStoreId)) {
           return false;
         }
         
@@ -171,24 +201,65 @@ export default function NurseTaskPage() {
   const handleCheckIn = async (task: Schedule) => {
     if (!task.appointment_id) return;
 
+    // 防抖：防止重复点击同一个任务
+    if (updatingTaskIds.has(task.id)) {
+      console.log('🔍 [DEBUG] TaskPage: 防止重复操作，任务ID:', task.id);
+      return;
+    }
+
+    console.log('🔍 [DEBUG] TaskPage: handleCheckIn 开始，任务ID:', task.id, '任务状态:', task.status);
+    
     try {
-      // 使用权限工具函数验证是否可以操作此任务
+      // 设置更新状态
+      setUpdatingTaskIds(prev => new Set(prev).add(task.id));
+      setIsUpdating(true);
+      
+      // 修复问题：对护士角色采用更宽松的权限检查
+      // 护士应该能够操作分配给自己的任务，即使没有分配门店
       const taskStoreId = task.store_id || task.appointment?.store_id;
-      if (!canManageStoreSchedule(user?.profile || null, taskStoreId)) {
-        toast.error('无权限操作其他门店的任务');
-        return;
+      const userProfile = user?.profile || null;
+      
+      // 对于护士角色，特殊处理权限检查
+      if (userProfile?.role === 'nurse') {
+        // 护士可以操作分配给自己的任务，不受门店限制
+        if (task.nurse_id !== userProfile.id) {
+          toast.error('无权限操作其他护士的任务');
+          return;
+        }
+      } else {
+        // 对于其他角色，使用原有的权限检查逻辑
+        if (!canManageStoreSchedule(userProfile, taskStoreId)) {
+          toast.error('无权限操作其他门店的任务');
+          return;
+        }
       }
 
+      console.log('🔍 [DEBUG] TaskPage: 调用 updateSchedule API，任务ID:', task.id);
       await clientApi.updateSchedule(task.id, {
         status: 'in_progress',
       });
 
+      console.log('🔍 [DEBUG] TaskPage: updateSchedule 成功，开始刷新任务列表');
       toast.success('客户已到达，服务开始');
-      // 立即刷新任务列表，提供即时反馈
-      await loadTasks();
+      
+      // 修复：使用防抖刷新，避免与自动刷新冲突
+      setTimeout(async () => {
+        await loadTasks();
+      }, 500);
+      
+      console.log('🔍 [DEBUG] TaskPage: handleCheckIn 完成');
     } catch (error: any) {
+      console.log('🔍 [DEBUG] TaskPage: handleCheckIn 错误:', error);
       const errorMessage = handleApiError(error, '签到');
       toast.error(errorMessage);
+    } finally {
+      // 清除更新状态
+      setUpdatingTaskIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(task.id);
+        return newSet;
+      });
+      setIsUpdating(false);
     }
   };
 
@@ -196,11 +267,24 @@ export default function NurseTaskPage() {
     if (!task.appointment_id) return;
 
     try {
-      // 使用权限工具函数验证是否可以操作此任务
+      // 修复问题：对护士角色采用更宽松的权限检查
+      // 护士应该能够操作分配给自己的任务，即使没有分配门店
       const taskStoreId = task.store_id || task.appointment?.store_id;
-      if (!canManageStoreSchedule(user?.profile || null, taskStoreId)) {
-        toast.error('无权限操作其他门店的任务');
-        return;
+      const userProfile = user?.profile || null;
+      
+      // 对于护士角色，特殊处理权限检查
+      if (userProfile?.role === 'nurse') {
+        // 护士可以操作分配给自己的任务，不受门店限制
+        if (task.nurse_id !== userProfile.id) {
+          toast.error('无权限操作其他护士的任务');
+          return;
+        }
+      } else {
+        // 对于其他角色，使用原有的权限检查逻辑
+        if (!canManageStoreSchedule(userProfile, taskStoreId)) {
+          toast.error('无权限操作其他门店的任务');
+          return;
+        }
       }
 
       await clientApi.updateSchedule(task.id, {
@@ -225,29 +309,67 @@ export default function NurseTaskPage() {
   const onFinishSubmit = async (values: FinishFormValues) => {
     if (!selectedTask?.appointment_id) return;
 
+    // 防抖：防止重复点击同一个任务
+    if (updatingTaskIds.has(selectedTask.id)) {
+      console.log('🔍 [DEBUG] TaskPage: 防止重复操作，任务ID:', selectedTask.id);
+      return;
+    }
+
+    console.log('🔍 [DEBUG] TaskPage: onFinishSubmit 开始，选中任务ID:', selectedTask.id, '当前状态:', selectedTask.status);
+    
     setIsLoading(true);
     try {
-      // 使用权限工具函数验证是否可以操作此任务
+      // 设置更新状态
+      setUpdatingTaskIds(prev => new Set(prev).add(selectedTask.id));
+      
+      // 修复问题：对护士角色采用更宽松的权限检查
+      // 护士应该能够操作分配给自己的任务，即使没有分配门店
       const taskStoreId = selectedTask.store_id || selectedTask.appointment?.store_id;
-      if (!canManageStoreSchedule(user?.profile || null, taskStoreId)) {
-        toast.error('无权限操作其他门店的任务');
-        return;
+      const userProfile = user?.profile || null;
+      
+      // 对于护士角色，特殊处理权限检查
+      if (userProfile?.role === 'nurse') {
+        // 护士可以操作分配给自己的任务，不受门店限制
+        if (selectedTask.nurse_id !== userProfile.id) {
+          toast.error('无权限操作其他护士的任务');
+          return;
+        }
+      } else {
+        // 对于其他角色，使用原有的权限检查逻辑
+        if (!canManageStoreSchedule(userProfile, taskStoreId)) {
+          toast.error('无权限操作其他门店的任务');
+          return;
+        }
       }
 
+      console.log('🔍 [DEBUG] TaskPage: 调用 updateSchedule API 完成任务，任务ID:', selectedTask.id);
       await clientApi.updateSchedule(selectedTask.id, {
         status: 'completed',
         notes: values.overtime_note,
       });
 
+      console.log('🔍 [DEBUG] TaskPage: updateSchedule 成功，开始刷新任务列表');
       toast.success('服务已完成');
       setIsFinishDialogOpen(false);
-      // 立即刷新任务列表，提供即时反馈
-      await loadTasks();
+      
+      // 修复：使用防抖刷新，避免与自动刷新冲突
+      setTimeout(async () => {
+        await loadTasks();
+      }, 500);
+      
+      console.log('🔍 [DEBUG] TaskPage: onFinishSubmit 完成');
     } catch (error: any) {
+      console.log('🔍 [DEBUG] TaskPage: onFinishSubmit 错误:', error);
       const errorMessage = handleApiError(error, '完成服务');
       toast.error(errorMessage);
     } finally {
       setIsLoading(false);
+      // 清除更新状态
+      setUpdatingTaskIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(selectedTask.id);
+        return newSet;
+      });
     }
   };
 
@@ -257,21 +379,30 @@ export default function NurseTaskPage() {
 
   const getTaskActions = (task: Schedule) => {
     const status = getTaskStatus(task);
+    const isTaskUpdating = updatingTaskIds.has(task.id);
 
     if (status === 'scheduled' || status === 'confirmed') {
       return (
-        <Button size="sm" onClick={() => handleCheckIn(task)}>
+        <Button
+          size="sm"
+          onClick={() => handleCheckIn(task)}
+          disabled={isTaskUpdating || isUpdating}
+        >
           <CheckCircle className="h-4 w-4 mr-2" />
-          客户到达
+          {isTaskUpdating ? '处理中...' : '客户到达'}
         </Button>
       );
     }
 
     if (status === 'in_progress') {
       return (
-        <Button size="sm" onClick={() => handleFinish(task)}>
+        <Button
+          size="sm"
+          onClick={() => handleFinish(task)}
+          disabled={isTaskUpdating || isUpdating}
+        >
           <CheckCircle className="h-4 w-4 mr-2" />
-          完成服务
+          {isTaskUpdating ? '处理中...' : '完成服务'}
         </Button>
       );
     }
@@ -429,7 +560,9 @@ export default function NurseTaskPage() {
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">
-                            <CardTitle className="text-lg">客户 #{task.appointment_id?.substring(0, 8)}</CardTitle>
+                            <CardTitle className="text-lg">
+                              {task.appointment?.customer_name || `客户 #${task.appointment_id?.substring(0, 8)}`}
+                            </CardTitle>
                             {urgent && (
                               <Badge variant="destructive" className="text-xs">
                                 <AlertTriangle className="h-3 w-3 mr-1" />
@@ -503,7 +636,9 @@ export default function NurseTaskPage() {
                     <CardHeader>
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1">
-                          <CardTitle className="text-lg">客户 #{task.appointment_id?.substring(0, 8)}</CardTitle>
+                          <CardTitle className="text-lg">
+                            {task.appointment?.customer_name || `客户 #${task.appointment_id?.substring(0, 8)}`}
+                          </CardTitle>
                           <CardDescription className="flex items-center gap-1 mt-1">
                             <MapPin className="h-3 w-3" />
                             {task.room?.name}
@@ -567,7 +702,9 @@ export default function NurseTaskPage() {
                   <CardHeader>
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1">
-                        <CardTitle className="text-lg">客户 #{task.appointment_id?.substring(0, 8)}</CardTitle>
+                        <CardTitle className="text-lg">
+                          {task.appointment?.customer_name || `客户 #${task.appointment_id?.substring(0, 8)}`}
+                        </CardTitle>
                         <CardDescription className="flex items-center gap-1 mt-1">
                           <MapPin className="h-3 w-3" />
                           {task.room?.name}

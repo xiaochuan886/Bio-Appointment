@@ -1,0 +1,274 @@
+{
+  "summary": {
+    "startTime": "2025-12-09T02:59:36.604Z",
+    "endTime": "2025-12-09T02:59:48.455Z",
+    "duration": "11.85秒",
+    "totalTests": 33,
+    "totalPassed": 20,
+    "totalFailed": 13,
+    "successRate": "60.61%",
+    "status": "失败"
+  },
+  "categories": {
+    "database": {
+      "total": 19,
+      "passed": 15,
+      "failed": 4,
+      "successRate": "78.95%",
+      "details": [
+        {
+          "testName": "任务执行记录表 (task_executions)",
+          "status": "pass",
+          "details": "表结构创建成功",
+          "timestamp": "2025-12-09T02:59:36.624Z"
+        },
+        {
+          "testName": "护士签到记录表 (nurse_sign_ins)",
+          "status": "pass",
+          "details": "表结构创建成功",
+          "timestamp": "2025-12-09T02:59:36.626Z"
+        },
+        {
+          "testName": "通知记录表 (notifications)",
+          "status": "pass",
+          "details": "表结构创建成功",
+          "timestamp": "2025-12-09T02:59:36.627Z"
+        },
+        {
+          "testName": "任务执行状态枚举 (task_execution_status_enum)",
+          "status": "pass",
+          "details": "枚举类型创建成功",
+          "timestamp": "2025-12-09T02:59:36.627Z"
+        },
+        {
+          "testName": "排班状态枚举 (schedule_status_enum)",
+          "status": "pass",
+          "details": "枚举类型创建成功",
+          "timestamp": "2025-12-09T02:59:36.627Z"
+        },
+        {
+          "testName": "护士今日任务视图 (nurse_today_tasks)",
+          "status": "pass",
+          "details": "视图创建成功",
+          "timestamp": "2025-12-09T02:59:36.628Z"
+        },
+        {
+          "testName": "护士工作统计视图 (nurse_work_statistics)",
+          "status": "pass",
+          "details": "视图创建成功",
+          "timestamp": "2025-12-09T02:59:36.629Z"
+        },
+        {
+          "testName": "护士工作日报视图 (nurse_daily_report)",
+          "status": "pass",
+          "details": "视图创建成功",
+          "timestamp": "2025-12-09T02:59:36.629Z"
+        },
+        {
+          "testName": "护士签到状态函数 (get_nurse_sign_in_status)",
+          "status": "pass",
+          "details": "函数创建成功",
+          "timestamp": "2025-12-09T02:59:36.630Z"
+        },
+        {
+          "testName": "任务状态更新函数 (update_task_status)",
+          "status": "pass",
+          "details": "函数创建成功",
+          "timestamp": "2025-12-09T02:59:36.631Z"
+        },
+        {
+          "testName": "索引 idx_task_executions_schedule_id (task_executions)",
+          "status": "pass",
+          "details": "索引创建成功",
+          "timestamp": "2025-12-09T02:59:36.633Z"
+        },
+        {
+          "testName": "索引 idx_task_executions_nurse_id (task_executions)",
+          "status": "pass",
+          "details": "索引创建成功",
+          "timestamp": "2025-12-09T02:59:36.634Z"
+        },
+        {
+          "testName": "索引 idx_nurse_sign_ins_nurse_id (nurse_sign_ins)",
+          "status": "pass",
+          "details": "索引创建成功",
+          "timestamp": "2025-12-09T02:59:36.635Z"
+        },
+        {
+          "testName": "索引 idx_notifications_user_id (notifications)",
+          "status": "pass",
+          "details": "索引创建成功",
+          "timestamp": "2025-12-09T02:59:36.636Z"
+        },
+        {
+          "testName": "护士用户数据",
+          "status": "pass",
+          "details": "8 条记录 (≥5)",
+          "timestamp": "2025-12-09T02:59:36.638Z"
+        },
+        {
+          "testName": "服务类型数据",
+          "status": "fail",
+          "details": "invalid input value for enum service_category: \"体检\"",
+          "timestamp": "2025-12-09T02:59:36.639Z"
+        },
+        {
+          "testName": "房间资源数据",
+          "status": "fail",
+          "details": "invalid input value for enum resource_type: \"体检室\"",
+          "timestamp": "2025-12-09T02:59:36.640Z"
+        },
+        {
+          "testName": "预约记录数据",
+          "status": "fail",
+          "details": "0 条记录 (<50)",
+          "timestamp": "2025-12-09T02:59:36.641Z"
+        },
+        {
+          "testName": "排班记录数据",
+          "status": "fail",
+          "details": "0 条记录 (<80)",
+          "timestamp": "2025-12-09T02:59:36.643Z"
+        }
+      ]
+    },
+    "api": {
+      "total": 2,
+      "passed": 0,
+      "failed": 2,
+      "successRate": "0.00%",
+      "details": [
+        {
+          "testName": "护士登录API",
+          "status": "fail",
+          "details": "登录请求失败: fetch failed",
+          "timestamp": "2025-12-09T02:59:36.652Z"
+        },
+        {
+          "testName": "主API护士登录",
+          "status": "fail",
+          "details": "主API登录失败: 401",
+          "timestamp": "2025-12-09T02:59:36.660Z"
+        }
+      ]
+    },
+    "frontend": {
+      "total": 6,
+      "passed": 3,
+      "failed": 3,
+      "successRate": "50.00%",
+      "details": [
+        {
+          "testName": "护士登录页面",
+          "status": "pass",
+          "details": "登录页面元素正常显示",
+          "timestamp": "2025-12-09T02:59:38.703Z"
+        },
+        {
+          "testName": "护士登录功能",
+          "status": "pass",
+          "details": "登录成功，页面跳转正常",
+          "timestamp": "2025-12-09T02:59:40.798Z"
+        },
+        {
+          "testName": "护士排班页面",
+          "status": "fail",
+          "details": "排班页面标题未找到",
+          "timestamp": "2025-12-09T02:59:41.504Z"
+        },
+        {
+          "testName": "护士任务页面",
+          "status": "fail",
+          "details": "任务页面标题未找到",
+          "timestamp": "2025-12-09T02:59:42.169Z"
+        },
+        {
+          "testName": "护士历史页面",
+          "status": "fail",
+          "details": "历史页面标题未找到",
+          "timestamp": "2025-12-09T02:59:42.851Z"
+        },
+        {
+          "testName": "前端页面截图",
+          "status": "pass",
+          "details": "截图保存至: nurse-frontend-verification.png",
+          "timestamp": "2025-12-09T02:59:42.941Z"
+        }
+      ]
+    },
+    "workflow": {
+      "total": 6,
+      "passed": 2,
+      "failed": 4,
+      "successRate": "33.33%",
+      "details": [
+        {
+          "testName": "护士登录",
+          "status": "pass",
+          "details": "登录成功",
+          "timestamp": "2025-12-09T02:59:46.343Z"
+        },
+        {
+          "testName": "查看排班",
+          "status": "fail",
+          "details": "排班页面加载失败",
+          "timestamp": "2025-12-09T02:59:47.040Z"
+        },
+        {
+          "testName": "查看任务",
+          "status": "fail",
+          "details": "任务页面加载失败",
+          "timestamp": "2025-12-09T02:59:47.700Z"
+        },
+        {
+          "testName": "查看历史",
+          "status": "fail",
+          "details": "历史页面加载失败",
+          "timestamp": "2025-12-09T02:59:48.360Z"
+        },
+        {
+          "testName": "完整工作流程",
+          "status": "pass",
+          "details": "端到端工作流程测试完成",
+          "timestamp": "2025-12-09T02:59:48.360Z"
+        },
+        {
+          "testName": "API工作流程",
+          "status": "fail",
+          "details": "API工作流程测试失败: fetch failed",
+          "timestamp": "2025-12-09T02:59:48.363Z"
+        }
+      ]
+    }
+  },
+  "screenshots": [
+    "nurse-frontend-verification.png"
+  ],
+  "recommendations": [
+    {
+      "category": "数据库",
+      "priority": "高",
+      "description": "数据库结构或数据存在问题，建议检查迁移脚本和数据生成脚本"
+    },
+    {
+      "category": "API接口",
+      "priority": "高",
+      "description": "API接口存在问题，建议检查API服务器状态和接口实现"
+    },
+    {
+      "category": "前端功能",
+      "priority": "中",
+      "description": "前端功能存在问题，建议检查页面组件和交互逻辑"
+    },
+    {
+      "category": "工作流程",
+      "priority": "高",
+      "description": "端到端工作流程存在问题，建议检查整体系统集成"
+    },
+    {
+      "category": "整体评估",
+      "priority": "高",
+      "description": "系统存在较多问题，不建议部署，需要全面修复"
+    }
+  ]
+}

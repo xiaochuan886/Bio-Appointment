@@ -455,17 +455,18 @@ export default function HeadNurseSchedulePage() {
   const urgentAppointments = pendingAppointments.filter(a => a.is_urgent);
   const normalAppointments = pendingAppointments.filter(a => !a.is_urgent);
   const lockedSchedules = schedules.filter(s => s.status === 'locked');
-  const todaySchedules = schedules.length;
+  // 排除已取消的排班，避免误导护士长
+  const todaySchedules = schedules.filter(s => s.status !== 'cancelled').length;
 
   return (
     <div className="container py-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2">护理服务排班看板</h1>
         <p className="text-muted-foreground">护理服务资源调度确认 (Nursing Service Scheduling)</p>
-        {user?.profile?.store_id && (
+        {user?.profile?.store_name && (
           <div className="flex items-center gap-2 mt-2 text-sm text-muted-foreground">
             <MapPin className="h-4 w-4" />
-            <span>当前门店: {user.profile.store_id}</span>
+            <span>当前门店: {user.profile.store_name}</span>
           </div>
         )}
       </div>
@@ -586,6 +587,10 @@ export default function HeadNurseSchedulePage() {
                         <div className="text-xs text-muted-foreground mt-1">
                           {appointment.service?.name}
                         </div>
+                        {/* 显示预约人信息 */}
+                        <div className="text-xs text-gray-600 mt-1">
+                          预约人: {appointment.sales_name || '未指定'}
+                        </div>
                         {appointment.requested_date && (
                           <div className="text-xs text-primary font-medium mt-1">
                             📅 {format(new Date(appointment.requested_date), 'yyyy-MM-dd')}
@@ -624,6 +629,10 @@ export default function HeadNurseSchedulePage() {
                         <div className="font-medium">{appointment.customer_name}</div>
                         <div className="text-xs text-muted-foreground mt-1">
                           {appointment.service?.name}
+                        </div>
+                        {/* 显示预约人信息 */}
+                        <div className="text-xs text-gray-600 mt-1">
+                          预约人: {appointment.sales_name || '未指定'}
                         </div>
                         {appointment.requested_date && (
                           <div className="text-xs text-primary font-medium mt-1">
@@ -725,10 +734,20 @@ export default function HeadNurseSchedulePage() {
                           )}
                         </div>
                         <div className="text-sm text-gray-600 space-y-1">
+                          <div>预约人: {appointment.sales_name || '未指定'}</div>
                           <div>服务: {appointment.service_name}</div>
-                          <div>医生: {appointment.doctor_name}</div>
                           <div>预约时间: {appointment.requested_date} {appointment.requested_time_start}</div>
                           <div>预计时长: {appointment.estimated_duration || appointment.service_duration || 30}分钟</div>
+                          <div>客户数量: {appointment.total_people || (appointment.companion_names?.length ? appointment.companion_names.length + 1 : 1)}人</div>
+                          {appointment.companion_names && appointment.companion_names.length > 0 && (
+                            <div>
+                              同行客户: {appointment.companion_names.map((name: string, index: number) => (
+                                <span key={index} className="inline-block bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs mr-1 mb-1">
+                                  {name}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                           {appointment.cancelled_reason && (
                             <div className="text-red-600">取消原因: {appointment.cancelled_reason}</div>
                           )}
@@ -769,7 +788,7 @@ export default function HeadNurseSchedulePage() {
           </CardHeader>
           <CardContent>
             <GanttChart
-              schedules={schedules}
+              schedules={schedules.filter(s => s.status !== 'cancelled')}
               nurses={nurses}
               rooms={rooms}
               selectedDate={format(selectedDate, 'yyyy-MM-dd')}
@@ -808,6 +827,68 @@ export default function HeadNurseSchedulePage() {
                           </span>
                           <StatusBadge status={selectedSchedule.status} />
                       </div>
+                  </div>
+
+                  {/* 预约人信息 */}
+                  <div className="mb-6 p-3 bg-muted/30 rounded-md">
+                    <div className="flex items-center gap-2 text-sm">
+                      <Users className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-muted-foreground">预约人:</span>
+                      <span className="font-medium">
+                        {selectedSchedule.sales_name || '未指定'}
+                      </span>
+                      {selectedSchedule.sales_role && (
+                        <Badge variant="outline" className="text-xs">
+                          {selectedSchedule.sales_role === 'sales' ? '销售' : selectedSchedule.sales_role}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 客户信息 */}
+                  <div className="mb-6 p-3 bg-blue-50 rounded-md">
+                    <div className="flex items-start gap-2 text-sm mb-2">
+                      <Users className="w-4 h-4 text-blue-600 mt-0.5" />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-muted-foreground">主客户:</span>
+                          <span className="font-medium text-blue-900">
+                            {selectedSchedule.customer_name || selectedAppointment.customer_name || '未知客户'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-muted-foreground">客户数量:</span>
+                          <span className="font-medium text-blue-900">
+                            {(() => {
+                              const totalPeople = selectedSchedule.total_people || selectedAppointment.total_people;
+                              const companionNames = selectedSchedule.companion_names || selectedAppointment.companion_names;
+                              const companionCount = companionNames?.length || 0;
+                              const calculatedTotal = 1 + companionCount; // 主客户 + 同行客户
+                              return totalPeople || calculatedTotal;
+                            })()} 人
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {(() => {
+                      const companionNames = selectedSchedule.companion_names || selectedAppointment.companion_names;
+                      return companionNames && companionNames.length > 0 && (
+                        <div className="flex items-start gap-2 text-sm">
+                          <Users className="w-4 h-4 text-blue-600 mt-0.5" />
+                          <div className="flex-1">
+                            <span className="text-muted-foreground">同行客户:</span>
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {companionNames.map((name: string, index: number) => (
+                                <Badge key={index} variant="secondary" className="text-xs bg-blue-100 text-blue-800">
+                                  {name}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {/* Time Info */}
@@ -908,16 +989,64 @@ export default function HeadNurseSchedulePage() {
                 {selectedAppointment && (
                   <Alert className="bg-muted/50">
                     <AlertDescription>
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div><span className="text-muted-foreground">客户：</span> {selectedAppointment.customer_name}</div>
-                        <div><span className="text-muted-foreground">服务：</span> {selectedAppointment.service?.name}</div>
-                        <div><span className="text-muted-foreground">人数：</span> {selectedAppointment.total_people || (selectedAppointment.companion_names?.length ? selectedAppointment.companion_names.length + 1 : 1)}人</div>
-                        <div><span className="text-muted-foreground">标准：</span> {selectedAppointment.estimated_duration}分钟</div>
-                        {selectedAppointment.store && (
-                          <div className="col-span-2">
-                            <span className="text-muted-foreground">门店：</span> {selectedAppointment.store.name}
+                      <div className="space-y-3">
+                        {/* 预约人信息 */}
+                        <div className="p-3 bg-gray-50 rounded-md">
+                          <div className="flex items-center gap-2 text-sm">
+                            <Users className="w-4 h-4 text-muted-foreground" />
+                            <span className="text-muted-foreground">预约人:</span>
+                            <span className="font-medium">
+                              {selectedAppointment.sales_name || '未指定'}
+                            </span>
+                            {selectedAppointment.sales_role && (
+                              <Badge variant="outline" className="text-xs">
+                                {selectedAppointment.sales_role === 'sales' ? '销售' : selectedAppointment.sales_role}
+                              </Badge>
+                            )}
                           </div>
-                        )}
+                        </div>
+
+                        {/* 客户信息 */}
+                        <div className="p-3 bg-blue-50 rounded-md">
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2 text-sm">
+                              <Users className="w-4 h-4 text-blue-600" />
+                              <span className="text-muted-foreground">主客户:</span>
+                              <span className="font-medium text-blue-900">
+                                {selectedAppointment.customer_name}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm">
+                              <span className="text-muted-foreground ml-6">客户数量:</span>
+                              <span className="font-medium text-blue-900">
+                                {selectedAppointment.total_people || (selectedAppointment.companion_names?.length ? selectedAppointment.companion_names.length + 1 : 1)} 人
+                              </span>
+                            </div>
+                            {selectedAppointment.companion_names && selectedAppointment.companion_names.length > 0 && (
+                              <div className="flex items-start gap-2 text-sm">
+                                <span className="text-muted-foreground ml-6">同行客户:</span>
+                                <div className="flex flex-wrap gap-1">
+                                  {selectedAppointment.companion_names.map((name: string, index: number) => (
+                                    <Badge key={index} variant="secondary" className="text-xs bg-blue-100 text-blue-800">
+                                      {name}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* 服务和门店信息 */}
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          <div><span className="text-muted-foreground">服务：</span> {selectedAppointment.service?.name}</div>
+                          <div><span className="text-muted-foreground">标准：</span> {selectedAppointment.estimated_duration}分钟</div>
+                          {selectedAppointment.store && (
+                            <div className="col-span-2">
+                              <span className="text-muted-foreground">门店：</span> {selectedAppointment.store.name}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </AlertDescription>
                   </Alert>

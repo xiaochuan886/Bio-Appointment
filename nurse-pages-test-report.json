@@ -1,0 +1,36 @@
+{
+  "timestamp": "2025-12-09T03:54:57.969Z",
+  "schedulePage": {
+    "hasData": false,
+    "itemCount": 0,
+    "details": {
+      "cards": 0,
+      "scheduleElements": 6,
+      "customerElements": 0
+    }
+  },
+  "taskPage": {
+    "hasData": false,
+    "itemCount": 0,
+    "details": {
+      "cards": 0,
+      "customerElements": 1,
+      "buttons": 5,
+      "stats": {
+        "pending": 1,
+        "inProgress": 1,
+        "completed": 1
+      }
+    }
+  },
+  "historyPage": {
+    "hasData": false,
+    "itemCount": 0,
+    "details": {
+      "cards": 0,
+      "tableRows": 4,
+      "buttons": 15
+    }
+  },
+  "overallStatus": "success"
+}

@@ -245,10 +245,37 @@ export default function NurseSchedulePage() {
 
   const getSchedulesForDate = (date: Date) => {
     const dateStr = format(date, 'yyyy-MM-dd');
-    return schedules.filter(schedule => {
+    const filtered = schedules.filter(schedule => {
       const scheduleDate = format(parseISO(schedule.scheduled_date), 'yyyy-MM-dd');
-      return scheduleDate === dateStr;
+      // 过滤掉已取消的排班，避免护士误解排班情况
+      const isDateMatch = scheduleDate === dateStr;
+      const isNotCancelled = schedule.status !== 'cancelled';
+      
+      // 调试：检查周二的数据
+      if (dateStr === '2025-12-10') {
+        console.log(`[NurseSchedulePage] 周二排班检查:`, {
+          scheduleId: schedule.id,
+          status: schedule.status,
+          customer: schedule.appointment?.customer_name,
+          isDateMatch,
+          isNotCancelled,
+          included: isDateMatch && isNotCancelled
+        });
+      }
+      
+      return isDateMatch && isNotCancelled;
     });
+    
+    // 调试：输出过滤结果
+    if (dateStr === '2025-12-10') {
+      console.log(`[NurseSchedulePage] 周二过滤结果:`, {
+        原始数量: schedules.filter(s => format(parseISO(s.scheduled_date), 'yyyy-MM-dd') === dateStr).length,
+        过滤后数量: filtered.length,
+        已取消数量: schedules.filter(s => format(parseISO(s.scheduled_date), 'yyyy-MM-dd') === dateStr && s.status === 'cancelled').length
+      });
+    }
+    
+    return filtered;
   };
 
   // 日视图渲染
@@ -590,7 +617,7 @@ export default function NurseSchedulePage() {
             <CalendarDays className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{schedules.length}</div>
+            <div className="text-2xl font-bold">{schedules.filter(s => s.status !== 'cancelled').length}</div>
             <p className="text-xs text-muted-foreground mt-1">
               {dateRange ? '选定时间段内' : viewMode === 'day' ? '当天' : viewMode === 'week' ? '本周' : '本月'}
             </p>

@@ -62,14 +62,36 @@ export default function GanttChart({
 
   // 确定可见的排班
   // 规则：
-  // 1. 无筛选条件 → 显示所有排班
-  // 2. 只选护士 → 显示这些护士的所有排班
-  // 3. 只选房间 → 显示这些房间的所有排班
-  // 4. 同时选护士和房间 → 显示同时满足两个条件的排班（交集）
+  // 1. 首先过滤掉已取消的排班（在周视图和月视图中不显示）
+  // 2. 无筛选条件 → 显示所有非取消排班
+  // 3. 只选护士 → 显示这些护士的所有非取消排班
+  // 4. 只选房间 → 显示这些房间的所有非取消排班
+  // 5. 同时选护士和房间 → 显示同时满足两个条件的非取消排班（交集）
   let visibleSchedules = schedules;
 
+  // 在周视图和月视图中，过滤掉已取消的排班
+  if (viewMode === 'week' || viewMode === 'month') {
+    const originalCount = schedules.length;
+    visibleSchedules = schedules.filter(schedule => schedule.status !== 'cancelled');
+    const filteredCount = visibleSchedules.length;
+    const cancelledCount = originalCount - filteredCount;
+    
+    // 调试日志
+    console.log(`[GanttChart] ${viewMode}视图过滤排班:`, {
+      原始排班数: originalCount,
+      过滤后排班数: filteredCount,
+      已取消排班数: cancelledCount,
+      已取消排班: schedules.filter(s => s.status === 'cancelled').map(s => ({
+        id: s.id,
+        status: s.status,
+        customer: s.appointment?.customer_name,
+        date: s.scheduled_date
+      }))
+    });
+  }
+
   if (selectedNurseIds.length > 0 || selectedRoomIds.length > 0) {
-    visibleSchedules = schedules.filter(schedule => {
+    visibleSchedules = visibleSchedules.filter(schedule => {
       const nurseMatch = selectedNurseIds.length === 0 || (schedule.nurse_id && selectedNurseIds.includes(schedule.nurse_id));
       const roomMatch = selectedRoomIds.length === 0 || (schedule.room_id && selectedRoomIds.includes(schedule.room_id));
       
@@ -469,6 +491,17 @@ export default function GanttChart({
                     const daySchedules = visibleSchedules.filter(schedule => {
                       const scheduleDate = format(parseISO(schedule.scheduled_date), 'yyyy-MM-dd');
                       const dateMatch = scheduleDate === dateStr;
+                      
+                      // 调试：检查周二的数据
+                      if (dateStr === '2025-12-10') {
+                        console.log(`[GanttChart] 周二排班检查:`, {
+                          scheduleId: schedule.id,
+                          status: schedule.status,
+                          customer: schedule.appointment?.customer_name,
+                          dateMatch,
+                          scheduleDate
+                        });
+                      }
                       
                       // 首先尝试ID匹配
                       let roomMatch = false;

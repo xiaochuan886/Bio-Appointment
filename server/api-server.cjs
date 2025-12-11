@@ -262,7 +262,15 @@ app.get('/api/profiles/:id', async (req, res) => {
       return;
     }
 
-    const result = await pool.query('SELECT * FROM profiles WHERE id = $1', [id]);
+    const result = await pool.query(
+      `SELECT p.id, p.username, p.email, p.full_name, p.role, p.department, p.status,
+              p.created_at, p.updated_at, p.dingtalk_userid, p.store_id,
+              s.name as store_name
+       FROM profiles p
+       LEFT JOIN stores s ON p.store_id = s.id
+       WHERE p.id = $1`, 
+      [id]
+    );
 
     if (result.rows.length === 0) {
       return res.status(404).json({
@@ -613,6 +621,8 @@ app.get('/api/schedules', async (req, res) => {
       SELECT
         s.*,
         a.customer_name,
+        a.companion_names,
+        a.total_people,
         a.service_id,
         a.estimated_duration,
         a.is_urgent,
@@ -624,12 +634,17 @@ app.get('/api/schedules', async (req, res) => {
         r.status as room_status,
         p.full_name as nurse_name,
         p.role as nurse_role,
-        p.department as nurse_department
+        p.department as nurse_department,
+        COALESCE(sales_p.full_name, creator_p.full_name) as sales_name,
+        COALESCE(sales_p.username, creator_p.username) as sales_username,
+        COALESCE(sales_p.role, creator_p.role) as sales_role
       FROM schedules s
       LEFT JOIN appointments a ON s.appointment_id = a.id
       LEFT JOIN services srv ON a.service_id = srv.id
       LEFT JOIN resources r ON s.room_id = r.id
       LEFT JOIN profiles p ON s.nurse_id = p.id
+      LEFT JOIN profiles sales_p ON a.sales_id = sales_p.id
+      LEFT JOIN profiles creator_p ON a.created_by = creator_p.id
     `;
     let params = [];
     const conditions = [];
@@ -648,8 +663,9 @@ app.get('/api/schedules', async (req, res) => {
       }
     }
     
-    // 护士长只能查看自己门店的排班
-    if (userProfile.role === 'head_nurse' && userProfile.store_id) {
+    // 护士长只能查看自己门店的排班，但如果查询指定了护士ID，则先不添加门店限制
+    // 门店限制将在后面的护士ID查询处理中添加
+    if (userProfile.role === 'head_nurse' && userProfile.store_id && !nurse_id) {
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       if (uuidRegex.test(userProfile.store_id)) {
         // UUID格式：使用UUID比较
@@ -690,6 +706,43 @@ app.get('/api/schedules', async (req, res) => {
         // 非UUID格式：使用文本比较
         conditions.push(`s.nurse_id::text = $${params.length + 1}`);
         params.push(nurse_id);
+      }
+      
+      // 如果是护士长查询护士ID，还需要添加门店限制（除非查询的是自己的排班）
+      if (userProfile.role === 'head_nurse' && userProfile.store_id && nurse_id !== userProfile.id) {
+        const storeUuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        if (storeUuidRegex.test(userProfile.store_id)) {
+          // UUID格式：使用UUID比较
+          conditions.push(`a.store_id = $${params.length + 1}::uuid`);
+          params.push(userProfile.store_id);
+        } else {
+          // 非UUID格式：使用文本比较
+          conditions.push(`a.store_id::text = $${params.length + 1}`);
+          params.push(userProfile.store_id);
+        }
+      }
+    }
+    
+    // 护士长查看自己排班的特殊情况：如果护士长查询自己的排班，不应该受门店限制
+    if (userProfile.role === 'head_nurse' && nurse_id && nurse_id === userProfile.id) {
+      // 移除之前可能添加的门店限制条件
+      const storeConditionIndex = conditions.findIndex(cond =>
+        cond.includes('a.store_id') || cond.includes('appointment_store_id')
+      );
+      if (storeConditionIndex !== -1) {
+        conditions.splice(storeConditionIndex, 1);
+        // 同时移除对应的参数
+        if (storeConditionIndex < 2) {
+          params.splice(storeConditionIndex + 2, 1);
+        } else {
+          // 如果门店条件在后面，需要找到对应的参数位置
+          const storeParamIndex = params.findIndex(param =>
+            param === userProfile.store_id
+          );
+          if (storeParamIndex !== -1) {
+            params.splice(storeParamIndex, 1);
+          }
+        }
       }
     }
     
@@ -825,8 +878,21 @@ app.post('/api/appointments', async (req, res) => {
       is_urgent = false,
       companion_names,
       store_id,
-      doctor_id
+      doctor_id,
+      sales_id
     } = req.body;
+
+    // Get user info for created_by field
+    const user = await getUserFromToken(req);
+    let createdBy = null;
+    
+    // Only use createdBy if it's a valid UUID format
+    if (user?.userId) {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(user.userId)) {
+        createdBy = user.userId;
+      }
+    }
 
     // Validate store_id is provided
     if (!store_id) {
@@ -874,14 +940,16 @@ app.post('/api/appointments', async (req, res) => {
       requires_nurse_scheduling: requiresNurseScheduling,
       customer_name,
       store_id,
-      requested_date
+      requested_date,
+      sales_id: sales_id || 'not provided',
+      created_by: createdBy || 'not authenticated'
     });
 
     const result = await pool.query(
-      `INSERT INTO appointments (customer_name, customer_phone, service_id, requested_date, requested_time_start, requested_time_end, notes, total_people, estimated_duration, is_urgent, companion_names, store_id, doctor_id, workflow_status, requires_nurse_scheduling)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      `INSERT INTO appointments (customer_name, customer_phone, service_id, requested_date, requested_time_start, requested_time_end, notes, total_people, estimated_duration, is_urgent, companion_names, store_id, doctor_id, workflow_status, requires_nurse_scheduling, sales_id, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
          RETURNING *`,
-      [customer_name, customer_phone, service_id, requested_date, requested_time_start, requested_time_end, notes, total_people, estimated_duration, is_urgent, companion_names, store_id, doctor_id, workflowStatus, requiresNurseScheduling]
+      [customer_name, customer_phone, service_id, requested_date, requested_time_start, requested_time_end, notes, total_people, estimated_duration, is_urgent, companion_names, store_id, doctor_id, workflowStatus, requiresNurseScheduling, sales_id, createdBy]
     );
 
     const appointment = result.rows[0];
@@ -946,7 +1014,18 @@ app.post('/api/appointments', async (req, res) => {
 app.get('/api/appointments', async (req, res) => {
   try {
     const { status, customer_name, requested_date, store_id } = req.query;
-    let query = 'SELECT a.*, s.name as service_name, s.category as service_category, s.base_duration as service_base_duration, s.requires_doctor as service_requires_doctor, s.allow_companions as service_allow_companions, s.is_active as service_is_active, st.name as store_name FROM appointments a LEFT JOIN services s ON a.service_id = s.id LEFT JOIN stores st ON a.store_id = st.id';
+    let query = `SELECT a.*, 
+      s.name as service_name, s.category as service_category, s.base_duration as service_base_duration, 
+      s.requires_doctor as service_requires_doctor, s.allow_companions as service_allow_companions, s.is_active as service_is_active, 
+      st.name as store_name,
+      COALESCE(sales_p.full_name, creator_p.full_name) as sales_name,
+      COALESCE(sales_p.username, creator_p.username) as sales_username,
+      COALESCE(sales_p.role, creator_p.role) as sales_role
+      FROM appointments a 
+      LEFT JOIN services s ON a.service_id = s.id 
+      LEFT JOIN stores st ON a.store_id = st.id
+      LEFT JOIN profiles sales_p ON a.sales_id = sales_p.id
+      LEFT JOIN profiles creator_p ON a.created_by = creator_p.id`;
     let params = [];
     const conditions = [];
 
@@ -1086,11 +1165,16 @@ app.get('/api/appointments/cancelled', async (req, res) => {
         s.category as service_category,
         s.base_duration as service_duration,
         st.name as store_name,
-        p2.full_name as doctor_name
+        p2.full_name as doctor_name,
+        COALESCE(sales_p.full_name, creator_p.full_name) as sales_name,
+        COALESCE(sales_p.username, creator_p.username) as sales_username,
+        COALESCE(sales_p.role, creator_p.role) as sales_role
       FROM appointments a
       LEFT JOIN services s ON a.service_id = s.id
       LEFT JOIN stores st ON a.store_id = st.id
       LEFT JOIN profiles p2 ON a.doctor_id = p2.id
+      LEFT JOIN profiles sales_p ON a.sales_id = sales_p.id
+      LEFT JOIN profiles creator_p ON a.created_by = creator_p.id
       WHERE a.status = 'cancelled'
     `;
     
@@ -1121,7 +1205,7 @@ app.get('/api/appointments/cancelled', async (req, res) => {
       query += ' AND ' + conditions.join(' AND ');
     }
 
-    query += ' ORDER BY a.requested_date DESC, a.created_at DESC';
+    query += ' ORDER BY COALESCE(a.cancelled_at, a.updated_at, a.created_at) DESC, a.created_at DESC';
 
     console.log('🔍 [DEBUG] 执行已取消预约查询:', {
       query,
@@ -1230,11 +1314,16 @@ app.get('/api/appointments/nurse-pending', async (req, res) => {
         s.category as service_category,
         s.base_duration as service_duration,
         st.name as store_name,
-        p2.full_name as doctor_name
+        p2.full_name as doctor_name,
+        COALESCE(sales_p.full_name, creator_p.full_name) as sales_name,
+        COALESCE(sales_p.username, creator_p.username) as sales_username,
+        COALESCE(sales_p.role, creator_p.role) as sales_role
       FROM appointments a
       LEFT JOIN services s ON a.service_id = s.id
       LEFT JOIN stores st ON a.store_id = st.id
       LEFT JOIN profiles p2 ON a.doctor_id = p2.id
+      LEFT JOIN profiles sales_p ON a.sales_id = sales_p.id
+      LEFT JOIN profiles creator_p ON a.created_by = creator_p.id
       WHERE a.workflow_status IN ('pending_nurse_assignment', 'doctor_confirmed')
         AND a.status != 'cancelled'
         AND s.category = 'nursing' -- 只显示护理服务
@@ -1244,16 +1333,17 @@ app.get('/api/appointments/nurse-pending', async (req, res) => {
     let params = [];
     const conditions = [];
 
-    // Add date range filter
-    if (requested_date_from) {
-      conditions.push(`a.requested_date >= $${params.length + 1}`);
-      params.push(requested_date_from);
-    }
-    
-    if (requested_date_to) {
-      conditions.push(`a.requested_date <= $${params.length + 1}`);
-      params.push(requested_date_to);
-    }
+    // 待排班预约不应该被日期筛选器筛选，护士长需要看到所有待排班的预约
+    // 注释掉日期过滤逻辑，因为这不符合业务逻辑
+    // if (requested_date_from) {
+    //   conditions.push(`a.requested_date >= $${params.length + 1}`);
+    //   params.push(requested_date_from);
+    // }
+    // 
+    // if (requested_date_to) {
+    //   conditions.push(`a.requested_date <= $${params.length + 1}`);
+    //   params.push(requested_date_to);
+    // }
 
     // Add store filter (head nurses can only see their store's appointments)
     if (userProfile.role === 'head_nurse') {
@@ -1985,7 +2075,7 @@ app.get('/api/profiles/nurses/available', async (req, res) => {
     
     const { store_id } = req.query;
     let query = `SELECT * FROM profiles
-     WHERE role = 'nurse'`;
+     WHERE (role = 'nurse' OR role = 'head_nurse') AND status = 'active'`;
     let params = [];
     
     if (store_id) {
@@ -1993,7 +2083,7 @@ app.get('/api/profiles/nurses/available', async (req, res) => {
       params.push(store_id);
     }
     
-    query += ` ORDER BY full_name`;
+    query += ` ORDER BY role, full_name`;
 
     console.log('🔍 [DEBUG] 护士查询SQL:', query);
     console.log('🔍 [DEBUG] 护士查询参数:', params);

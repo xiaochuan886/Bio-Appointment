@@ -95,6 +95,68 @@ export default function ScheduleDetailDialog({
                     {getStatusBadge(schedule.status)}
                   </div>
 
+                  {/* 预约人信息 */}
+                  <div className="mb-3 p-2 bg-muted/30 rounded-md">
+                    <div className="flex items-center gap-2 text-sm">
+                      <User className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-muted-foreground">预约人:</span>
+                      <span className="font-medium">
+                        {schedule.sales_name || '未指定'}
+                      </span>
+                      {schedule.sales_role && (
+                        <Badge variant="outline" className="text-xs">
+                          {schedule.sales_role === 'sales' ? '销售' : schedule.sales_role}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 客户信息 */}
+                  <div className="mb-3 p-2 bg-blue-50 rounded-md">
+                    <div className="flex items-start gap-2 text-sm mb-2">
+                      <User className="w-4 h-4 text-blue-600 mt-0.5" />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-muted-foreground">主客户:</span>
+                          <span className="font-medium text-blue-900">
+                            {schedule.customer_name || schedule.appointment?.customer_name || '未知客户'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-muted-foreground">客户数量:</span>
+                          <span className="font-medium text-blue-900">
+                            {(() => {
+                              const totalPeople = schedule.total_people || schedule.appointment?.total_people;
+                              const companionNames = schedule.companion_names || schedule.appointment?.companion_names;
+                              const companionCount = companionNames?.length || 0;
+                              const calculatedTotal = 1 + companionCount; // 主客户 + 同行客户
+                              return totalPeople || calculatedTotal;
+                            })()} 人
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {(() => {
+                      const companionNames = schedule.companion_names || schedule.appointment?.companion_names;
+                      return companionNames && companionNames.length > 0 && (
+                        <div className="flex items-start gap-2 text-sm">
+                          <User className="w-4 h-4 text-blue-600 mt-0.5" />
+                          <div className="flex-1">
+                            <span className="text-muted-foreground">同行客户:</span>
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {companionNames.map((name, index) => (
+                                <Badge key={index} variant="secondary" className="text-xs bg-blue-100 text-blue-800">
+                                  {name}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
                   {/* 时间信息 */}
                   <div className="grid grid-cols-2 gap-4 mb-3">
                     <div className="flex items-center gap-2 text-sm">
@@ -136,23 +198,7 @@ export default function ScheduleDetailDialog({
                       </div>
                     </div>
 
-                    {schedule.appointment?.companion_names && schedule.appointment.companion_names.length > 0 && (
-                      <div className="flex items-start gap-2 text-sm">
-                        <User className="w-4 h-4 text-muted-foreground mt-0.5" />
-                        <div>
-                          <span className="text-muted-foreground">同行客户:</span>
-                          <div className="ml-2 font-medium">
-                            {schedule.appointment.companion_names.map((name, index) => (
-                              <span key={index} className="inline-block mr-2 mb-1">
-                                <Badge variant="secondary" className="text-xs">
-                                  {name}
-                                </Badge>
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    )}
+
                   </div>
 
                   {/* 资源信息 */}
