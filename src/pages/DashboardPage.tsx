@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Calendar, Users, ClipboardList, Stethoscope, AlertCircle, Store as StoreIcon } from 'lucide-react';
+import { AlertCircle, Store as StoreIcon } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import clientApi from '@/services/api-client';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
+import ResourceBoard from '@/components/dashboard/ResourceBoard';
 
 export default function DashboardPage() {
   const [stats, setStats] = useState({
@@ -72,55 +71,6 @@ export default function DashboardPage() {
     }
   };
 
-  const quickActions = [
-    {
-      title: '预约发起',
-      description: '创建新的预约申请',
-      icon: Calendar,
-      link: '/sales/appointment',
-      color: 'text-primary',
-    },
-    {
-      title: '智能排班',
-      description: '管理和调度预约资源',
-      icon: ClipboardList,
-      link: '/head-nurse/schedule',
-      color: 'text-secondary',
-    },
-    {
-      title: '我的任务',
-      description: '查看和执行分配的任务',
-      icon: Users,
-      link: '/nurse/tasks',
-      color: 'text-confirmed',
-    },
-    {
-      title: '预约待办',
-      description: '处理医生预约确认',
-      icon: Stethoscope,
-      link: '/doctor/appointments',
-      color: 'text-scheduled',
-    },
-  ];
-
-  // 管理员专属快捷操作
-  const adminQuickActions = [
-    {
-      title: '门店管理',
-      description: '管理系统门店信息和营业状态',
-      icon: StoreIcon,
-      link: '/admin/stores',
-      color: 'text-orange-600',
-    },
-    {
-      title: '系统配置',
-      description: '管理系统资源和配置项',
-      icon: ClipboardList,
-      link: '/admin/config',
-      color: 'text-purple-600',
-    },
-  ];
-
   return (
     <div className="container py-8">
       <div className="mb-8">
@@ -128,11 +78,12 @@ export default function DashboardPage() {
         <p className="text-muted-foreground">Bio-Appointment智能预约调度系统</p>
       </div>
 
+      {/* 保留部分统计卡片 */}
       <div className={`grid gap-6 mb-8 ${userRole === 'super_admin' || userRole === 'admin' ? 'xl:grid-cols-6' : 'xl:grid-cols-4'}`}>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">今日预约</CardTitle>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
+            <AlertCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-primary">{stats.todayAppointments}</div>
@@ -145,7 +96,7 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">待排班</CardTitle>
-            <ClipboardList className="h-4 w-4 text-muted-foreground" />
+            <AlertCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-pending">{stats.pendingSchedules}</div>
@@ -167,7 +118,7 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">进行中任务</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
+            <AlertCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-confirmed">{stats.activeTasks}</div>
@@ -203,53 +154,8 @@ export default function DashboardPage() {
         )}
       </div>
 
-      <div>
-        <h2 className="text-2xl font-bold mb-4">快捷入口</h2>
-        <div className={`grid gap-6 ${userRole === 'super_admin' || userRole === 'admin' ? 'xl:grid-cols-3' : 'xl:grid-cols-2'}`}>
-          {quickActions.map((action) => (
-            <Card key={action.link} className="hover:shadow-lg transition-shadow">
-              <CardHeader>
-                <div className="flex items-center gap-4">
-                  <div className={`p-3 rounded-lg bg-muted ${action.color}`}>
-                    <action.icon className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <CardTitle>{action.title}</CardTitle>
-                    <CardDescription>{action.description}</CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <Link to={action.link}>
-                  <Button className="w-full">进入</Button>
-                </Link>
-              </CardContent>
-            </Card>
-          ))}
-          
-          {/* 管理员专属快捷操作 */}
-          {(userRole === 'super_admin' || userRole === 'admin') && adminQuickActions.map((action) => (
-            <Card key={action.link} className="hover:shadow-lg transition-shadow">
-              <CardHeader>
-                <div className="flex items-center gap-4">
-                  <div className={`p-3 rounded-lg bg-muted ${action.color}`}>
-                    <action.icon className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <CardTitle>{action.title}</CardTitle>
-                    <CardDescription>{action.description}</CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <Link to={action.link}>
-                  <Button className="w-full">进入</Button>
-                </Link>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
+      {/* 资源看板 - 替代快捷入口 */}
+      <ResourceBoard />
     </div>
   );
 }

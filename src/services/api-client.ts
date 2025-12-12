@@ -220,6 +220,9 @@ export interface Schedule {
     total_people?: number;
     is_urgent?: boolean;
     store_id?: string;
+    sales_name?: string;
+    sales_username?: string;
+    sales_role?: string;
     store?: {
       id: string;
       name: string;
@@ -357,6 +360,23 @@ export const clientApi = {
     }
     const query = params.toString() ? `?${params.toString()}` : '';
     return authenticatedApiCall(`/appointments/doctor-pending${query}`);
+  },
+
+  async getDoctorSchedules(filters?: {
+    start_date?: string;
+    end_date?: string;
+    date?: string;
+  }): Promise<Schedule[]> {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          params.append(key, String(value));
+        }
+      });
+    }
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return authenticatedApiCall(`/schedules/doctor${query}`);
   },
 
   async doctorConfirmAppointment(id: string, data: {

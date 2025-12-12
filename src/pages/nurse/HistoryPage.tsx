@@ -36,8 +36,13 @@ import clientApi from '@/services/api-client';
 import type { Schedule, Appointment } from '@/services/api-client';
 import StatusBadge from '@/components/appointment/StatusBadge';
 import { useAuth } from '@/contexts/AuthContext';
-// 护士历史页面不需要门店权限检查，只查看分配给护士本人的任务
+import { 
+  canViewAllTaskHistory, 
+  canChooseTaskHistoryScope, 
+  getTaskHistoryFilters 
+} from '@/utils/permissions';
 import { handleApiError } from '@/utils/validation';
+import { formatDate, formatDateChinese, formatDateShort, formatMonth } from '@/utils/dateFormat';
 
 // 扩展Schedule接口以包含完整的预约信息
 interface ScheduleWithAppointment extends Schedule {
@@ -47,9 +52,13 @@ interface ScheduleWithAppointment extends Schedule {
 interface TaskDetail {
   schedule: ScheduleWithAppointment;
   customerName: string;
+  companionNames?: string[];
+  salesName?: string;
+  totalPeople: number;
   serviceName: string;
   roomName: string;
   storeName?: string;
+  executorName?: string;
   timeStart: string;
   timeEnd: string;
   status: string;
@@ -88,6 +97,14 @@ export default function NurseHistoryPage() {
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [statistics, setStatistics] = useState<StatisticsData | null>(null);
   const [activeTab, setActiveTab] = useState('list');
+  
+  // 新增：数据范围选择（仅护士长可用）
+  const [dataScope, setDataScope] = useState<'self' | 'store'>('self');
+  
+  // 检查用户权限
+  const userProfile = user?.profile;
+  const canViewAllData = canViewAllTaskHistory(userProfile);
+  const canChooseScope = canChooseTaskHistoryScope(userProfile);
 
   // 默认显示最近30天的数据
   useEffect(() => {
@@ -100,7 +117,7 @@ export default function NurseHistoryPage() {
     if (dateRange) {
       loadTasks();
     }
-  }, [dateRange, user]);
+  }, [dateRange, user, dataScope]);
 
   // 过滤和排序任务
   useEffect(() => {
@@ -172,10 +189,16 @@ export default function NurseHistoryPage() {
         end_date: format(dateRange.end, 'yyyy-MM-dd')
       };
 
-      // 护士历史页面只查看分配给当前护士的任务，不考虑门店限制
-      // 因为护士可能临时支援其他门店
-      if (user.profile?.id) {
-        params.nurse_id = user.profile.id;
+      // 根据用户角色和选择的数据范围设置筛选参数
+      if (canViewAllData) {
+        // 管理员不设置筛选条件
+      } else if (canChooseScope && dataScope === 'store') {
+        // 护士长查看门店任务时，不在API层筛选，而是获取更多数据在前端筛选
+        // 这样可以确保包含所有可能相关的任务
+      } else {
+        // 其他情况使用标准筛选
+        const filters = getTaskHistoryFilters(userProfile, dataScope);
+        Object.assign(params, filters);
       }
 
       const schedulesData = await clientApi.getSchedules(params);
@@ -203,13 +226,34 @@ export default function NurseHistoryPage() {
       
       // 过滤并验证排班数据
       const validSchedules = schedulesWithAppointment.filter(schedule => {
-        // 护士历史页面应该只显示分配给当前护士的任务
-        // 服务端API已经根据nurse_id筛选了数据，这里只需要基本验证
-        
         // 确保排班有关联的预约
         if (!schedule.appointment_id) {
           console.warn('排班缺少关联预约:', schedule.id);
           return false;
+        }
+        
+        // 根据用户权限进行额外的客户端筛选
+        if (canViewAllData) {
+          // 管理员可以查看所有数据
+          return true;
+        } else if (canChooseScope) {
+          // 护士长根据选择的范围筛选
+          if (dataScope === 'self') {
+            return schedule.nurse_id === user.profile?.id;
+          } else if (dataScope === 'store') {
+            // 门店任务：检查排班门店ID或预约门店ID是否匹配
+            const userStoreId = user.profile?.store_id;
+            const scheduleStoreId = schedule.store_id;
+            const appointmentStoreId = schedule.appointment?.store_id || schedule.fullAppointment?.store_id;
+            
+            return userStoreId && (
+              scheduleStoreId === userStoreId || 
+              appointmentStoreId === userStoreId
+            );
+          }
+        } else {
+          // 普通护士只能查看自己的任务
+          return schedule.nurse_id === user.profile?.id;
         }
         
         return true;
@@ -282,10 +326,9 @@ export default function NurseHistoryPage() {
     // 按日期分组（最近7天）
     const dailyCompletion = Array.from({ length: 7 }, (_, i) => {
       const date = subDays(new Date(), 6 - i);
-      const dateStr = format(date, 'MM/dd');
+      const dateStr = formatDateShort(date);
       const dayTasks = filteredTasks.filter(task => {
-        const taskDate = parseISO(task.scheduled_date);
-        return format(taskDate, 'MM/dd') === dateStr;
+        return formatDateShort(task.scheduled_date) === dateStr;
       });
       const dayCompleted = dayTasks.filter(t => t.status === 'completed').length;
       
@@ -299,10 +342,9 @@ export default function NurseHistoryPage() {
     // 按月分组（最近6个月）
     const monthlyTrend = Array.from({ length: 6 }, (_, i) => {
       const date = subMonths(new Date(), 5 - i);
-      const monthStr = format(date, 'yyyy/MM');
+      const monthStr = formatMonth(date);
       const monthTasks = filteredTasks.filter(task => {
-        const taskDate = parseISO(task.scheduled_date);
-        return format(taskDate, 'yyyy/MM') === monthStr;
+        return formatMonth(task.scheduled_date) === monthStr;
       });
       const monthCompleted = monthTasks.filter(t => t.status === 'completed').length;
       const monthCompletionRate = monthTasks.length > 0 ? (monthCompleted / monthTasks.length) * 100 : 0;
@@ -354,10 +396,14 @@ export default function NurseHistoryPage() {
   const handleTaskClick = (task: ScheduleWithAppointment) => {
     const detail: TaskDetail = {
       schedule: task,
-      customerName: task.appointment?.customer_name || task.fullAppointment?.customer_name || '未知客户',
-      serviceName: task.fullAppointment?.service?.name || '未知服务',
+      customerName: task.appointment?.customer_name || task.fullAppointment?.customer_name || task.customer_name || '未知客户',
+      companionNames: task.companion_names || task.appointment?.companion_names || task.fullAppointment?.companion_names,
+      salesName: task.sales_name || task.appointment?.sales_name || task.fullAppointment?.sales_name,
+      totalPeople: task.total_people || task.appointment?.total_people || task.fullAppointment?.total_people || 1,
+      serviceName: task.fullAppointment?.service?.name || task.service_name || '未知服务',
       roomName: task.room?.name || '未分配房间',
       storeName: task.appointment?.store?.name || task.fullAppointment?.store?.name,
+      executorName: (task as any).nurse?.name || (task as any).nurse_name,
       timeStart: task.scheduled_time_start,
       timeEnd: task.scheduled_time_end,
       status: task.status || 'scheduled',
@@ -388,16 +434,20 @@ export default function NurseHistoryPage() {
 
     // 准备CSV数据
     const headers = [
-      '日期', '客户姓名', '服务项目', '房间', '门店', 
+      '日期', '主客户', '同行客户', '预约人', '总人数', '服务项目', '房间', '门店', '执行人',
       '开始时间', '结束时间', '状态', '实际时长(分钟)', '超时(分钟)'
     ];
     
     const csvData = filteredTasks.map(task => [
-      task.scheduled_date,
-      task.appointment?.customer_name || task.fullAppointment?.customer_name || '未知客户',
-      task.fullAppointment?.service?.name || '未知服务',
+      formatDate(task.scheduled_date),
+      task.appointment?.customer_name || task.fullAppointment?.customer_name || task.customer_name || '未知客户',
+      (task.companion_names || task.appointment?.companion_names || task.fullAppointment?.companion_names || []).join(', ') || '',
+      (task as any).sales_name || task.appointment?.sales_name || (task as any).fullAppointment?.sales_name || '',
+      (task.total_people || task.appointment?.total_people || task.fullAppointment?.total_people || 1).toString(),
+      (task as any).fullAppointment?.service?.name || (task as any).service_name || '未知服务',
       task.room?.name || '未分配房间',
       task.appointment?.store?.name || task.fullAppointment?.store?.name || '',
+      (task as any).nurse?.name || (task as any).nurse_name || '未分配',
       task.scheduled_time_start,
       task.scheduled_time_end,
       getStatusDisplayName(task.status || ''),
@@ -468,7 +518,12 @@ export default function NurseHistoryPage() {
           <div>
             <h1 className="text-3xl font-bold mb-2">任务历史</h1>
             <p className="text-muted-foreground">
-              查看和分析您的历史任务记录
+              {canViewAllData 
+                ? '查看和分析所有历史任务记录' 
+                : canChooseScope 
+                  ? `查看和分析${dataScope === 'self' ? '您的' : '门店的'}历史任务记录`
+                  : '查看和分析您的历史任务记录'
+              }
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -496,6 +551,22 @@ export default function NurseHistoryPage() {
         <Card className="mb-6">
           <CardContent className="p-4">
             <div className="flex flex-col lg:flex-row gap-4">
+              {/* 数据范围选择（仅护士长可见） */}
+              {canChooseScope && (
+                <div className="flex items-center gap-2">
+                  <Select value={dataScope} onValueChange={(value: 'self' | 'store') => setDataScope(value)}>
+                    <SelectTrigger className="w-40">
+                      <User className="h-4 w-4 mr-2" />
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="self">我的任务</SelectItem>
+                      <SelectItem value="store">门店任务</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              
               {/* 日期范围选择 */}
               <div className="flex items-center gap-2">
                 <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
@@ -724,9 +795,12 @@ export default function NurseHistoryPage() {
                         <TableRow>
                           <TableHead>日期</TableHead>
                           <TableHead>客户</TableHead>
+                          <TableHead>预约人</TableHead>
+                          <TableHead>人数</TableHead>
                           <TableHead>服务项目</TableHead>
                           <TableHead>房间</TableHead>
                           <TableHead>门店</TableHead>
+                          <TableHead>执行人</TableHead>
                           <TableHead>时间</TableHead>
                           <TableHead>状态</TableHead>
                           <TableHead>操作</TableHead>
@@ -735,13 +809,30 @@ export default function NurseHistoryPage() {
                       <TableBody>
                         {filteredTasks.map((task) => (
                           <TableRow key={task.id} className="cursor-pointer hover:bg-muted/50">
-                            <TableCell>{task.scheduled_date}</TableCell>
+                            <TableCell>{formatDate(task.scheduled_date)}</TableCell>
                             <TableCell className="font-medium">
-                              {task.appointment?.customer_name || task.fullAppointment?.customer_name || '未知客户'}
+                              <div>
+                                <div>{task.appointment?.customer_name || task.fullAppointment?.customer_name || task.customer_name || '未知客户'}</div>
+                                {(task.companion_names || task.appointment?.companion_names || task.fullAppointment?.companion_names) && 
+                                 (task.companion_names || task.appointment?.companion_names || task.fullAppointment?.companion_names || []).length > 0 && (
+                                  <div className="text-xs text-muted-foreground">
+                                    +{(task.companion_names || task.appointment?.companion_names || task.fullAppointment?.companion_names || []).join(', ')}
+                                  </div>
+                                )}
+                              </div>
                             </TableCell>
-                            <TableCell>{task.fullAppointment?.service?.name || '未知服务'}</TableCell>
+                            <TableCell className="text-sm">
+                              {(task as any).sales_name || task.appointment?.sales_name || (task as any).fullAppointment?.sales_name || '-'}
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {task.total_people || task.appointment?.total_people || task.fullAppointment?.total_people || 1} 人
+                            </TableCell>
+                            <TableCell>{(task as any).fullAppointment?.service?.name || (task as any).service_name || '未知服务'}</TableCell>
                             <TableCell>{task.room?.name || '未分配'}</TableCell>
                             <TableCell>{task.appointment?.store?.name || task.fullAppointment?.store?.name || '-'}</TableCell>
+                            <TableCell className="font-medium">
+                              {(task as any).nurse?.name || (task as any).nurse_name || (task.nurse_id ? `护士 #${task.nurse_id.substring(0, 8)}` : '未分配')}
+                            </TableCell>
                             <TableCell>
                               {task.scheduled_time_start?.substring(0, 5)} - {task.scheduled_time_end?.substring(0, 5)}
                             </TableCell>
@@ -906,17 +997,43 @@ export default function NurseHistoryPage() {
           <DialogHeader>
             <DialogTitle>任务详情</DialogTitle>
             <DialogDescription>
-              {selectedTask && format(parseISO(selectedTask.schedule.scheduled_date), 'yyyy年MM月dd日', { locale: zhCN })}
+              {selectedTask && formatDateChinese(selectedTask.schedule.scheduled_date)}
             </DialogDescription>
           </DialogHeader>
           
           {selectedTask && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <span className="text-sm text-muted-foreground">客户姓名</span>
-                  <p className="font-medium">{selectedTask.customerName}</p>
+              {/* 预约人信息 */}
+              {selectedTask.salesName && (
+                <div className="bg-muted/50 p-3 rounded-lg">
+                  <span className="text-sm text-muted-foreground">预约人</span>
+                  <p className="font-medium">{selectedTask.salesName}</p>
                 </div>
+              )}
+              
+              {/* 客户明细 */}
+              <div className="bg-blue-50 p-3 rounded-lg">
+                <h4 className="text-sm font-medium text-muted-foreground mb-2">客户明细</h4>
+                <div className="space-y-2">
+                  <div>
+                    <span className="text-sm text-muted-foreground">主客户：</span>
+                    <span className="font-medium ml-2">{selectedTask.customerName}</span>
+                  </div>
+                  {selectedTask.companionNames && selectedTask.companionNames.length > 0 && (
+                    <div>
+                      <span className="text-sm text-muted-foreground">同行客户：</span>
+                      <span className="font-medium ml-2">{selectedTask.companionNames.join(', ')}</span>
+                    </div>
+                  )}
+                  <div>
+                    <span className="text-sm text-muted-foreground">总人数：</span>
+                    <span className="font-medium ml-2">{selectedTask.totalPeople} 人</span>
+                  </div>
+                </div>
+              </div>
+              
+              {/* 服务信息 */}
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <span className="text-sm text-muted-foreground">服务项目</span>
                   <p className="font-medium">{selectedTask.serviceName}</p>
@@ -930,6 +1047,10 @@ export default function NurseHistoryPage() {
                 <div>
                   <span className="text-sm text-muted-foreground">服务房间</span>
                   <p className="font-medium">{selectedTask.roomName}</p>
+                </div>
+                <div>
+                  <span className="text-sm text-muted-foreground">执行人</span>
+                  <p className="font-medium">{selectedTask.executorName || '未分配'}</p>
                 </div>
                 <div>
                   <span className="text-sm text-muted-foreground">状态</span>

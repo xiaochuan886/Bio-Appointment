@@ -126,6 +126,7 @@ export default function NurseSchedulePage() {
         return true;
       });
       
+      // 直接使用后端返回的真实数据，不再添加模拟数据
       setSchedules(validSchedules);
     } catch (error) {
       const errorMessage = handleApiError(error, '加载排班');
@@ -203,8 +204,8 @@ export default function NurseSchedulePage() {
   const handleScheduleClick = (schedule: ScheduleWithAppointment) => {
     const detail: ScheduleDetail = {
       schedule,
-      customerName: schedule.appointment?.customer_name || schedule.fullAppointment?.customer_name || '未知客户',
-      serviceName: schedule.fullAppointment?.service?.name || '未知服务',
+      customerName: schedule.appointment?.customer_name || schedule.fullAppointment?.customer_name || (schedule as any).customer_name || '未知客户',
+      serviceName: schedule.fullAppointment?.service?.name || (schedule as any).service_name || '未知服务',
       roomName: schedule.room?.name || '未分配房间',
       storeName: schedule.appointment?.store?.name || schedule.fullAppointment?.store?.name,
       timeStart: schedule.scheduled_time_start,
@@ -293,26 +294,59 @@ export default function NurseSchedulePage() {
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-lg">
-                      {schedule.appointment?.customer_name || '未知客户'}
+                      {schedule.appointment?.customer_name || schedule.fullAppointment?.customer_name || (schedule as any).customer_name || '未知客户'}
                     </CardTitle>
                     <StatusBadge status={schedule.status as any} />
                   </div>
-                  <CardDescription>{schedule.fullAppointment?.service?.name || '未知服务'}</CardDescription>
+                  <CardDescription>{(schedule as any).fullAppointment?.service?.name || (schedule as any).service_name || '未知服务'}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-muted-foreground" />
-                      <span>{schedule.scheduled_time_start.substring(0, 5)} - {schedule.scheduled_time_end.substring(0, 5)}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <MapPin className="h-4 w-4 text-muted-foreground" />
-                      <span>{schedule.room?.name || '未分配房间'}</span>
-                    </div>
-                    {schedule.appointment?.store && (
-                      <div className="flex items-center gap-2 col-span-2">
+                  <div className="space-y-3">
+                    {/* 时间和房间信息 */}
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-muted-foreground" />
+                        <span>{schedule.scheduled_time_start.substring(0, 5)} - {schedule.scheduled_time_end.substring(0, 5)}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
                         <MapPin className="h-4 w-4 text-muted-foreground" />
-                        <span>{schedule.appointment.store.name}</span>
+                        <span>{schedule.room?.name || '未分配房间'}</span>
+                      </div>
+                    </div>
+                    
+                    {/* 预约人信息 */}
+                    {(schedule.appointment?.sales_name || schedule.fullAppointment?.sales_name) && (
+                      <div className="text-sm">
+                        <span className="text-muted-foreground">预约人：</span>
+                        <span className="font-medium">
+                          {schedule.appointment?.sales_name || schedule.fullAppointment?.sales_name}
+                        </span>
+                      </div>
+                    )}
+                    
+                    {/* 客户明细 */}
+                    <div className="text-sm space-y-1">
+                      {(schedule as any).companion_names && (schedule as any).companion_names.length > 0 && (
+                        <div>
+                          <span className="text-muted-foreground">同行：</span>
+                          <span className="font-medium">{(schedule as any).companion_names.join(', ')}</span>
+                        </div>
+                      )}
+                      <div>
+                        <span className="text-muted-foreground">总人数：</span>
+                        <span className="font-medium">
+                          {(schedule as any).total_people || schedule.appointment?.total_people || schedule.fullAppointment?.total_people || 1} 人
+                        </span>
+                      </div>
+                    </div>
+                    
+                    {/* 门店信息 */}
+                    {(schedule.appointment?.store || schedule.fullAppointment?.store) && (
+                      <div className="text-sm">
+                        <span className="text-muted-foreground">门店：</span>
+                        <span className="font-medium">
+                          {schedule.appointment?.store?.name || schedule.fullAppointment?.store?.name}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -681,11 +715,43 @@ export default function NurseSchedulePage() {
           
           {selectedSchedule && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <span className="text-sm text-muted-foreground">客户姓名</span>
-                  <p className="font-medium">{selectedSchedule.customerName}</p>
+              {/* 预约人信息 */}
+              {(selectedSchedule.schedule.appointment?.sales_name || 
+                selectedSchedule.schedule.fullAppointment?.sales_name) && (
+                <div className="bg-muted/50 p-3 rounded-lg">
+                  <span className="text-sm text-muted-foreground">预约人</span>
+                  <p className="font-medium">
+                    {selectedSchedule.schedule.appointment?.sales_name || 
+                     selectedSchedule.schedule.fullAppointment?.sales_name}
+                  </p>
                 </div>
+              )}
+              
+              {/* 客户明细 */}
+              <div className="bg-blue-50 p-3 rounded-lg">
+                <h4 className="text-sm font-medium text-muted-foreground mb-2">客户明细</h4>
+                <div className="space-y-2">
+                  <div>
+                    <span className="text-sm text-muted-foreground">主客户：</span>
+                    <span className="font-medium ml-2">{selectedSchedule.customerName}</span>
+                  </div>
+                  {(selectedSchedule.schedule as any).companion_names && (selectedSchedule.schedule as any).companion_names.length > 0 && (
+                    <div>
+                      <span className="text-sm text-muted-foreground">同行客户：</span>
+                      <span className="font-medium ml-2">{(selectedSchedule.schedule as any).companion_names.join(', ')}</span>
+                    </div>
+                  )}
+                  <div>
+                    <span className="text-sm text-muted-foreground">总人数：</span>
+                    <span className="font-medium ml-2">
+                      {(selectedSchedule.schedule as any).total_people || selectedSchedule.schedule.appointment?.total_people || (selectedSchedule.schedule as any).fullAppointment?.total_people || 1} 人
+                    </span>
+                  </div>
+                </div>
+              </div>
+              
+              {/* 服务信息 */}
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <span className="text-sm text-muted-foreground">服务项目</span>
                   <p className="font-medium">{selectedSchedule.serviceName}</p>

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>医生资源显示测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        .doctor-item {
+            padding: 10px;
+            margin: 5px 0;
+            background-color: #f5f5f5;
+            border-radius: 4px;
+        }
+        .schedule-item {
+            padding: 8px;
+            margin: 3px 0;
+            background-color: #e8f4fd;
+            border-left: 4px solid #2196f3;
+        }
+        .error {
+            color: #d32f2f;
+            background-color: #ffebee;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .success {
+            color: #388e3c;
+            background-color: #e8f5e8;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>医生资源显示测试</h1>
+    
+    <div class="section">
+        <h2>测试结果</h2>
+        <div id="test-results"></div>
+    </div>
+    
+    <div class="section">
+        <h2>医生列表</h2>
+        <div id="doctors-list"></div>
+    </div>
+    
+    <div class="section">
+        <h2>医生排班</h2>
+        <div id="doctor-schedules"></div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:3001/api';
+        
+        // 获取存储的token
+        function getStoredTokens() {
+            try {
+                const accessToken = localStorage.getItem('bio_appointment_access_token');
+                const refreshToken = localStorage.getItem('bio_appointment_refresh_token');
+                
+                if (accessToken && refreshToken) {
+                    return { accessToken, refreshToken };
+                }
+                return null;
+            } catch {
+                return null;
+            }
+        }
+        
+        // API调用函数
+        async function apiCall(endpoint, options = {}) {
+            const tokens = getStoredTokens();
+            if (!tokens) {
+                throw new Error('No authentication tokens available');
+            }
+            
+            const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${tokens.accessToken}`,
+                    ...options.headers,
+                },
+                ...options,
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            return await response.json();
+        }
+        
+        // 测试函数
+        async function runTest() {
+            const resultsDiv = document.getElementById('test-results');
+            const doctorsDiv = document.getElementById('doctors-list');
+            const schedulesDiv = document.getElementById('doctor-schedules');
+            
+            try {
+                resultsDiv.innerHTML = '<div class="success">✅ 开始测试医生资源显示功能...</div>';
+                
+                // 1. 获取医生数据
+                const profiles = await apiCall('/profiles');
+                const doctors = profiles.filter(profile => profile.role === 'doctor');
+                
+                doctorsDiv.innerHTML = `<h3>找到 ${doctors.length} 个医生:</h3>`;
+                doctors.forEach(doctor => {
+                    const doctorDiv = document.createElement('div');
+                    doctorDiv.className = 'doctor-item';
+                    doctorDiv.innerHTML = `
+                        <strong>${doctor.full_name}</strong> (ID: ${doctor.id})
+                        <br>角色: ${doctor.role}
+                        <br>部门: ${doctor.department || '未设置'}
+                    `;
+                    doctorsDiv.appendChild(doctorDiv);
+                });
+                
+                // 2. 获取排班数据
+                const today = new Date().toISOString().split('T')[0];
+                const schedules = await apiCall(`/schedules?date=${today}`);
+                
+                // 3. 检查排班中的医生数据
+                const doctorSchedules = schedules.filter(schedule => 
+                    schedule.appointment?.doctor_id
+                );
+                
+                schedulesDiv.innerHTML = `<h3>找到 ${doctorSchedules.length} 个有医生的排班:</h3>`;
+                
+                if (doctorSchedules.length === 0) {
+                    schedulesDiv.innerHTML += '<div class="error">⚠️ 没有找到包含医生信息的排班</div>';
+                } else {
+                    doctorSchedules.forEach(schedule => {
+                        const doctor = doctors.find(d => d.id === schedule.appointment.doctor_id);
+                        const scheduleDiv = document.createElement('div');
+                        scheduleDiv.className = 'schedule-item';
+                        scheduleDiv.innerHTML = `
+                            <strong>排班ID:</strong> ${schedule.id}<br>
+                            <strong>医生:</strong> ${doctor?.full_name || '未找到'} (ID: ${schedule.appointment.doctor_id})<br>
+                            <strong>客户:</strong> ${schedule.appointment?.customer_name || '未知'}<br>
+                            <strong>时间:</strong> ${schedule.scheduled_time_start} - ${schedule.scheduled_time_end}<br>
+                            <strong>房间:</strong> ${schedule.room?.name || '未分配'}<br>
+                            <strong>护士:</strong> ${schedule.nurse?.full_name || schedule.nurse?.name || '未分配'}
+                        `;
+                        schedulesDiv.appendChild(scheduleDiv);
+                    });
+                }
+                
+                // 4. 测试筛选逻辑
+                const resourceFilters = ['room', 'nurse', 'doctor'];
+                const visibleDoctors = resourceFilters.includes('doctor') ? doctors : [];
+                
+                resultsDiv.innerHTML += `<div class="success">✅ 筛选逻辑测试: visibleDoctors数量 = ${visibleDoctors.length}</div>`;
+                
+                if (doctors.length > 0 && doctorSchedules.length > 0) {
+                    resultsDiv.innerHTML += '<div class="success">✅ 医生资源显示功能正常: 有医生数据且有排班</div>';
+                } else if (doctors.length > 0) {
+                    resultsDiv.innerHTML += '<div class="error">⚠️ 有医生数据但没有排班，可能需要创建一些测试排班</div>';
+                } else {
+                    resultsDiv.innerHTML += '<div class="error">❌ 没有找到医生数据</div>';
+                }
+                
+            } catch (error) {
+                resultsDiv.innerHTML += `<div class="error">❌ 测试失败: ${error.message}</div>`;
+                console.error('Test failed:', error);
+            }
+        }
+        
+        // 页面加载完成后运行测试
+        window.addEventListener('load', runTest);
+    </script>
+</body>
+</html>

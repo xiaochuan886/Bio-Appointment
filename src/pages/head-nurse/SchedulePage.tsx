@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
+import { formatDate } from '@/utils/dateFormat';
 import { AlertCircle, Clock, Users, Calendar, MapPin, Pencil, X, Trash2, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -736,7 +737,7 @@ export default function HeadNurseSchedulePage() {
                         <div className="text-sm text-gray-600 space-y-1">
                           <div>预约人: {appointment.sales_name || '未指定'}</div>
                           <div>服务: {appointment.service_name}</div>
-                          <div>预约时间: {appointment.requested_date} {appointment.requested_time_start}</div>
+                          <div>预约时间: {formatDate(appointment.requested_date)} {appointment.requested_time_start}</div>
                           <div>预计时长: {appointment.estimated_duration || appointment.service_duration || 30}分钟</div>
                           <div>客户数量: {appointment.total_people || (appointment.companion_names?.length ? appointment.companion_names.length + 1 : 1)}人</div>
                           {appointment.companion_names && appointment.companion_names.length > 0 && (

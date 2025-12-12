@@ -747,7 +747,14 @@ app.get('/api/schedules', async (req, res) => {
     }
     
     // 只有管理员可以按门店ID筛选
-    if (store_id && userProfile.role === 'super_admin') {
+    if (store_id && (userProfile.role === 'super_admin' || userProfile.role === 'head_nurse')) {
+      // 护士长只能筛选自己的门店
+      if (userProfile.role === 'head_nurse' && store_id !== userProfile.store_id) {
+        return res.status(403).json({
+          error: 'Access denied',
+          message: '护士长只能查看自己门店的数据'
+        });
+      }
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       if (uuidRegex.test(store_id)) {
         // UUID格式：使用UUID比较
@@ -790,10 +797,15 @@ app.get('/api/schedules', async (req, res) => {
         appointment: row.appointment_id ? {
           id: row.appointment_id,
           customer_name: row.customer_name,
+          companion_names: row.companion_names,
+          total_people: row.total_people,
           service_id: row.service_id,
           estimated_duration: row.estimated_duration,
           is_urgent: row.is_urgent,
           store_id: row.appointment_store_id,
+          sales_name: row.sales_name,
+          sales_username: row.sales_username,
+          sales_role: row.sales_role,
           service: row.service_id ? {
             id: row.service_id,
             name: row.service_name,
@@ -820,6 +832,206 @@ app.get('/api/schedules', async (req, res) => {
     console.error('Failed to fetch schedules:', error);
     res.status(500).json({
       error: 'Failed to fetch schedules',
+      message: error.message
+    });
+  }
+});
+
+// Get doctor schedules - 专门为医生设计的排班查询
+app.get('/api/schedules/doctor', async (req, res) => {
+  try {
+    // 获取用户信息进行权限验证
+    const user = await getUserFromToken(req);
+    if (!user) {
+      return res.status(401).json({
+        error: 'Authentication required',
+        message: '请先登录以访问排班数据'
+      });
+    }
+
+    // 获取用户详细信息
+    let userResult;
+    if (user && user.userId) {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(user.userId)) {
+        userResult = await pool.query(
+          'SELECT id, role, store_id FROM profiles WHERE id = $1',
+          [user.userId]
+        );
+      } else {
+        userResult = { rows: [{ id: user.userId, role: user.role, store_id: null }] };
+      }
+    }
+
+    if (userResult.rows.length === 0) {
+      return res.status(401).json({
+        error: 'User not found',
+        message: '用户不存在'
+      });
+    }
+
+    const userProfile = userResult.rows[0];
+
+    // 检查权限：只有医生和管理员可以访问
+    if (userProfile.role !== 'doctor' && userProfile.role !== 'super_admin') {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: '只有医生可以访问此端点'
+      });
+    }
+
+    // 医生必须有门店ID
+    if (userProfile.role === 'doctor' && !userProfile.store_id) {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: '医生账户未分配门店，请联系管理员配置门店信息'
+      });
+    }
+
+    const { date, start_date, end_date } = req.query;
+    
+    console.log('🔍 [DEBUG] 医生排班查询参数:', { date, start_date, end_date, doctorId: userProfile.id });
+    
+    // 日期格式验证
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (date && !dateRegex.test(date)) {
+      return res.status(400).json({
+        error: 'Invalid date format',
+        message: '日期格式无效，请使用YYYY-MM-DD格式'
+      });
+    }
+    if (start_date && !dateRegex.test(start_date)) {
+      return res.status(400).json({
+        error: 'Invalid start_date format',
+        message: '开始日期格式无效，请使用YYYY-MM-DD格式'
+      });
+    }
+    if (end_date && !dateRegex.test(end_date)) {
+      return res.status(400).json({
+        error: 'Invalid end_date format',
+        message: '结束日期格式无效，请使用YYYY-MM-DD格式'
+      });
+    }
+    
+    // 构建查询 - 专门查询医生相关的排班
+    let query = `
+      SELECT
+        s.*,
+        a.customer_name,
+        a.companion_names,
+        a.total_people,
+        a.service_id,
+        a.estimated_duration,
+        a.is_urgent,
+        a.doctor_id,
+        a.store_id as appointment_store_id,
+        srv.name as service_name,
+        srv.category as service_category,
+        r.name as room_name,
+        r.type as room_type,
+        r.status as room_status,
+        COALESCE(sales_p.full_name, creator_p.full_name) as sales_name,
+        COALESCE(sales_p.username, creator_p.username) as sales_username,
+        COALESCE(sales_p.role, creator_p.role) as sales_role
+      FROM schedules s
+      INNER JOIN appointments a ON s.appointment_id = a.id
+      LEFT JOIN services srv ON a.service_id = srv.id
+      LEFT JOIN resources r ON s.room_id = r.id
+      LEFT JOIN profiles sales_p ON a.sales_id = sales_p.id
+      LEFT JOIN profiles creator_p ON a.created_by = creator_p.id
+      WHERE srv.category IN ('consultation', 'report')
+        AND s.status != 'cancelled'
+    `;
+    
+    let params = [];
+    const conditions = [];
+
+    // 医生只能查看自己的排班
+    if (userProfile.role === 'doctor') {
+      conditions.push(`(s.doctor_id = $${params.length + 1} OR a.doctor_id = $${params.length + 1})`);
+      params.push(userProfile.id);
+      
+      // 同时按门店过滤
+      conditions.push(`a.store_id = $${params.length + 1}`);
+      params.push(userProfile.store_id);
+    }
+
+    // 构建日期条件
+    if (date) {
+      conditions.push(`DATE(s.scheduled_date) = $${params.length + 1}`);
+      params.push(date);
+    } else if (start_date && end_date) {
+      conditions.push(`DATE(s.scheduled_date) >= $${params.length + 1}`);
+      params.push(start_date);
+      conditions.push(`DATE(s.scheduled_date) <= $${params.length + 1}`);
+      params.push(end_date);
+    } else if (start_date) {
+      conditions.push(`DATE(s.scheduled_date) >= $${params.length + 1}`);
+      params.push(start_date);
+    } else if (end_date) {
+      conditions.push(`DATE(s.scheduled_date) <= $${params.length + 1}`);
+      params.push(end_date);
+    }
+
+    // 如果有条件，添加WHERE子句
+    if (conditions.length > 0) {
+      query += ` AND ${conditions.join(' AND ')}`;
+    }
+
+    query += ` ORDER BY s.scheduled_date, s.scheduled_time_start`;
+
+    console.log('🔍 [DEBUG] 医生排班查询SQL:', query);
+    console.log('🔍 [DEBUG] 医生排班查询参数:', params);
+
+    const result = await pool.query(query, params);
+    console.log('🔍 [DEBUG] 返回医生排班数量:', result.rows.length);
+    
+    // 转换数据格式
+    const schedules = result.rows.map(row => {
+      // 推断房间类型
+      let room_type = 'consultation'; // 医生服务默认为咨询室
+      if (row.room_name && row.room_name.includes('VIP')) {
+        room_type = 'vip';
+      } else if (row.room_name && row.room_name.includes('治疗')) {
+        room_type = 'treatment';
+      }
+
+      return {
+        ...row,
+        room_type: room_type,
+        appointment: row.appointment_id ? {
+          id: row.appointment_id,
+          customer_name: row.customer_name,
+          companion_names: row.companion_names,
+          total_people: row.total_people,
+          service_id: row.service_id,
+          estimated_duration: row.estimated_duration,
+          is_urgent: row.is_urgent,
+          doctor_id: row.doctor_id,
+          store_id: row.appointment_store_id,
+          sales_name: row.sales_name,
+          sales_username: row.sales_username,
+          sales_role: row.sales_role,
+          service: row.service_id ? {
+            id: row.service_id,
+            name: row.service_name,
+            category: row.service_category
+          } : null
+        } : null,
+        room: row.room_id ? {
+          id: row.room_id,
+          name: row.room_name,
+          type: room_type,
+          status: row.room_status
+        } : null
+      };
+    });
+
+    res.json(schedules);
+  } catch (error) {
+    console.error('Failed to fetch doctor schedules:', error);
+    res.status(500).json({
+      error: 'Failed to fetch doctor schedules',
       message: error.message
     });
   }
@@ -1466,6 +1678,13 @@ app.get('/api/appointments/doctor-pending', async (req, res) => {
 
     // For doctors, only show appointments assigned to them or without doctor assignment
     if (userProfile.role === 'doctor') {
+      // 安全检查：医生必须有门店ID
+      if (!userProfile.store_id) {
+        return res.status(403).json({
+          error: 'Access denied',
+          message: '医生账户未分配门店，请联系管理员配置门店信息'
+        });
+      }
       conditions.push(`(a.doctor_id = $${params.length + 1} OR a.doctor_id IS NULL)`);
       params.push(userProfile.id);
       
@@ -1587,8 +1806,8 @@ app.put('/api/appointments/:id/doctor-confirm', async (req, res) => {
     
     // 根据服务类型决定确认后的状态
     if (appointmentWithService.service_category === 'consultation' || appointmentWithService.service_category === 'report') {
-      // 医生服务直接完成，不需要护士长排班
-      newStatus = 'doctor_completed';
+      // 医生服务确认后需要创建排班
+      newStatus = 'doctor_confirmed';
     } else {
       // 护理服务需要护士长排班
       newStatus = 'doctor_confirmed';
@@ -1607,6 +1826,59 @@ app.put('/api/appointments/:id/doctor-confirm', async (req, res) => {
     );
 
     const updatedAppointment = result.rows[0];
+
+    // 为医生服务自动创建排班
+    if (appointmentWithService.service_category === 'consultation' || appointmentWithService.service_category === 'report') {
+      try {
+        console.log(`[DEBUG] 为医生服务创建排班: ${updatedAppointment.customer_name}`);
+        console.log(`[DEBUG] 预约信息:`, {
+          id: updatedAppointment.id,
+          customer_name: updatedAppointment.customer_name,
+          requested_date: updatedAppointment.requested_date,
+          requested_time_start: updatedAppointment.requested_time_start,
+          requested_time_end: updatedAppointment.requested_time_end
+        });
+        console.log(`[DEBUG] 医生信息:`, {
+          doctor_id_from_request: doctor_id,
+          current_user_id: userProfile.id,
+          current_user_role: userProfile.role
+        });
+        
+        // 检查是否已存在排班
+        const existingScheduleResult = await pool.query(
+          'SELECT id, doctor_id FROM schedules WHERE appointment_id = $1 AND status != \'cancelled\'',
+          [updatedAppointment.id]
+        );
+        
+        console.log(`[DEBUG] 检查现有排班: appointment_id=${updatedAppointment.id}, 找到${existingScheduleResult.rows.length}个排班`);
+        
+        if (existingScheduleResult.rows.length > 0) {
+          console.log(`[DEBUG] 排班已存在，跳过创建: ${existingScheduleResult.rows[0].id}, doctor_id: ${existingScheduleResult.rows[0].doctor_id}`);
+        } else {
+          const finalDoctorId = doctor_id || userProfile.id;
+          console.log(`[DEBUG] 使用doctor_id: ${finalDoctorId}`);
+          
+          const scheduleResult = await pool.query(
+            `INSERT INTO schedules (appointment_id, scheduled_date, scheduled_time_start, scheduled_time_end, doctor_id, status, created_at, updated_at)
+             VALUES ($1, CURRENT_DATE, $3, $4, $5, 'scheduled', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             RETURNING *`,
+            [
+              updatedAppointment.id,
+              updatedAppointment.requested_time_start,
+              updatedAppointment.requested_time_end,
+              finalDoctorId
+            ]
+          );
+          
+          console.log(`[DEBUG] 排班创建成功: ${scheduleResult.rows[0].id}, doctor_id: ${scheduleResult.rows[0].doctor_id}`);
+        }
+      } catch (scheduleError) {
+        console.error('[ERROR] 创建排班失败:', scheduleError);
+        console.error('[ERROR] 错误详情:', scheduleError.message);
+        console.error('[ERROR] 错误堆栈:', scheduleError.stack);
+        // 不要因为排班创建失败而影响预约确认
+      }
+    }
 
     // [DingTalk] 只有护理服务才需要通知护士长
     if (newStatus === 'doctor_confirmed') {
@@ -1887,6 +2159,27 @@ app.put('/api/appointments/:id', async (req, res) => {
     const updates = req.body;
     
     console.log(`[DEBUG] Updating appointment ${id} with:`, JSON.stringify(updates));
+
+    // Handle sales_name update by finding the corresponding sales_id
+    if (updates.sales_name && !updates.sales_id) {
+      try {
+        const salesPersonResult = await pool.query(
+          'SELECT id FROM profiles WHERE full_name = $1 AND role = $2 LIMIT 1',
+          [updates.sales_name, 'sales']
+        );
+        if (salesPersonResult.rows.length > 0) {
+          updates.sales_id = salesPersonResult.rows[0].id;
+          console.log(`[DEBUG] Found sales_id ${updates.sales_id} for sales_name ${updates.sales_name}`);
+        }
+      } catch (error) {
+        console.warn('Failed to find sales person by name:', error);
+      }
+    }
+
+    // Remove computed fields that shouldn't be directly updated
+    delete updates.sales_name;
+    delete updates.sales_username;
+    delete updates.sales_role;
 
     // Build dynamic update query
     const updateFields = [];

@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { format, differenceInMinutes, addMinutes } from 'date-fns';
+import { useState, useEffect, useCallback } from 'react';
+import { format, differenceInMinutes } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
-import { Clock, CheckCircle, PlayCircle, AlertCircle, Search, RefreshCw, Filter, User, Calendar, MapPin, Timer, AlertTriangle } from 'lucide-react';
+import { Clock, CheckCircle, PlayCircle, AlertCircle, Search, RefreshCw, Filter, Calendar, MapPin, AlertTriangle } from 'lucide-react';
+import EnhancedTaskCard from '@/components/nurse/EnhancedTaskCard';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -10,13 +11,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import clientApi from '@/services/api-client';
-import type { Schedule, TaskExecution } from '@/services/api-client';
+import type { Schedule } from '@/services/api-client';
 import StatusBadge from '@/components/appointment/StatusBadge';
 import { useAuth } from '@/contexts/AuthContext';
 import { canManageStoreSchedule } from '@/utils/permissions';
@@ -163,6 +163,7 @@ export default function NurseTaskPage() {
         return true;
       });
       
+      // 直接使用后端返回的真实数据，不再添加模拟数据
       setTasks(validTasks);
       setLastUpdateTime(new Date());
     } catch (error) {
@@ -237,43 +238,6 @@ export default function NurseTaskPage() {
         return newSet;
       });
       setIsUpdating(false);
-    }
-  };
-
-  const handleStart = async (task: Schedule) => {
-    if (!task.appointment_id) return;
-
-    try {
-      // 修复问题：对护士角色采用更宽松的权限检查
-      // 护士应该能够操作分配给自己的任务，即使没有分配门店
-      const taskStoreId = task.store_id || task.appointment?.store_id;
-      const userProfile = user?.profile || null;
-      
-      // 对于护士角色，特殊处理权限检查
-      if (userProfile?.role === 'nurse') {
-        // 护士可以操作分配给自己的任务，不受门店限制
-        if (task.nurse_id !== userProfile.id) {
-          toast.error('无权限操作其他护士的任务');
-          return;
-        }
-      } else {
-        // 对于其他角色，使用原有的权限检查逻辑
-        if (!canManageStoreSchedule(userProfile, taskStoreId)) {
-          toast.error('无权限操作其他门店的任务');
-          return;
-        }
-      }
-
-      await clientApi.updateSchedule(task.id, {
-        status: 'in_progress',
-      });
-
-      toast.success('服务已开始');
-      // 立即刷新任务列表，提供即时反馈
-      await loadTasks();
-    } catch (error: any) {
-      const errorMessage = handleApiError(error, '开始服务');
-      toast.error(errorMessage);
     }
   };
 
@@ -532,69 +496,15 @@ export default function NurseTaskPage() {
                 const urgent = isTaskUrgent(task);
                 
                 return (
-                  <Card key={task.id} className={`border-primary transition-all hover:shadow-md ${urgent ? 'ring-2 ring-destructive/50' : ''}`}>
-                    <CardHeader>
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <CardTitle className="text-lg">
-                              {task.appointment?.customer_name || `客户 #${task.appointment_id?.substring(0, 8)}`}
-                            </CardTitle>
-                            {urgent && (
-                              <Badge variant="destructive" className="text-xs">
-                                <AlertTriangle className="h-3 w-3 mr-1" />
-                                紧急
-                              </Badge>
-                            )}
-                          </div>
-                          <CardDescription className="flex items-center gap-1">
-                            <MapPin className="h-3 w-3" />
-                            {task.room?.name}
-                          </CardDescription>
-                        </div>
-                        <StatusBadge status={getTaskStatus(task) as any} />
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      {/* 时间信息 */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-sm">
-                          <Calendar className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">
-                            {task.scheduled_time_start.substring(0, 5)} - {task.scheduled_time_end.substring(0, 5)}
-                          </span>
-                        </div>
-                        <Badge variant={timeRemaining.variant} className="text-xs">
-                          <Timer className="h-3 w-3 mr-1" />
-                          {timeRemaining.text}
-                        </Badge>
-                      </div>
-                      
-                      {/* 其他信息 */}
-                      <div className="grid grid-cols-2 gap-3 text-sm">
-                        <div className="flex items-center gap-2">
-                          <User className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">1 人</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Clock className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">60 分钟</span>
-                        </div>
-                      </div>
-                      
-                      {/* 门店信息 */}
-                      {(task.appointment?.store || task.store_id) && (
-                        <div className="text-sm">
-                          <span className="text-muted-foreground">门店：</span>
-                          <span className="font-medium">
-                            {task.appointment?.store?.name || `门店 #${task.store_id?.substring(0, 8)}`}
-                          </span>
-                        </div>
-                      )}
-                      
-                      {getTaskActions(task)}
-                    </CardContent>
-                  </Card>
+                  <EnhancedTaskCard
+                    key={task.id}
+                    task={task as any}
+                    timeRemaining={timeRemaining}
+                    urgent={urgent}
+                    onAction={() => handleFinish(task)}
+                    actionLabel={updatingTaskIds.has(task.id) ? '处理中...' : '完成服务'}
+                    actionDisabled={updatingTaskIds.has(task.id) || isUpdating}
+                  />
                 );
               })}
             </div>
@@ -609,61 +519,15 @@ export default function NurseTaskPage() {
                 const timeRemaining = getTaskTimeRemaining(task);
                 
                 return (
-                  <Card key={task.id} className="transition-all hover:shadow-md">
-                    <CardHeader>
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1">
-                          <CardTitle className="text-lg">
-                            {task.appointment?.customer_name || `客户 #${task.appointment_id?.substring(0, 8)}`}
-                          </CardTitle>
-                          <CardDescription className="flex items-center gap-1 mt-1">
-                            <MapPin className="h-3 w-3" />
-                            {task.room?.name}
-                          </CardDescription>
-                        </div>
-                        <StatusBadge status={getTaskStatus(task) as any} />
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      {/* 时间信息 */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-sm">
-                          <Calendar className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">
-                            {task.scheduled_time_start.substring(0, 5)} - {task.scheduled_time_end.substring(0, 5)}
-                          </span>
-                        </div>
-                        <Badge variant={timeRemaining.variant} className="text-xs">
-                          <Timer className="h-3 w-3 mr-1" />
-                          {timeRemaining.text}
-                        </Badge>
-                      </div>
-                      
-                      {/* 其他信息 */}
-                      <div className="grid grid-cols-2 gap-3 text-sm">
-                        <div className="flex items-center gap-2">
-                          <User className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">1 人</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Clock className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">60 分钟</span>
-                        </div>
-                      </div>
-                      
-                      {/* 门店信息 */}
-                      {(task.appointment?.store || task.store_id) && (
-                        <div className="text-sm">
-                          <span className="text-muted-foreground">门店：</span>
-                          <span className="font-medium">
-                            {task.appointment?.store?.name || `门店 #${task.store_id?.substring(0, 8)}`}
-                          </span>
-                        </div>
-                      )}
-                      
-                      {getTaskActions(task)}
-                    </CardContent>
-                  </Card>
+                  <EnhancedTaskCard
+                    key={task.id}
+                    task={task as any}
+                    timeRemaining={timeRemaining}
+                    urgent={false}
+                    onAction={() => handleCheckIn(task)}
+                    actionLabel={updatingTaskIds.has(task.id) ? '处理中...' : '客户到达'}
+                    actionDisabled={updatingTaskIds.has(task.id) || isUpdating}
+                  />
                 );
               })}
             </div>
@@ -680,7 +544,7 @@ export default function NurseTaskPage() {
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1">
                         <CardTitle className="text-lg">
-                          {task.appointment?.customer_name || `客户 #${task.appointment_id?.substring(0, 8)}`}
+                          {task.appointment?.customer_name || (task as any).customer_name || `客户 #${task.appointment_id?.substring(0, 8)}`}
                         </CardTitle>
                         <CardDescription className="flex items-center gap-1 mt-1">
                           <MapPin className="h-3 w-3" />
@@ -697,6 +561,40 @@ export default function NurseTaskPage() {
                       <span className="font-medium">
                         {task.scheduled_time_start.substring(0, 5)} - {task.scheduled_time_end.substring(0, 5)}
                       </span>
+                    </div>
+                    
+                    {/* 预约人信息 */}
+                    {task.appointment?.sales_name && (
+                      <div className="text-sm">
+                        <span className="text-muted-foreground">预约人：</span>
+                        <span className="font-medium">
+                          {task.appointment.sales_name}
+                        </span>
+                      </div>
+                    )}
+                    
+                    {/* 客户明细 */}
+                    <div className="text-sm space-y-1">
+                      <div>
+                        <span className="text-muted-foreground">主客户：</span>
+                        <span className="font-medium">
+                          {task.appointment?.customer_name || (task as any).customer_name || '未知客户'}
+                        </span>
+                      </div>
+                      {(task as any).companion_names && (task as any).companion_names.length > 0 && (
+                        <div>
+                          <span className="text-muted-foreground">同行客户：</span>
+                          <span className="font-medium">
+                            {(task as any).companion_names.join(', ')}
+                          </span>
+                        </div>
+                      )}
+                      <div>
+                        <span className="text-muted-foreground">总人数：</span>
+                        <span className="font-medium">
+                          {(task as any).total_people || task.appointment?.total_people || 1} 人
+                        </span>
+                      </div>
                     </div>
                     
                     {/* 门店信息 */}

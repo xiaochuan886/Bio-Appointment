@@ -20,11 +20,10 @@ import type { Appointment } from '@/services/api-client';
 import StatusBadge from '@/components/appointment/StatusBadge';
 import ViewSwitcher, { type ViewMode } from '@/components/appointment/ViewSwitcher';
 import DateRangePicker from '@/components/appointment/DateRangePicker';
-import GanttChart from '@/components/appointment/GanttChart';
+import DoctorScheduleView from '@/components/doctor/DoctorScheduleView';
 import { canAccessDoctorPendingAppointments, getWorkflowStatusDisplayName } from '@/utils/permissions';
 import { handleApiError } from '@/utils/validation';
-import { getNurses, getRooms } from '@/db/api';
-import type { ScheduleWithDetails, Nurse, Room } from '@/types/types';
+import type { ScheduleWithDetails } from '@/types/types';
 
 const rejectFormSchema = z.object({
   doctor_note: z.string().min(1, '请填写拒绝原因或建议时间'),
@@ -45,8 +44,6 @@ export default function DoctorAppointmentPage() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>('day');
   const [schedules, setSchedules] = useState<ScheduleWithDetails[]>([]);
-  const [nurses, setNurses] = useState<Nurse[]>([]);
-  const [rooms, setRooms] = useState<Room[]>([]);
 
   const form = useForm<RejectFormValues>({
     resolver: zodResolver(rejectFormSchema),
@@ -83,13 +80,9 @@ export default function DoctorAppointmentPage() {
         return;
       }
       
-      // 获取当前用户的门店ID
-      const userStoreId = user.profile?.store_id;
-      
       // 使用新的API获取医生待处理预约
-      const data = await clientApi.getDoctorPendingAppointments({
-        store_id: userStoreId
-      });
+      // 注意：对于医生角色，后端会自动使用医生的store_id进行过滤，无需前端传递
+      const data = await clientApi.getDoctorPendingAppointments();
       
       setAppointments(data);
     } catch (error) {
@@ -104,29 +97,16 @@ export default function DoctorAppointmentPage() {
     try {
       if (!user) return;
 
-      // 获取当前用户的门店ID
-      const userStoreId = user.profile?.store_id;
-
       // 计算日期范围
       const { startDate, endDate } = getDateRange();
 
-      // 并行加载排班、护士和房间数据
-      const [schedulesData, nursesData, roomsData] = await Promise.all([
-        clientApi.getSchedules({
-          store_id: userStoreId,
-          start_date: startDate,
-          end_date: endDate
-        }),
-        getNurses(),
-        getRooms(userStoreId)
-      ]);
+      // 获取医生的排班数据
+      const schedulesData = await clientApi.getDoctorSchedules({
+        start_date: startDate,
+        end_date: endDate
+      });
 
-      // 过滤医生相关的排班数据
-      const doctorSchedules = filterDoctorSchedules(schedulesData as ScheduleWithDetails[], user.id);
-
-      setSchedules(doctorSchedules);
-      setNurses(nursesData);
-      setRooms(roomsData);
+      setSchedules(schedulesData as ScheduleWithDetails[]);
     } catch (error) {
       console.error('加载排班数据失败:', error);
       const errorMessage = error instanceof Error ? error.message : '未知错误';
@@ -134,13 +114,7 @@ export default function DoctorAppointmentPage() {
     }
   };
 
-  // 医生排班数据过滤逻辑
-  const filterDoctorSchedules = (schedules: ScheduleWithDetails[], doctorId: string) => {
-    return schedules.filter(schedule => 
-      schedule.appointment?.doctor_id === doctorId &&
-      schedule.appointment?.service?.category === 'consultation'
-    );
-  };
+
 
   // 根据视图模式计算日期范围
   const getDateRange = () => {
@@ -483,11 +457,9 @@ export default function DoctorAppointmentPage() {
           />
         </div>
 
-        {/* 排班图表 */}
-        <GanttChart
+        {/* 医生排班视图 */}
+        <DoctorScheduleView
           schedules={schedules}
-          nurses={nurses}
-          rooms={rooms}
           selectedDate={format(selectedDate, 'yyyy-MM-dd')}
           viewMode={viewMode}
           onScheduleClick={(schedule) => {
@@ -495,17 +467,6 @@ export default function DoctorAppointmentPage() {
             console.log('查看排班详情:', schedule);
           }}
         />
-
-        {/* 空状态提示 */}
-        {schedules.length === 0 && (
-          <Card className="p-8">
-            <div className="text-center text-muted-foreground">
-              <CalendarDays className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p className="text-lg mb-2">暂无排班数据</p>
-              <p className="text-sm">当前时间段内没有您的预约排班</p>
-            </div>
-          </Card>
-        )}
       </div>
     );
   };

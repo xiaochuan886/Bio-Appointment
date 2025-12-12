@@ -628,3 +628,75 @@ export function canSelfAssignTask(user: BaseUser | null, schedule: any): boolean
   
   return false;
 }
+
+/**
+ * 检查用户是否可以访问任务历史页面
+ * @param user 当前用户
+ * @returns 是否有权限
+ */
+export function canAccessTaskHistory(user: BaseUser | null): boolean {
+  if (!user) return false;
+  
+  // 护士、护士长和超级管理员可以访问任务历史
+  return ['nurse', 'head_nurse', 'super_admin'].includes(user.role);
+}
+
+/**
+ * 检查用户是否可以查看所有任务历史数据
+ * @param user 当前用户
+ * @returns 是否有权限
+ */
+export function canViewAllTaskHistory(user: BaseUser | null): boolean {
+  if (!user) return false;
+  
+  // 只有超级管理员可以查看所有数据
+  return user.role === 'super_admin';
+}
+
+/**
+ * 检查用户是否可以选择任务历史数据范围
+ * @param user 当前用户
+ * @returns 是否有权限
+ */
+export function canChooseTaskHistoryScope(user: BaseUser | null): boolean {
+  if (!user) return false;
+  
+  // 护士长可以选择查看自己的数据或门店的数据
+  return user.role === 'head_nurse';
+}
+
+/**
+ * 获取用户可以访问的任务历史数据范围
+ * @param user 当前用户
+ * @param scope 选择的数据范围（仅护士长可用）
+ * @returns 数据筛选参数
+ */
+export function getTaskHistoryFilters(user: BaseUser | null, scope?: 'self' | 'store'): {
+  nurse_id?: string;
+  store_id?: string;
+} {
+  if (!user) return {};
+  
+  // 超级管理员可以查看所有数据
+  if (user.role === 'super_admin') {
+    return {};
+  }
+  
+  // 护士长可以选择数据范围
+  if (user.role === 'head_nurse') {
+    if (scope === 'self') {
+      return { nurse_id: user.id };
+    } else if (scope === 'store' && user.store_id) {
+      return { store_id: user.store_id };
+    }
+    // 默认查看自己的数据
+    return { nurse_id: user.id };
+  }
+  
+  // 普通护士只能查看自己的数据
+  if (user.role === 'nurse') {
+    return { nurse_id: user.id };
+  }
+  
+  return {};
+}
