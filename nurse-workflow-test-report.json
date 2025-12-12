@@ -1,6 +1,0 @@
-{
-  "timestamp": "2025-12-09T03:48:00.537Z",
-  "error": "登录失败，当前页面: http://127.0.0.1:5173/login",
-  "stack": "Error: 登录失败，当前页面: http://127.0.0.1:5173/login\n    at testNurseCompleteWorkflow (/Users/luxiaochuan/Bio-Appointment/test-nurse-complete-workflow.cjs:77:13)",
-  "overallStatus": "failed"
-}

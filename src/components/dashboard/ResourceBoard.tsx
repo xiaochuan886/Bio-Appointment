@@ -8,7 +8,6 @@ import { Calendar, MapPin, Users, Home, Stethoscope, Filter } from 'lucide-react
 import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import ReadOnlyGanttChart from '@/components/dashboard/ReadOnlyGanttChart';
-import ViewSwitcher, { type ViewMode } from '@/components/appointment/ViewSwitcher';
 import DateRangePicker from '@/components/appointment/DateRangePicker';
 import ResourceFilter, { type ResourceFilterType } from '@/components/appointment/ResourceFilter';
 import clientApi from '@/services/api-client';
@@ -26,7 +25,8 @@ interface ResourceBoardProps {
 export default function ResourceBoard({ className }: ResourceBoardProps) {
   const { user } = useAuth();
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [viewMode, setViewMode] = useState<ViewMode>('day');
+  // 固定为日视图，不再需要viewMode状态
+  const viewMode = 'day' as const;
   const [resourceFilters, setResourceFilters] = useState<ExtendedResourceFilterType[]>(['room', 'nurse']);
   const [selectedStoreId, setSelectedStoreId] = useState<string>('all');
   const [schedules, setSchedules] = useState<any[]>([]);
@@ -43,31 +43,9 @@ export default function ResourceBoard({ className }: ResourceBoardProps) {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      // 根据视图模式计算日期范围
-      let startDate: string;
-      let endDate: string;
-
-      switch (viewMode) {
-        case 'day':
-          startDate = endDate = format(selectedDate, 'yyyy-MM-dd');
-          break;
-        case 'week': {
-          const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 });
-          const weekEnd = endOfWeek(selectedDate, { weekStartsOn: 1 });
-          startDate = format(weekStart, 'yyyy-MM-dd');
-          endDate = format(weekEnd, 'yyyy-MM-dd');
-          break;
-        }
-        case 'month': {
-          const monthStart = startOfMonth(selectedDate);
-          const monthEnd = endOfMonth(selectedDate);
-          startDate = format(monthStart, 'yyyy-MM-dd');
-          endDate = format(monthEnd, 'yyyy-MM-dd');
-          break;
-        }
-        default:
-          startDate = endDate = format(selectedDate, 'yyyy-MM-dd');
-      }
+      // 固定为日视图，计算日期范围
+      const startDate = format(selectedDate, 'yyyy-MM-dd');
+      const endDate = startDate;
 
       // 获取所有门店数据（用于筛选）
       const storesData = await clientApi.getStores();
@@ -76,9 +54,7 @@ export default function ResourceBoard({ className }: ResourceBoardProps) {
       // 获取排班数据（根据门店筛选）
       const storeFilter = selectedStoreId === 'all' ? undefined : selectedStoreId;
       const schedulesData = await clientApi.getSchedules({
-        date: viewMode === 'day' ? startDate : undefined,
-        start_date: viewMode !== 'day' ? startDate : undefined,
-        end_date: viewMode !== 'day' ? endDate : undefined,
+        date: startDate,
         store_id: storeFilter
       });
 
@@ -144,7 +120,7 @@ export default function ResourceBoard({ className }: ResourceBoardProps) {
 
     const doctorStats = doctors.map(doctor => {
       const doctorSchedules = todaySchedules.filter(s =>
-        s.appointment?.doctor_id === doctor.id
+        s.doctor_id === doctor.id || s.appointment?.doctor_id === doctor.id
       );
       const occupiedHours = doctorSchedules.reduce((total, schedule) => {
         const start = parseInt(schedule.scheduled_time_start.split(':')[0]);
@@ -266,9 +242,6 @@ export default function ResourceBoard({ className }: ResourceBoardProps) {
                 </div>
               </Card>
               
-              {/* 视图切换 */}
-              <ViewSwitcher currentView={viewMode} onViewChange={setViewMode} />
-              
               {/* 日期选择 */}
               <DateRangePicker
                 selectedDate={selectedDate}
@@ -385,7 +358,7 @@ export default function ResourceBoard({ className }: ResourceBoardProps) {
           <CardTitle>资源占用甘特图</CardTitle>
           <CardDescription>
             {selectedStoreId === 'all' ? '所有门店' : stores.find(s => s.id === selectedStoreId)?.name} - 
-            视图：{viewMode === 'day' ? '日' : viewMode === 'week' ? '周' : '月'}视图
+            视图：日视图
           </CardDescription>
         </CardHeader>
         <CardContent>

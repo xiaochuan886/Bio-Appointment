@@ -195,6 +195,9 @@ export interface ScheduleWithDetails extends Schedule {
   room?: Resource;
   nurse?: Resource;
   created_by_profile?: Profile;
+  doctor_id?: string;
+  doctor_name?: string;
+  appointment_doctor_id?: string;
 }
 
 export interface TaskExecutionWithDetails extends TaskExecution {

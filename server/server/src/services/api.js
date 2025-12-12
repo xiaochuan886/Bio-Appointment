@@ -199,13 +199,15 @@ class ApiService {
         }
         const queryText = `
       SELECT s.*,
-             a.customer_name, a.service_id, a.estimated_duration,
+             a.customer_name, a.service_id, a.estimated_duration, a.doctor_id as appointment_doctor_id,
              r.name as room_name, r.type as room_type,
-             p.full_name as nurse_name
+             p.full_name as nurse_name,
+             dp.full_name as doctor_name
       FROM schedules s
       LEFT JOIN appointments a ON s.appointment_id = a.id
       LEFT JOIN rooms r ON s.room_id = r.id
       LEFT JOIN profiles p ON s.nurse_id = p.id
+      LEFT JOIN profiles dp ON s.doctor_id = dp.id
       WHERE ${whereClause}
       ORDER BY scheduled_date, scheduled_time_start
     `;

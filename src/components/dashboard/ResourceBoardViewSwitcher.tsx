@@ -4,12 +4,12 @@ import { cn } from '@/lib/utils';
 
 export type ViewMode = 'day' | 'week' | 'month';
 
-interface ViewSwitcherProps {
+interface ResourceBoardViewSwitcherProps {
   currentView: ViewMode;
   onViewChange: (view: ViewMode) => void;
 }
 
-export default function ViewSwitcher({ currentView, onViewChange }: ViewSwitcherProps) {
+export default function ResourceBoardViewSwitcher({ currentView, onViewChange }: ResourceBoardViewSwitcherProps) {
   const views: Array<{ value: ViewMode; label: string; icon: React.ReactNode; disabled?: boolean }> = [
     { value: 'day', label: '日视图', icon: <Calendar className="h-4 w-4" /> },
     { value: 'week', label: '周视图', icon: <CalendarDays className="h-4 w-4" /> },

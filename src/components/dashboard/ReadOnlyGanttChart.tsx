@@ -251,8 +251,8 @@ export default function ReadOnlyGanttChart({
       }
       
       if (resourceType === 'doctor') {
-        // 只检查appointment中的doctor_id字段
-        return schedule.appointment?.doctor_id === resourceId;
+        // 优先检查schedule.doctor_id，备选检查appointment.doctor_id
+        return schedule.doctor_id === resourceId || schedule.appointment?.doctor_id === resourceId;
       }
       
       return false;
