@@ -1258,7 +1258,7 @@ export async function createRoom(room: { name: string; type: string; is_availabl
   }
 }
 
-export async function updateRoom(id: string, updates: Partial<Room>) {
+export async function updateRoom(id: string, updates: { name?: string; room_type?: string; is_available?: boolean; store_id?: string }) {
   try {
     const response = await fetch(`http://localhost:3001/api/rooms/${id}`, {
       method: 'PUT',

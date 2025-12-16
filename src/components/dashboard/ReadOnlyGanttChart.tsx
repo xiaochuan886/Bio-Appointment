@@ -84,12 +84,21 @@ export default function ReadOnlyGanttChart({
     return labels[roomType] || roomType;
   };
 
-  const getSchedulePosition = (timeStart: string, timeEnd: string) => {
+  const getSchedulePosition = (timeStart: string, timeEnd: string, adjustedDuration?: number) => {
     const [startHour, startMinute] = timeStart.split(':').map(Number);
-    const [endHour, endMinute] = timeEnd.split(':').map(Number);
-    
     const startMinutes = (startHour - 8) * 60 + startMinute;
-    const endMinutes = (endHour - 8) * 60 + endMinute;
+    
+    let endMinutes: number;
+    
+    // 如果有调整后的时长,使用它来计算结束时间
+    if (adjustedDuration !== undefined && adjustedDuration !== null) {
+      endMinutes = startMinutes + adjustedDuration;
+    } else {
+      // 否则使用原始的结束时间
+      const [endHour, endMinute] = timeEnd.split(':').map(Number);
+      endMinutes = (endHour - 8) * 60 + endMinute;
+    }
+    
     const duration = endMinutes - startMinutes;
     
     const left = (startMinutes / (11 * 60)) * 100;
@@ -371,7 +380,8 @@ export default function ReadOnlyGanttChart({
                           {row.map(schedule => {
                             const position = getSchedulePosition(
                               schedule.scheduled_time_start,
-                              schedule.scheduled_time_end
+                              schedule.scheduled_time_end,
+                              schedule.adjusted_duration
                             );
                             return renderScheduleCard(schedule, position);
                           })}
@@ -444,7 +454,8 @@ export default function ReadOnlyGanttChart({
                           {row.map(schedule => {
                             const position = getSchedulePosition(
                               schedule.scheduled_time_start,
-                              schedule.scheduled_time_end
+                              schedule.scheduled_time_end,
+                              schedule.adjusted_duration
                             );
                             return renderScheduleCard(schedule, position);
                           })}
@@ -513,7 +524,8 @@ export default function ReadOnlyGanttChart({
                           {row.map(schedule => {
                             const position = getSchedulePosition(
                               schedule.scheduled_time_start,
-                              schedule.scheduled_time_end
+                              schedule.scheduled_time_end,
+                              schedule.adjusted_duration
                             );
                             return renderScheduleCard(schedule, position);
                           })}

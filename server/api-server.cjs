@@ -558,9 +558,15 @@ app.get('/api/schedules', async (req, res) => {
       } else {
         userResult = { rows: [{ id: user.userId, role: user.role, store_id: null }] };
       }
+    } else {
+      // 如果user或user.userId不存在，返回认证错误
+      return res.status(401).json({
+        error: 'Authentication failed',
+        message: '用户认证信息无效'
+      });
     }
 
-    if (userResult.rows.length === 0) {
+    if (!userResult || userResult.rows.length === 0) {
       return res.status(401).json({
         error: 'User not found',
         message: '用户不存在'
@@ -2305,7 +2311,7 @@ app.get('/api/dashboard/stats', async (req, res) => {
 // Resource availability
 app.get('/api/resources/availability', async (req, res) => {
   try {
-    const { date, time_start, time_end } = req.query;
+    const { date, time_start, time_end, store_id } = req.query;
 
     if (!date || !time_start || !time_end) {
       return res.status(400).json({
@@ -2313,21 +2319,73 @@ app.get('/api/resources/availability', async (req, res) => {
       });
     }
 
-    // Get available resources (this is a simplified version)
-    const result = await pool.query(
-      `SELECT * FROM resources
-       WHERE status = 'available'
-       ORDER BY name`
-    );
+    console.log('🔍 [资源可用性检查] 参数:', { date, time_start, time_end, store_id });
+
+    // 查询在指定时间段内可用的房间（没有被排班占用的）
+    let roomQuery = `
+      SELECT r.* 
+      FROM resources r
+      WHERE r.type IN ('room', 'vip', 'treatment', 'consultation')
+        AND r.status = 'available'
+        ${store_id ? 'AND r.store_id = $4' : ''}
+        AND NOT EXISTS (
+          SELECT 1 FROM schedules s
+          WHERE s.room_id = r.id
+            AND s.scheduled_date = $1
+            AND s.status != 'cancelled'
+            AND (s.scheduled_time_start, s.scheduled_time_end) OVERLAPS ($2::time, $3::time)
+        )
+      ORDER BY r.name
+    `;
+
+    // 查询在指定时间段内可用的护士（没有被排班占用的）
+    // 注意：schedules.nurse_id 关联的是 profiles 表，不是 resources 表
+    let nurseQuery = `
+      SELECT p.id, p.full_name as name, p.role as type, p.store_id
+      FROM profiles p
+      WHERE p.role IN ('nurse', 'head_nurse')
+        AND p.status = 'active'
+        ${store_id ? 'AND p.store_id = $4' : ''}
+        AND NOT EXISTS (
+          SELECT 1 FROM schedules s
+          WHERE s.nurse_id = p.id
+            AND s.scheduled_date = $1
+            AND s.status != 'cancelled'
+            AND (s.scheduled_time_start, s.scheduled_time_end) OVERLAPS ($2::time, $3::time)
+        )
+      ORDER BY p.full_name
+    `;
+
+    const queryParams = store_id 
+      ? [date, time_start, time_end, store_id]
+      : [date, time_start, time_end];
+
+    const [roomResult, nurseResult] = await Promise.all([
+      pool.query(roomQuery, queryParams),
+      pool.query(nurseQuery, queryParams)
+    ]);
+
+    console.log('🔍 [资源可用性检查] 结果:', {
+      可用房间数: roomResult.rows.length,
+      可用护士数: nurseResult.rows.length
+    });
+
+    // 合并所有可用资源
+    const availableResources = [...roomResult.rows, ...nurseResult.rows];
 
     res.json({
       date,
       time_start,
       time_end,
-      available_resources: result.rows,
-      total_available: result.rows.length
+      available_resources: availableResources,
+      available_rooms: roomResult.rows,
+      available_nurses: nurseResult.rows,
+      total_available: availableResources.length,
+      has_available_room: roomResult.rows.length > 0,
+      has_available_nurse: nurseResult.rows.length > 0
     });
   } catch (error) {
+    console.error('❌ [资源可用性检查] 错误:', error);
     res.status(500).json({
       error: 'Failed to fetch resource availability',
       message: error.message
@@ -2339,9 +2397,12 @@ app.get('/api/resources/availability', async (req, res) => {
 app.get('/api/resources/rooms/available', async (req, res) => {
   try {
     const { store_id } = req.query;
+    console.log('🔍 [DEBUG] getAvailableRooms API被调用:', { store_id });
+    
+    // 修复：查询所有房间类型的资源，不仅仅是 type='room'
     let query = `SELECT * FROM resources
-     WHERE type = 'room' AND status = 'available'`;
-    let params = [];
+     WHERE type IN ($1, $2, $3, $4) AND status = 'available'`;
+    let params = ['room', 'vip', 'treatment', 'consultation'];
     
     if (store_id) {
       query += ` AND store_id = $${params.length + 1}`;
@@ -2350,10 +2411,50 @@ app.get('/api/resources/rooms/available', async (req, res) => {
     
     query += ` ORDER BY name`;
 
-    const result = await pool.query(query, params);
+    console.log('🔍 [DEBUG] 房间查询SQL:', query);
+    console.log('🔍 [DEBUG] 房间查询参数:', params);
 
-    res.json(result.rows);
+    const result = await pool.query(query, params);
+    
+    console.log('🔍 [DEBUG] 房间查询结果:', {
+      返回数量: result.rows.length,
+      数据样本: result.rows[0] || '无数据'
+    });
+
+    // 转换数据格式以匹配前端期望
+    const rooms = result.rows.map(resource => {
+      let room_type = 'treatment'; // default
+      
+      // 优先使用数据库中的 type 字段
+      if (['vip', 'treatment', 'consultation'].includes(resource.type)) {
+        room_type = resource.type;
+      } else if (resource.type === 'room') {
+        // 对于旧的 type='room' 的记录，从名称推断
+        if (resource.name.includes('VIP')) {
+          room_type = 'vip';
+        } else if (resource.name.includes('咨询')) {
+          room_type = 'consultation';
+        }
+      }
+      
+      return {
+        id: resource.id,
+        name: resource.name,
+        room_type: room_type,
+        is_available: resource.status === 'available',
+        store_id: resource.store_id,
+        created_at: resource.created_at || new Date().toISOString()
+      };
+    });
+    
+    console.log('🔍 [DEBUG] 转换后的房间数据:', {
+      转换后数量: rooms.length,
+      转换后样本: rooms[0] || '无数据'
+    });
+
+    res.json(rooms);
   } catch (error) {
+    console.error('🔍 [DEBUG] 房间查询失败:', error);
     res.status(500).json({
       error: 'Failed to fetch available rooms',
       message: error.message
@@ -2510,11 +2611,12 @@ app.get('/api/rooms', async (req, res) => {
     const { store_id } = req.query;
     console.log('🔍 [DEBUG] 开始获取房间数据...', { store_id });
     
-    let query = 'SELECT id, name, type, status, store_id FROM resources WHERE type = $1';
-    let params = ['room'];
+    // 修复：查询所有房间类型的资源，不仅仅是 type='room'
+    let query = 'SELECT id, name, type, status, store_id FROM resources WHERE type IN ($1, $2, $3, $4)';
+    let params = ['room', 'vip', 'treatment', 'consultation'];
     
     if (store_id) {
-      query += ' AND store_id = $2';
+      query += ' AND store_id = $5';
       params.push(store_id);
     }
     
@@ -2532,19 +2634,26 @@ app.get('/api/rooms', async (req, res) => {
     
     // 如果没有房间数据，检查是否有其他类型的资源
     if (result.rows.length === 0) {
-      console.warn('⚠️ [WARNING] 没有找到type=room的资源！');
+      console.warn('⚠️ [WARNING] 没有找到房间类型的资源！');
       console.log('🔍 [DEBUG] 尝试查看所有resources数据:');
       const allResources = await pool.query('SELECT * FROM resources LIMIT 10');
       console.log('  - 所有资源样本:', allResources.rows);
     }
     
-    // Transform to match frontend expected format
+    // 修复：直接使用数据库中的 type 字段作为 room_type
     const rooms = result.rows.map(resource => {
       let room_type = 'treatment'; // default
-      if (resource.name.includes('VIP')) {
-        room_type = 'vip';
-      } else if (resource.name.includes('咨询')) {
-        room_type = 'consultation';
+      
+      // 优先使用数据库中的 type 字段
+      if (['vip', 'treatment', 'consultation'].includes(resource.type)) {
+        room_type = resource.type;
+      } else if (resource.type === 'room') {
+        // 对于旧的 type='room' 的记录，从名称推断
+        if (resource.name.includes('VIP')) {
+          room_type = 'vip';
+        } else if (resource.name.includes('咨询')) {
+          room_type = 'consultation';
+        }
       }
       
       return {
@@ -2579,8 +2688,8 @@ app.put('/api/rooms/:id', async (req, res) => {
     
     console.log(`[DEBUG] Updating room ${id} with:`, JSON.stringify(updates));
 
-    // Check if room exists
-    const existingRoom = await pool.query('SELECT * FROM resources WHERE id = $1 AND type = $2', [id, 'room']);
+    // 修复：查询所有房间类型的资源，不仅仅是 type='room'
+    const existingRoom = await pool.query('SELECT * FROM resources WHERE id = $1 AND type IN ($2, $3, $4, $5)', [id, 'room', 'vip', 'treatment', 'consultation']);
     
     if (existingRoom.rows.length === 0) {
       return res.status(404).json({
@@ -2626,9 +2735,10 @@ app.put('/api/rooms/:id', async (req, res) => {
 
     values.push(id);
 
+    // 修复：更新所有房间类型的资源，不仅仅是 type='room'
     const result = await pool.query(
       `UPDATE resources SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $${paramIndex} AND type = 'room'
+       WHERE id = $${paramIndex} AND type IN ('room', 'vip', 'treatment', 'consultation')
        RETURNING *`,
       values
     );
@@ -2681,8 +2791,8 @@ app.delete('/api/rooms/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Check if room exists
-    const existingRoom = await pool.query('SELECT * FROM resources WHERE id = $1 AND type = $2', [id, 'room']);
+    // 修复：查询所有房间类型的资源，不仅仅是 type='room'
+    const existingRoom = await pool.query('SELECT * FROM resources WHERE id = $1 AND type IN ($2, $3, $4, $5)', [id, 'room', 'vip', 'treatment', 'consultation']);
     
     if (existingRoom.rows.length === 0) {
       return res.status(404).json({
@@ -2703,9 +2813,10 @@ app.delete('/api/rooms/:id', async (req, res) => {
       });
     }
 
+    // 修复：删除所有房间类型的资源，不仅仅是 type='room'
     const result = await pool.query(
-      'DELETE FROM resources WHERE id = $1 AND type = $2 RETURNING *',
-      [id, 'room']
+      'DELETE FROM resources WHERE id = $1 AND type IN ($2, $3, $4, $5) RETURNING *',
+      [id, 'room', 'vip', 'treatment', 'consultation']
     );
 
     res.json({ message: 'Room deleted successfully' });
@@ -2724,43 +2835,57 @@ app.post('/api/rooms', async (req, res) => {
     const {
       name,
       type,
+      room_type,
       is_available = true,
       store_id
     } = req.body;
 
+    console.log('[DEBUG] 创建房间请求:', { name, type, room_type, is_available, store_id });
+
     // Validate required fields
-    if (!name || !type) {
+    if (!name) {
       return res.status(400).json({
-        error: 'Missing required fields: name, type'
+        error: 'Missing required field: name'
       });
     }
 
+    // 使用 room_type 如果提供了，否则使用 type
+    const finalRoomType = room_type || type;
+    
+    // 验证房间类型（如果提供了）
+    if (finalRoomType) {
+      const validRoomTypes = ['vip', 'treatment', 'consultation'];
+      if (!validRoomTypes.includes(finalRoomType)) {
+        return res.status(400).json({
+          error: 'Invalid room type',
+          message: `房间类型必须是以下之一: ${validRoomTypes.join(', ')}`
+        });
+      }
+    }
+
+    // 修复：将房间类型信息保存到数据库的 type 字段
+    // 数据库的 resource_type 枚举已经包含了这些房间类型
     const result = await pool.query(
       `INSERT INTO resources (name, type, status, store_id)
-       VALUES ($1, $2, $3, $4)
-       RETURNING *`,
-      [name, type, is_available ? 'available' : 'unavailable', store_id]
+         VALUES ($1, $2, $3, $4)
+         RETURNING *`,
+      [name, finalRoomType, is_available ? 'available' : 'unavailable', store_id]
     );
 
     // Transform response to match frontend expected format
     const newRoom = result.rows[0];
-    let room_type = 'treatment'; // default
-    if (newRoom.name.includes('VIP')) {
-      room_type = 'vip';
-    } else if (newRoom.name.includes('咨询')) {
-      room_type = 'consultation';
-    }
-
+    
     const response = {
       id: newRoom.id,
       name: newRoom.name,
-      room_type: room_type,
+      room_type: finalRoomType, // 使用前端发送的房间类型
       is_available: newRoom.status === 'available',
       store_id: newRoom.store_id,
       created_at: newRoom.created_at,
       updated_at: newRoom.updated_at
     };
 
+    console.log('[DEBUG] 房间创建成功:', response);
     res.status(201).json(response);
   } catch (error) {
     console.error('Failed to create room:', error);
@@ -2821,7 +2946,9 @@ app.post('/api/schedules', async (req, res) => {
       scheduled_time_end,
       room_id,
       nurse_id,
-      notes
+      notes,
+      adjusted_duration,
+      adjustment_reason
     } = req.body;
 
     // 参数验证
@@ -2921,12 +3048,28 @@ app.post('/api/schedules', async (req, res) => {
       }
     }
 
+    // 计算排班时长（分钟）
+    const startTime = new Date(`1970-01-01T${scheduled_time_start}`);
+    const endTime = new Date(`1970-01-01T${scheduled_time_end}`);
+    const durationMinutes = Math.round((endTime - startTime) / (1000 * 60));
+    
+    console.log(`🕐 [DEBUG] 计算排班时长: ${scheduled_time_start} - ${scheduled_time_end} = ${durationMinutes}分钟`);
+    
     const result = await pool.query(
-      `INSERT INTO schedules (appointment_id, scheduled_date, scheduled_time_start, scheduled_time_end, room_id, nurse_id, notes, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'scheduled')
+      `INSERT INTO schedules (appointment_id, scheduled_date, scheduled_time_start, scheduled_time_end, room_id, nurse_id, notes, status, adjusted_duration, adjustment_reason)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'scheduled', $8, $9)
        RETURNING *`,
-      [appointment_id, scheduled_date, scheduled_time_start, scheduled_time_end, room_id, nurse_id, notes]
+      [appointment_id, scheduled_date, scheduled_time_start, scheduled_time_end, room_id, nurse_id, notes, adjusted_duration, adjustment_reason]
     );
+    
+    // 更新预约的estimated_duration以反映实际排班时长
+    if (durationMinutes > 0) {
+      await pool.query(
+        `UPDATE appointments SET estimated_duration = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+        [durationMinutes, appointment_id]
+      );
+      console.log(`✅ [DEBUG] 已更新预约时长: appointment_id=${appointment_id}, new_duration=${durationMinutes}分钟`);
+    }
 
     res.status(201).json(result.rows[0]);
   } catch (error) {
@@ -3120,7 +3263,38 @@ app.put('/api/schedules/:id', async (req, res) => {
       });
     }
 
-    res.json(result.rows[0]);
+    const updatedSchedule = result.rows[0];
+    
+    // 如果更新了时间相关字段，需要重新计算时长并更新预约
+    if (updates.scheduled_time_start || updates.scheduled_time_end) {
+      // 获取更新后的排班时间
+      const finalScheduleResult = await pool.query(
+        'SELECT scheduled_time_start, scheduled_time_end, appointment_id FROM schedules WHERE id = $1',
+        [updatedSchedule.id]
+      );
+      
+      if (finalScheduleResult.rows.length > 0) {
+        const finalSchedule = finalScheduleResult.rows[0];
+        
+        // 计算新的排班时长（分钟）
+        const startTime = new Date(`1970-01-01T${finalSchedule.scheduled_time_start}`);
+        const endTime = new Date(`1970-01-01T${finalSchedule.scheduled_time_end}`);
+        const durationMinutes = Math.round((endTime - startTime) / (1000 * 60));
+        
+        console.log(`🕐 [DEBUG] 更新排班时长计算: ${finalSchedule.scheduled_time_start} - ${finalSchedule.scheduled_time_end} = ${durationMinutes}分钟`);
+        
+        // 更新关联预约的estimated_duration
+        if (durationMinutes > 0 && finalSchedule.appointment_id) {
+          await pool.query(
+            `UPDATE appointments SET estimated_duration = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+            [durationMinutes, finalSchedule.appointment_id]
+          );
+          console.log(`✅ [DEBUG] 已同步更新预约时长: appointment_id=${finalSchedule.appointment_id}, new_duration=${durationMinutes}分钟`);
+        }
+      }
+    }
+
+    res.json(updatedSchedule);
   } catch (error) {
     console.error('Failed to update schedule:', error);
     res.status(500).json({
@@ -4473,9 +4647,11 @@ let realtimeService = null;
 
 async function initializeRealtimeServices() {
   try {
-    // Import and initialize WebSocket server
-    const { WebSocketServer } = require('./websocket-server.js');
-    const { RealtimeService } = require('./realtime-service.js');
+    // Import and initialize WebSocket server using dynamic import for ES modules
+    const websocketServerModule = await import('./websocket-server.js');
+    const realtimeServiceModule = await import('./realtime-service.js');
+    const { WebSocketServer } = websocketServerModule;
+    const { RealtimeService } = realtimeServiceModule;
     
     // Create WebSocket server
     const wss = new WebSocketServer({ server });

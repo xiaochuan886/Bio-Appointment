@@ -169,11 +169,22 @@ export default function SystemConfigPage() {
         storeIdToQuery
       });
       
+      // 修复：对于管理员角色，如果没有选择特定门店，默认显示所有房间
+      const finalStoreIdQuery = (profile?.role === 'super_admin' || profile?.role === 'head_nurse') && !selectedStoreId
+        ? undefined
+        : storeIdToQuery;
+      
+      console.log('🔍 [DEBUG] 最终房间查询参数:', {
+        userRole: profile?.role,
+        selectedStoreId,
+        finalStoreIdQuery
+      });
+      
       const [servicesData, nursesData, doctorsData, roomsData] = await Promise.all([
         clientApi.getServices(),
         getNurses(),
         getDoctors(),
-        getRooms(storeIdToQuery),
+        getRooms(finalStoreIdQuery),
       ]);
       
       console.log('🔍 [DEBUG] 房间数据加载成功:', roomsData.length, '个房间');
@@ -486,7 +497,12 @@ export default function SystemConfigPage() {
       }
       
       if (editingRoom) {
-        await updateRoom(editingRoom.id, values);
+        await updateRoom(editingRoom.id, {
+          name: values.name,
+          room_type: values.room_type,
+          is_available: values.is_available,
+          store_id: values.store_id || userStoreId
+        });
         toast.success('更新成功');
       } else {
         await createRoom({

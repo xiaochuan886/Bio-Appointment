@@ -388,4 +388,4 @@ class RealtimeService {
   }
 }
 
-module.exports = { RealtimeService };
+export { RealtimeService };

@@ -195,7 +195,7 @@ export default function HeadNurseSchedulePage() {
     
     const estimatedDuration = appointment.estimated_duration || 60;
     const startTime = appointment.requested_time_start || '09:00:00';
-    // 处理时间计算
+    // 处理时间计算 - 使用estimated_duration作为初始adjusted_duration
     const [hour, minute] = startTime.split(':').map(Number);
     const endMinutes = hour * 60 + minute + estimatedDuration;
     const endHour = Math.floor(endMinutes / 60);
@@ -207,7 +207,7 @@ export default function HeadNurseSchedulePage() {
       scheduled_time_end: endTime,
       room_id: '',
       nurse_id: '',
-      adjusted_duration: estimatedDuration,
+      adjusted_duration: estimatedDuration, // 设置初始调整时长
       adjustment_reason: '',
     });
 
@@ -345,17 +345,31 @@ export default function HeadNurseSchedulePage() {
           scheduled_time_end: values.scheduled_time_end,
           room_id: values.room_id,
           nurse_id: values.nurse_id,
-          status: 'published',
+          status: 'scheduled',
+          // 包含调整时长信息
+          ...(values.adjusted_duration && { adjusted_duration: values.adjusted_duration }),
+          ...(values.adjustment_reason && { adjustment_reason: values.adjustment_reason }),
         });
         toast.success(forceOverride ? '排班已强制更新（存在资源冲突）' : '排班已更新');
       } else {
+        // 根据调整后的时长重新计算结束时间
+        const finalDuration = values.adjusted_duration || selectedAppointment.estimated_duration || 60;
+        const [startHour, startMinute] = values.scheduled_time_start.split(':').map(Number);
+        const endMinutes = startHour * 60 + startMinute + finalDuration;
+        const endHour = Math.floor(endMinutes / 60);
+        const endMinute = endMinutes % 60;
+        const finalEndTime = `${endHour.toString().padStart(2, '0')}:${endMinute.toString().padStart(2, '0')}:00`;
+        
         await clientApi.createSchedule({
           appointment_id: selectedAppointment.id,
           scheduled_date: dateStr,
           scheduled_time_start: values.scheduled_time_start,
-          scheduled_time_end: values.scheduled_time_end,
+          scheduled_time_end: finalEndTime, // 使用重新计算的结束时间
           room_id: values.room_id,
           nurse_id: values.nurse_id,
+          // 包含调整时长信息
+          ...(values.adjusted_duration && { adjusted_duration: values.adjusted_duration }),
+          ...(values.adjustment_reason && { adjustment_reason: values.adjustment_reason }),
         });
         // 使用新的工作流API更新状态
         await clientApi.updateAppointmentWorkflow(selectedAppointment.id, {

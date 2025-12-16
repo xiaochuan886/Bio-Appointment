@@ -16,7 +16,7 @@ export type AppointmentWorkflowStatus = 'pending_nurse_assignment' | 'pending_do
 
 export type DoctorStatus = 'pending' | 'accepted' | 'rejected';
 
-export type ScheduleStatus = 'pending' | 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
+export type ScheduleStatus = 'pending' | 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'locked';
 
 export type TaskExecutionStatus = 'pending' | 'checked_in' | 'in_progress' | 'completed';
 

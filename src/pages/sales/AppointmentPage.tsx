@@ -29,7 +29,8 @@ const checkResourceAvailability = async (date: string, timeStart: string, timeEn
       time_end: timeEnd,
       store_id: storeId
     });
-    return availability.available_resources.length > 0;
+    // 必须同时有可用的房间和护士
+    return availability.has_available_room && availability.has_available_nurse;
   } catch (error) {
     console.error('检查资源可用性失败:', error);
     return false;

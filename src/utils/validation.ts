@@ -9,6 +9,12 @@ interface BaseUser {
   store_id?: string;
 }
 
+interface ValidationResult {
+  valid: boolean;
+  message?: string;
+  isRetryable?: boolean; // 修复TypeScript错误
+}
+
 /**
  * 验证门店访问权限
  * @param user 当前用户
@@ -20,18 +26,48 @@ export function validateStoreAccess(
   user: BaseUser | null,
   storeId?: string,
   action: 'view' | 'manage' = 'view'
-): { valid: boolean; message?: string } {
+): ValidationResult {
+  console.log('🔍 [DEBUG] validateStoreAccess 被调用:', {
+    user: user ? {
+      id: user.id,
+      role: user.role,
+      store_id: user.store_id,
+      hasStoreId: !!user.store_id
+    } : null,
+    storeId,
+    action
+  });
+
   if (!user) {
+    console.log('🔍 [DEBUG] 用户未登录，返回 false');
     return { valid: false, message: '用户未登录' };
   }
 
   // 管理员可以访问所有门店
   if (user.role === 'super_admin') {
+    console.log('🔍 [DEBUG] 超级管理员，返回 true');
     return { valid: true };
   }
 
   // 其他角色需要检查门店匹配
   if (!user.store_id) {
+    console.log('🔍 [DEBUG] 用户没有 store_id，检查是否为时序问题...');
+    
+    // 检查是否是时序问题（用户信息还未完全加载）
+    if (user.id && user.role && !user.store_id) {
+      console.log('🔍 [DEBUG] 检测到可能的时序问题，用户有ID和角色但缺少store_id');
+      console.log('🔍 [DEBUG] 延迟验证，等待用户信息完全加载...');
+      
+      // 返回一个特殊的错误码，让前端可以重试
+      return {
+        valid: false,
+        message: '用户信息加载中，请稍后重试',
+        isRetryable: true // 添加重试标识
+      };
+    }
+    
+    console.log('🔍 [DEBUG] 用户确实没有门店分配');
+    console.log('🔍 [DEBUG] 用户完整信息:', JSON.stringify(user, null, 2));
     return { valid: false, message: '用户未分配门店' };
   }
 

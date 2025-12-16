@@ -84,18 +84,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Try to refresh the user session using stored tokens
         try {
           const decoded = ClientAuthService.verifyToken(tokens.accessToken);
+          console.log('🔍 [DEBUG] AuthContext - Token解码结果:', decoded);
+          
           const userProfile = await ClientAuthService.getUserById(decoded.userId);
-
+          console.log('🔍 [DEBUG] AuthContext - 获取的用户资料:', userProfile);
+  
           if (userProfile) {
             const authUser: AuthUser = {
               id: userProfile.id,
               email: userProfile.email,
               profile: userProfile,
             };
+            console.log('🔍 [DEBUG] AuthContext - 设置用户状态:', {
+              authUser: {
+                id: authUser.id,
+                email: authUser.email,
+                hasProfile: !!authUser.profile,
+                store_id: authUser.profile?.store_id
+              }
+            });
             setUser(authUser);
             setProfile(userProfile);
           } else {
             // User not found, clear invalid tokens
+            console.log('🔍 [DEBUG] AuthContext - 用户未找到，清除token');
             ClientAuthService.clearTokens();
           }
         } catch (tokenError) {

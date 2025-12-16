@@ -1,5 +1,5 @@
-const WebSocket = require('ws');
-const jwt = require('jsonwebtoken');
+import WebSocket from 'ws';
+import jwt from 'jsonwebtoken';
 
 class WebSocketServer {
   constructor(options = {}) {
@@ -328,4 +328,4 @@ class WebSocketServer {
   }
 }
 
-module.exports = { WebSocketServer };
+export { WebSocketServer };

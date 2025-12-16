@@ -129,10 +129,15 @@ export class ClientAuthService {
 
   // Get user by ID via API
   static async getUserById(userId: string): Promise<ApiUser | null> {
+    console.log('🔍 [DEBUG] ClientAuthService.getUserById 被调用:', { userId });
+    
     const tokens = this.getStoredTokens();
     if (!tokens) {
+      console.log('🔍 [DEBUG] 没有找到token');
       throw new Error('No authentication token');
     }
+
+    console.log('🔍 [DEBUG] 发送API请求到:', `${API_BASE_URL}/profiles/${userId}`);
 
     const response = await fetch(`${API_BASE_URL}/profiles/${userId}`, {
       headers: {
@@ -141,17 +146,24 @@ export class ClientAuthService {
       },
     });
 
+    console.log('🔍 [DEBUG] API响应状态:', response.status);
+
     if (!response.ok) {
       if (response.status === 401) {
+        console.log('🔍 [DEBUG] 认证失败');
         throw new Error('Authentication failed');
       }
       if (response.status === 404) {
+        console.log('🔍 [DEBUG] 用户未找到');
         return null;
       }
+      console.log('🔍 [DEBUG] API请求失败:', response.statusText);
       throw new Error('Failed to fetch user');
     }
 
-    return response.json();
+    const userData = await response.json();
+    console.log('🔍 [DEBUG] 获取到的用户数据:', userData);
+    return userData;
   }
 
   // Change password via API
