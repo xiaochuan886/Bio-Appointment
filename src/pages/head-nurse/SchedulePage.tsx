@@ -133,8 +133,12 @@ export default function HeadNurseSchedulePage() {
 
 
   useEffect(() => {
-    loadData();
-  }, [selectedDate, viewMode, activeTab]);
+    // 只有当 user 加载完成后才执行数据获取
+    // 这样可以确保使用正确的门店过滤条件
+    if (user?.profile) {
+      loadData();
+    }
+  }, [selectedDate, viewMode, activeTab, user?.profile?.store_id]);
 
   const loadData = async () => {
     try {

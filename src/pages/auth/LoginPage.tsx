@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { LogIn, UserPlus, QrCode, Smartphone } from 'lucide-react';
+import { LogIn, UserPlus, QrCode, Smartphone, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
@@ -26,6 +26,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('account');
   const [qrCodeUrl, setQrCodeUrl] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   // 模拟获取钉钉登录二维码
   useEffect(() => {
@@ -33,13 +34,13 @@ export default function LoginPage() {
       // 实际项目中应调用 /api/dingtalk/qrcode 获取
       const mockDingTalkAuthUrl = `https://oapi.dingtalk.com/connect/qrconnect?appid=dingoa_mock_id&response_type=code&scope=snsapi_login&state=STATE&redirect_uri=${encodeURIComponent(window.location.origin + '/auth/dingtalk/callback')}`;
       setQrCodeUrl(mockDingTalkAuthUrl);
-      
+
       // 模拟轮询检测扫码状态
       const timer = setInterval(() => {
         // 这里应该调用后端接口检查扫码状态
         // checkScanStatus();
       }, 3000);
-      
+
       return () => clearInterval(timer);
     }
   }, [activeTab]);
@@ -66,7 +67,7 @@ export default function LoginPage() {
         hasSession: !!result.session,
         hasProfile: !!result.profile,
       });
-  
+
       if (result.success) {
         console.log('3. 显示成功提示...');
         toast.success('登录成功');
@@ -143,12 +144,31 @@ export default function LoginPage() {
                       <FormItem>
                         <FormLabel>密码</FormLabel>
                         <FormControl>
-                          <Input
-                            type="password"
-                            placeholder="请输入密码"
-                            autoComplete="current-password"
-                            {...field}
-                          />
+                          <div className="relative">
+                            <Input
+                              type={showPassword ? 'text' : 'password'}
+                              placeholder="请输入密码"
+                              autoComplete="current-password"
+                              className="pr-10"
+                              {...field}
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                              onClick={() => setShowPassword(!showPassword)}
+                            >
+                              {showPassword ? (
+                                <EyeOff className="h-4 w-4 text-muted-foreground" />
+                              ) : (
+                                <Eye className="h-4 w-4 text-muted-foreground" />
+                              )}
+                              <span className="sr-only">
+                                {showPassword ? '隐藏密码' : '显示密码'}
+                              </span>
+                            </Button>
+                          </div>
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -179,9 +199,9 @@ export default function LoginPage() {
 
               <div className="mt-6 p-4 bg-muted/50 rounded-lg">
                 <p className="text-xs text-muted-foreground text-center">
-                  💡 测试账号：<br/>
-                  用户名: admin (或邮箱: admin@test.com)<br/>
-                  密码: admin123
+                  💡 测试账号：<br />
+                  用户名: admin / nurse1 / sales1 / head_nurse1<br />
+                  密码: 123456 (所有账号统一密码)
                 </p>
               </div>
             </TabsContent>
@@ -190,9 +210,9 @@ export default function LoginPage() {
               <div className="flex flex-col items-center justify-center py-6 space-y-4">
                 <div className="bg-white p-2 rounded-lg border shadow-sm">
                   {qrCodeUrl && (
-                    <QRCodeDataUrl 
-                      text={qrCodeUrl} 
-                      width={200} 
+                    <QRCodeDataUrl
+                      text={qrCodeUrl}
+                      width={200}
                       color="#000000"
                     />
                   )}
@@ -203,7 +223,7 @@ export default function LoginPage() {
                     扫码后无需输入密码，直接登录
                   </p>
                 </div>
-                
+
                 <div className="mt-4 w-full p-4 bg-blue-50 rounded-lg border border-blue-100">
                   <p className="text-xs text-blue-600 text-center">
                     提示：首次登录需绑定系统账号，绑定后即可实现免密登录。

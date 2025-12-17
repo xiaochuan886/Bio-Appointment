@@ -144,17 +144,22 @@ export class AuthService {
 
   /**
    * Authenticate user with credentials
+   * Supports login with either username or email
    */
   static async login(credentials: LoginCredentials): Promise<{ user: Profile; tokens: AuthTokens }> {
     const { username, password } = credentials;
 
-    // Find user by username
-    const users = await DatabaseHelper.findMany('profiles', { username });
-    if (users.length === 0) {
+    // Find user by username OR email
+    const result = await query(
+      `SELECT * FROM profiles WHERE username = $1 OR email = $1 LIMIT 1`,
+      [username]
+    );
+
+    if (result.rows.length === 0) {
       throw new Error('Invalid credentials');
     }
 
-    const user = users[0];
+    const user = result.rows[0];
 
     // Check if user is active
     if (user.status !== 'active') {

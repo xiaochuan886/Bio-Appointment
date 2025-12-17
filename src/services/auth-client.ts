@@ -69,7 +69,7 @@ export class ClientAuthService {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        email: credentials.username, // API expects email
+        username: credentials.username, // API expects username
         password: credentials.password,
       }),
     });
@@ -130,7 +130,7 @@ export class ClientAuthService {
   // Get user by ID via API
   static async getUserById(userId: string): Promise<ApiUser | null> {
     console.log('🔍 [DEBUG] ClientAuthService.getUserById 被调用:', { userId });
-    
+
     const tokens = this.getStoredTokens();
     if (!tokens) {
       console.log('🔍 [DEBUG] 没有找到token');

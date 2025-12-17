@@ -110,7 +110,16 @@ app.get('/api/health', async (req, res) => {
 // Mock authentication endpoints
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    // Support both 'username' and 'email' field names from client
+    const loginIdentifier = req.body.username || req.body.email;
+    const password = req.body.password;
+
+    if (!loginIdentifier || !password) {
+      return res.status(400).json({
+        error: 'Missing credentials',
+        message: '请提供用户名/邮箱和密码'
+      });
+    }
 
     // Generate mock JWT-like token
     const generateToken = (userData) => {
@@ -125,44 +134,54 @@ app.post('/api/auth/login', async (req, res) => {
       return `mock.${base64Payload}.signature`;
     };
 
-    // Mock admin user for testing (support both email and username)
-    if ((email === 'admin@test.com' || email === 'admin') && password === 'admin123') {
-      const adminUser = {
-        id: 'admin-id',
-        email: 'admin@test.com',
-        username: 'admin',
-        full_name: '系统管理员',
-        role: 'super_admin',
-      };
-      res.json({
-        user: adminUser,
-        tokens: {
-          accessToken: generateToken(adminUser),
-          refreshToken: 'mock-refresh-token',
-        }
-      });
-      return;
-    }
-
     // Try to get user from database (support both email and username)
-    const result = await pool.query('SELECT * FROM profiles WHERE email = $1 OR username = $1', [email]);
+    const result = await pool.query('SELECT * FROM profiles WHERE email = $1 OR username = $1', [loginIdentifier]);
 
     if (result.rows.length === 0) {
       return res.status(401).json({
         error: 'Authentication failed',
-        message: 'User not found'
+        message: 'Invalid credentials'
       });
     }
 
     const user = result.rows[0];
 
-    // For now, accept any password for existing users
+    // Check if user is active
+    if (user.status !== 'active') {
+      return res.status(401).json({
+        error: 'Authentication failed',
+        message: 'Account is disabled'
+      });
+    }
+
+    // Verify password using bcrypt
+    const bcrypt = require('bcrypt');
+    let isPasswordValid = false;
+
+    if (user.password_hash) {
+      try {
+        isPasswordValid = await bcrypt.compare(password, user.password_hash);
+      } catch (bcryptError) {
+        console.error('Bcrypt compare error:', bcryptError);
+        isPasswordValid = false;
+      }
+    }
+
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        error: 'Authentication failed',
+        message: 'Invalid credentials'
+      });
+    }
+
     res.json({
       user: {
         id: user.id,
         email: user.email,
+        username: user.username,
         full_name: user.full_name,
         role: user.role,
+        store_id: user.store_id,
       },
       tokens: {
         accessToken: generateToken(user),
@@ -170,6 +189,7 @@ app.post('/api/auth/login', async (req, res) => {
       }
     });
   } catch (error) {
+    console.error('Login error:', error);
     res.status(401).json({
       error: 'Authentication failed',
       message: error.message
@@ -3676,10 +3696,15 @@ app.put('/api/users/:id/reset-password', async (req, res) => {
       });
     }
 
-    // Update password (in production, this should be hashed)
+    // Hash the password using bcrypt
+    const bcrypt = require('bcrypt');
+    const saltRounds = 12;
+    const passwordHash = await bcrypt.hash(new_password, saltRounds);
+
+    // Update password with bcrypt hash
     const result = await pool.query(
       'UPDATE profiles SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
-      [new_password, id]
+      [passwordHash, id]
     );
 
     console.log(`Password reset for user: ${existingUser.rows[0].username}`);

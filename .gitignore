@@ -30,6 +30,7 @@ history/*.json
 
 # Test and debug files
 *.cjs
+!server/api-server.cjs
 test-*.sh
 test-*.js
 debug-*.cjs
