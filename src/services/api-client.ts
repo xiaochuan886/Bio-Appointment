@@ -14,10 +14,10 @@ async function apiCall(endpoint: string, options?: RequestInit) {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      
+
       // 创建增强的错误对象，包含所有可能的错误信息
       const enhancedError = new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`) as any;
-      
+
       // 添加额外的错误信息
       if (errorData.message) {
         enhancedError.detailedMessage = errorData.message;
@@ -28,10 +28,10 @@ async function apiCall(endpoint: string, options?: RequestInit) {
       if (errorData.appointments) {
         enhancedError.appointments = errorData.appointments;
       }
-      
+
       // 保留原始错误数据
       enhancedError.originalError = errorData;
-      
+
       throw enhancedError;
     }
 
@@ -579,9 +579,14 @@ export const clientApi = {
 
 
   // Helper functions for specific needs
-  async getAvailableNurses(store_id?: string) {
-    const query = store_id ? `?store_id=${store_id}` : '';
-    console.log('🔍 [DEBUG] 前端调用getAvailableNurses API:', { store_id, query });
+  async getAvailableNurses(store_id?: string, date?: string, time?: string) {
+    const params = new URLSearchParams();
+    if (store_id) params.append('store_id', store_id);
+    if (date) params.append('date', date);
+    if (time) params.append('time', time);
+    const query = params.toString() ? `?${params.toString()}` : '';
+
+    console.log('🔍 [DEBUG] 前端调用getAvailableNurses API:', { store_id, date, time, query });
     try {
       const result = await authenticatedApiCall(`/profiles/nurses/available${query}`);
       console.log('🔍 [DEBUG] getAvailableNurses API返回成功:', { result, count: result?.length || 0, type: typeof result });
@@ -693,6 +698,65 @@ export const clientApi = {
   async getStoreStaff(id: string, role?: string): Promise<StoreStaff[]> {
     const query = role ? `?role=${role}` : '';
     return authenticatedApiCall(`/stores/${id}/staff${query}`);
+  },
+
+  // Nurse Leave Management
+  async getNurseLeaves(filters?: {
+    nurse_id?: string;
+    date_from?: string;
+    date_to?: string;
+    store_id?: string;
+  }) {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          params.append(key, String(value));
+        }
+      });
+    }
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return authenticatedApiCall(`/nurse-leaves${query}`);
+  },
+
+  async createNurseLeave(data: {
+    nurse_id: string;
+    leave_date: string;
+    leave_period: 'morning' | 'afternoon' | 'full_day';
+    reason?: string;
+  }) {
+    return authenticatedApiCall('/nurse-leaves', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateNurseLeave(id: string, data: {
+    leave_date?: string;
+    leave_period?: 'morning' | 'afternoon' | 'full_day';
+    reason?: string;
+  }) {
+    return authenticatedApiCall(`/nurse-leaves/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteNurseLeave(id: string) {
+    return authenticatedApiCall(`/nurse-leaves/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async transferSchedules(data: {
+    from_nurse_id: string;
+    to_nurse_id: string;
+    schedule_ids: string[];
+  }) {
+    return authenticatedApiCall('/nurse-leaves/transfer-schedules', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   },
 };
 

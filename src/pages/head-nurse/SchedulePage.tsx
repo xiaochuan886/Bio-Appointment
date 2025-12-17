@@ -70,12 +70,67 @@ export default function HeadNurseSchedulePage() {
   const [resourceConflicts, setResourceConflicts] = useState<ResourceConflict[]>([]);
   const [isConflictDialogOpen, setIsConflictDialogOpen] = useState(false);
   const [pendingScheduleData, setPendingScheduleData] = useState<ScheduleFormValues | null>(null);
-  const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
+  const [availableNursesForDialog, setAvailableNursesForDialog] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'pending' | 'cancelled'>('pending');
+  const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
 
   const form = useForm<ScheduleFormValues>({
     resolver: zodResolver(scheduleFormSchema),
+    defaultValues: {
+      scheduled_time_start: '',
+      scheduled_time_end: '',
+      room_id: '',
+      nurse_id: '',
+      adjusted_duration: 60,
+      adjustment_reason: '',
+    },
   });
+
+  // 监听排班表单时间变化，更新可用护士列表
+  useEffect(() => {
+    if (isScheduleDialogOpen) {
+      const startTime = form.getValues('scheduled_time_start');
+      // 如果有选中预约，使用预约日期，否则使用选中的日期
+      const dateStr = selectedAppointment?.requested_date
+        ? format(new Date(selectedAppointment.requested_date), 'yyyy-MM-dd')
+        : format(selectedDate, 'yyyy-MM-dd');
+
+      if (dateStr && startTime) {
+        // 获取该时段可用的护士
+        const fetchAvailableNurses = async () => {
+          try {
+            const storeFilter = getAccessibleStoreIds(user?.profile || null);
+            const available = await clientApi.getAvailableNurses(
+              storeFilter || undefined,
+              dateStr,
+              startTime
+            );
+            // 将当前编辑选中的护士（即使不可用）也加入列表，避免显示空白，但可以标出警告
+            const currentNurseId = form.getValues('nurse_id');
+            if (currentNurseId && !available.find((n: any) => n.id === currentNurseId)) {
+              const currentNurse = nurses.find(n => n.id === currentNurseId);
+              if (currentNurse) {
+                // 标记为不可用但保留在列表中以便显示? 或者直接不加，让用户重选
+                // 这里简单起见，如果是在编辑且原来就是这个护士，暂时加进去，但用户一旦改了就选不回去了
+                // 或者，我们在Select渲染时处理
+              }
+            }
+            setAvailableNursesForDialog(available);
+          } catch (error) {
+            console.error('Failed to fetch available nurses for slot:', error);
+          }
+        };
+        fetchAvailableNurses();
+      } else {
+        // 如果没有时间，显示所有护士
+        setAvailableNursesForDialog(nurses);
+      }
+    }
+  }, [isScheduleDialogOpen, form.watch('scheduled_time_start')]); // Watch time changes
+
+  // ... existing code ...
+
+
 
   useEffect(() => {
     loadData();
@@ -111,7 +166,7 @@ export default function HeadNurseSchedulePage() {
 
       // 使用权限工具函数获取可访问的门店ID
       const storeFilter = getAccessibleStoreIds(user?.profile || null);
-      
+
       if (activeTab === 'pending') {
         const [appointmentsData, schedulesData, nursesData, roomsData] = await Promise.all([
           clientApi.getNursePendingAppointments({
@@ -138,7 +193,7 @@ export default function HeadNurseSchedulePage() {
         const doctorConfirmed = appointmentsData.filter(a =>
           a.workflow_status === 'doctor_confirmed' && a.service?.category === 'nursing'
         );
-        
+
         setPendingAppointments([...pendingNurseAssignment, ...doctorConfirmed]);
         setSchedules(schedulesData);
         setNurses(nursesData);
@@ -156,7 +211,7 @@ export default function HeadNurseSchedulePage() {
           clientApi.getAvailableNurses(user?.profile?.store_id || undefined), // 使用用户门店ID过滤护士
           clientApi.getAvailableRooms(user?.profile?.store_id || undefined), // 使用用户门店ID过滤房间
         ]);
-        
+
         setCancelledAppointments(cancelledAppointmentsData);
         setSchedules([]); // 已取消预约不需要显示排班
         setNurses(nursesData);
@@ -192,7 +247,7 @@ export default function HeadNurseSchedulePage() {
     setSelectedAppointment(appointment);
     setSelectedSchedule(null);
     setIsEditing(true); // 新建时默认为编辑模式
-    
+
     const estimatedDuration = appointment.estimated_duration || 60;
     const startTime = appointment.requested_time_start || '09:00:00';
     // 处理时间计算 - 使用estimated_duration作为初始adjusted_duration
@@ -359,7 +414,7 @@ export default function HeadNurseSchedulePage() {
         const endHour = Math.floor(endMinutes / 60);
         const endMinute = endMinutes % 60;
         const finalEndTime = `${endHour.toString().padStart(2, '0')}:${endMinute.toString().padStart(2, '0')}:00`;
-        
+
         await clientApi.createSchedule({
           appointment_id: selectedAppointment.id,
           scheduled_date: dateStr,
@@ -421,7 +476,7 @@ export default function HeadNurseSchedulePage() {
       toast.success('预约已手动取消');
       setIsCancelDialogOpen(false);
       setIsScheduleDialogOpen(false);
-      
+
       setTimeout(() => {
         loadData();
       }, 500);
@@ -546,11 +601,10 @@ export default function HeadNurseSchedulePage() {
           <nav className="-mb-px flex space-x-8">
             <button
               onClick={() => setActiveTab('pending')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'pending'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'pending'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
             >
               待排班预约
               {pendingAppointments.length > 0 && (
@@ -561,11 +615,10 @@ export default function HeadNurseSchedulePage() {
             </button>
             <button
               onClick={() => setActiveTab('cancelled')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'cancelled'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'cancelled'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
             >
               已取消预约
               {cancelledAppointments.length > 0 && (
@@ -591,130 +644,130 @@ export default function HeadNurseSchedulePage() {
                 </div>
               </div>
             </CardHeader>
-          <CardContent>
-            <div className="flex gap-3 overflow-x-auto pb-2">
-              {urgentAppointments.map(appointment => (
-                <Card key={appointment.id} className="min-w-[240px] p-3 border-l-4 border-l-urgent hover:shadow-md transition-shadow">
-                  <div className="space-y-2">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <div className="font-medium">{appointment.customer_name}</div>
-                        <div className="text-xs text-muted-foreground mt-1">
-                          {appointment.service?.name}
-                        </div>
-                        {/* 显示预约人信息 */}
-                        <div className="text-xs text-gray-600 mt-1">
-                          预约人: {appointment.sales_name || '未指定'}
-                        </div>
-                        {appointment.requested_date && (
-                          <div className="text-xs text-primary font-medium mt-1">
-                            📅 {format(new Date(appointment.requested_date), 'yyyy-MM-dd')}
+            <CardContent>
+              <div className="flex gap-3 overflow-x-auto pb-2">
+                {urgentAppointments.map(appointment => (
+                  <Card key={appointment.id} className="min-w-[240px] p-3 border-l-4 border-l-urgent hover:shadow-md transition-shadow">
+                    <div className="space-y-2">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="font-medium">{appointment.customer_name}</div>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {appointment.service?.name}
                           </div>
-                        )}
-                        {/* 显示工作流状态 */}
-                        {appointment.workflow_status && (
-                          <div className="mt-1">
-                            <Badge variant="outline" className={`text-xs bg-${getWorkflowStatusColor(appointment.workflow_status)}/10 text-${getWorkflowStatusColor(appointment.workflow_status)}`}>
-                              {getWorkflowStatusDisplayName(appointment.workflow_status)}
-                            </Badge>
+                          {/* 显示预约人信息 */}
+                          <div className="text-xs text-gray-600 mt-1">
+                            预约人: {appointment.sales_name || '未指定'}
                           </div>
-                        )}
+                          {appointment.requested_date && (
+                            <div className="text-xs text-primary font-medium mt-1">
+                              📅 {format(new Date(appointment.requested_date), 'yyyy-MM-dd')}
+                            </div>
+                          )}
+                          {/* 显示工作流状态 */}
+                          {appointment.workflow_status && (
+                            <div className="mt-1">
+                              <Badge variant="outline" className={`text-xs bg-${getWorkflowStatusColor(appointment.workflow_status)}/10 text-${getWorkflowStatusColor(appointment.workflow_status)}`}>
+                                {getWorkflowStatusDisplayName(appointment.workflow_status)}
+                              </Badge>
+                            </div>
+                          )}
+                        </div>
+                        <StatusBadge status="pending" isUrgent={true} />
                       </div>
-                      <StatusBadge status="pending" isUrgent={true} />
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <Clock className="h-3.5 w-3.5" />
-                      {appointment.requested_time_start?.substring(0, 5) || '待定'} (预计{appointment.estimated_duration}m)
-                    </div>
-                    <Button
-                      size="sm"
-                      className="w-full h-8 text-xs"
-                      onClick={() => handleCreateSchedule(appointment)}
-                    >
-                      分配资源
-                    </Button>
-                  </div>
-                </Card>
-              ))}
-              {normalAppointments.map(appointment => (
-                <Card key={appointment.id} className="min-w-[240px] p-3 hover:shadow-md transition-shadow">
-                  <div className="space-y-2">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <div className="font-medium">{appointment.customer_name}</div>
-                        <div className="text-xs text-muted-foreground mt-1">
-                          {appointment.service?.name}
-                        </div>
-                        {/* 显示预约人信息 */}
-                        <div className="text-xs text-gray-600 mt-1">
-                          预约人: {appointment.sales_name || '未指定'}
-                        </div>
-                        {appointment.requested_date && (
-                          <div className="text-xs text-primary font-medium mt-1">
-                            📅 {format(new Date(appointment.requested_date), 'yyyy-MM-dd')}
-                          </div>
-                        )}
-                        {/* 显示工作流状态 */}
-                        {appointment.workflow_status && (
-                          <div className="mt-1">
-                            <Badge variant="outline" className={`text-xs bg-${getWorkflowStatusColor(appointment.workflow_status)}/10 text-${getWorkflowStatusColor(appointment.workflow_status)}`}>
-                              {getWorkflowStatusDisplayName(appointment.workflow_status)}
-                            </Badge>
-                          </div>
-                        )}
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Clock className="h-3.5 w-3.5" />
+                        {appointment.requested_time_start?.substring(0, 5) || '待定'} (预计{appointment.estimated_duration}m)
                       </div>
-                      <StatusBadge status="pending" />
+                      <Button
+                        size="sm"
+                        className="w-full h-8 text-xs"
+                        onClick={() => handleCreateSchedule(appointment)}
+                      >
+                        分配资源
+                      </Button>
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <Clock className="h-3.5 w-3.5" />
-                      {appointment.requested_time_start?.substring(0, 5) || '待定'} (预计{appointment.estimated_duration}m)
+                  </Card>
+                ))}
+                {normalAppointments.map(appointment => (
+                  <Card key={appointment.id} className="min-w-[240px] p-3 hover:shadow-md transition-shadow">
+                    <div className="space-y-2">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="font-medium">{appointment.customer_name}</div>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {appointment.service?.name}
+                          </div>
+                          {/* 显示预约人信息 */}
+                          <div className="text-xs text-gray-600 mt-1">
+                            预约人: {appointment.sales_name || '未指定'}
+                          </div>
+                          {appointment.requested_date && (
+                            <div className="text-xs text-primary font-medium mt-1">
+                              📅 {format(new Date(appointment.requested_date), 'yyyy-MM-dd')}
+                            </div>
+                          )}
+                          {/* 显示工作流状态 */}
+                          {appointment.workflow_status && (
+                            <div className="mt-1">
+                              <Badge variant="outline" className={`text-xs bg-${getWorkflowStatusColor(appointment.workflow_status)}/10 text-${getWorkflowStatusColor(appointment.workflow_status)}`}>
+                                {getWorkflowStatusDisplayName(appointment.workflow_status)}
+                              </Badge>
+                            </div>
+                          )}
+                        </div>
+                        <StatusBadge status="pending" />
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Clock className="h-3.5 w-3.5" />
+                        {appointment.requested_time_start?.substring(0, 5) || '待定'} (预计{appointment.estimated_duration}m)
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full h-8 text-xs"
+                        onClick={() => handleCreateSchedule(appointment)}
+                      >
+                        分配资源
+                      </Button>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="w-full h-8 text-xs"
-                      onClick={() => handleCreateSchedule(appointment)}
-                    >
-                      分配资源
-                    </Button>
+                  </Card>
+                ))}
+                {pendingAppointments.length === 0 && (
+                  <div className="flex items-center justify-center py-6 text-muted-foreground min-w-[240px]">
+                    <div className="text-center">
+                      <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">暂无待排班预约</p>
+                    </div>
                   </div>
-                </Card>
-              ))}
-              {pendingAppointments.length === 0 && (
-                <div className="flex items-center justify-center py-6 text-muted-foreground min-w-[240px]">
-                  <div className="text-center">
-                    <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">暂无待排班预约</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+                )}
+              </div>
+            </CardContent>
+          </Card>
 
-        <Card className="xl:w-[280px]">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm">图例说明</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 text-xs">
-                <span className="w-3 h-3 rounded-full bg-confirmed"></span>
-                <span className="text-muted-foreground">已确认</span>
+          <Card className="xl:w-[280px]">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">图例说明</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="w-3 h-3 rounded-full bg-confirmed"></span>
+                  <span className="text-muted-foreground">已确认</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="w-3 h-3 rounded-full bg-pending"></span>
+                  <span className="text-muted-foreground">待排班</span>
+                </div>
+                <div className="pt-2 border-t">
+                  <p className="text-xs text-muted-foreground">
+                    💡 资源名称前的圆点表示该资源的颜色标识
+                  </p>
+                </div>
               </div>
-              <div className="flex items-center gap-2 text-xs">
-                <span className="w-3 h-3 rounded-full bg-pending"></span>
-                <span className="text-muted-foreground">待排班</span>
-              </div>
-              <div className="pt-2 border-t">
-                <p className="text-xs text-muted-foreground">
-                  💡 资源名称前的圆点表示该资源的颜色标识
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* 已取消预约列表 - 只在已取消标签页显示 */}
@@ -833,145 +886,145 @@ export default function HeadNurseSchedulePage() {
           {!isEditing && selectedSchedule && selectedAppointment && (
             <div className="space-y-6">
               <div className="border rounded-lg p-6 bg-card text-card-foreground shadow-sm">
-                  {/* Title Row */}
-                  <div className="flex items-start justify-between mb-6">
-                      <div className="flex items-center gap-3">
-                          <Users className="w-6 h-6 text-primary" />
-                          <span className="font-bold text-xl">
-                              {selectedAppointment.customer_name}
-                          </span>
-                          <StatusBadge status={selectedSchedule.status} />
-                      </div>
+                {/* Title Row */}
+                <div className="flex items-start justify-between mb-6">
+                  <div className="flex items-center gap-3">
+                    <Users className="w-6 h-6 text-primary" />
+                    <span className="font-bold text-xl">
+                      {selectedAppointment.customer_name}
+                    </span>
+                    <StatusBadge status={selectedSchedule.status} />
                   </div>
+                </div>
 
-                  {/* 预约人信息 */}
-                  <div className="mb-6 p-3 bg-muted/30 rounded-md">
-                    <div className="flex items-center gap-2 text-sm">
-                      <Users className="w-4 h-4 text-muted-foreground" />
-                      <span className="text-muted-foreground">预约人:</span>
-                      <span className="font-medium">
-                        {selectedSchedule.sales_name || '未指定'}
-                      </span>
-                      {selectedSchedule.sales_role && (
-                        <Badge variant="outline" className="text-xs">
-                          {selectedSchedule.sales_role === 'sales' ? '销售' : selectedSchedule.sales_role}
-                        </Badge>
-                      )}
+                {/* 预约人信息 */}
+                <div className="mb-6 p-3 bg-muted/30 rounded-md">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Users className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-muted-foreground">预约人:</span>
+                    <span className="font-medium">
+                      {selectedSchedule.sales_name || '未指定'}
+                    </span>
+                    {selectedSchedule.sales_role && (
+                      <Badge variant="outline" className="text-xs">
+                        {selectedSchedule.sales_role === 'sales' ? '销售' : selectedSchedule.sales_role}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+
+                {/* 客户信息 */}
+                <div className="mb-6 p-3 bg-blue-50 rounded-md">
+                  <div className="flex items-start gap-2 text-sm mb-2">
+                    <Users className="w-4 h-4 text-blue-600 mt-0.5" />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-muted-foreground">主客户:</span>
+                        <span className="font-medium text-blue-900">
+                          {selectedSchedule.customer_name || selectedAppointment.customer_name || '未知客户'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-muted-foreground">客户数量:</span>
+                        <span className="font-medium text-blue-900">
+                          {(() => {
+                            const totalPeople = selectedSchedule.total_people || selectedAppointment.total_people;
+                            const companionNames = selectedSchedule.companion_names || selectedAppointment.companion_names;
+                            const companionCount = companionNames?.length || 0;
+                            const calculatedTotal = 1 + companionCount; // 主客户 + 同行客户
+                            return totalPeople || calculatedTotal;
+                          })()} 人
+                        </span>
+                      </div>
                     </div>
                   </div>
 
-                  {/* 客户信息 */}
-                  <div className="mb-6 p-3 bg-blue-50 rounded-md">
-                    <div className="flex items-start gap-2 text-sm mb-2">
-                      <Users className="w-4 h-4 text-blue-600 mt-0.5" />
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-muted-foreground">主客户:</span>
-                          <span className="font-medium text-blue-900">
-                            {selectedSchedule.customer_name || selectedAppointment.customer_name || '未知客户'}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-muted-foreground">客户数量:</span>
-                          <span className="font-medium text-blue-900">
-                            {(() => {
-                              const totalPeople = selectedSchedule.total_people || selectedAppointment.total_people;
-                              const companionNames = selectedSchedule.companion_names || selectedAppointment.companion_names;
-                              const companionCount = companionNames?.length || 0;
-                              const calculatedTotal = 1 + companionCount; // 主客户 + 同行客户
-                              return totalPeople || calculatedTotal;
-                            })()} 人
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {(() => {
-                      const companionNames = selectedSchedule.companion_names || selectedAppointment.companion_names;
-                      return companionNames && companionNames.length > 0 && (
-                        <div className="flex items-start gap-2 text-sm">
-                          <Users className="w-4 h-4 text-blue-600 mt-0.5" />
-                          <div className="flex-1">
-                            <span className="text-muted-foreground">同行客户:</span>
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              {companionNames.map((name: string, index: number) => (
-                                <Badge key={index} variant="secondary" className="text-xs bg-blue-100 text-blue-800">
-                                  {name}
-                                </Badge>
-                              ))}
-                            </div>
+                  {(() => {
+                    const companionNames = selectedSchedule.companion_names || selectedAppointment.companion_names;
+                    return companionNames && companionNames.length > 0 && (
+                      <div className="flex items-start gap-2 text-sm">
+                        <Users className="w-4 h-4 text-blue-600 mt-0.5" />
+                        <div className="flex-1">
+                          <span className="text-muted-foreground">同行客户:</span>
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {companionNames.map((name: string, index: number) => (
+                              <Badge key={index} variant="secondary" className="text-xs bg-blue-100 text-blue-800">
+                                {name}
+                              </Badge>
+                            ))}
                           </div>
                         </div>
-                      );
-                    })()}
-                  </div>
-
-                  {/* Time Info */}
-                  <div className="grid grid-cols-2 gap-6 mb-6">
-                      <div className="flex items-center gap-2 text-sm">
-                          <Clock className="w-5 h-5 text-muted-foreground" />
-                          <span className="text-muted-foreground text-base">时间:</span>
-                          <span className="font-medium text-lg">
-                              {(() => {
-                                  if (!selectedSchedule.scheduled_time_start) return '未设定';
-                                  const start = selectedSchedule.scheduled_time_start.slice(0, 5);
-                                  const duration = selectedSchedule.adjusted_duration || selectedAppointment.estimated_duration || 0;
-                                  const [startH, startM] = start.split(':').map(Number);
-                                  const endMinutes = startH * 60 + startM + duration;
-                                  const endH = Math.floor(endMinutes / 60) % 24;
-                                  const endM = endMinutes % 60;
-                                  const end = `${endH.toString().padStart(2, '0')}:${endM.toString().padStart(2, '0')}`;
-                                  return `${start} - ${end}`;
-                              })()}
-                          </span>
                       </div>
-                      <div className="flex items-center gap-2 text-sm">
-                          <Clock className="w-5 h-5 text-muted-foreground" />
-                          <span className="text-muted-foreground text-base">时长:</span>
-                          <span className="font-medium text-lg">
-                              {selectedSchedule.adjusted_duration || selectedAppointment.estimated_duration} 分钟
-                          </span>
-                      </div>
-                  </div>
+                    );
+                  })()}
+                </div>
 
-                  {/* Service Info */}
-                  <div className="space-y-4 mb-6">
-                       <div className="flex items-start gap-2 text-sm">
-                           <Info className="w-5 h-5 text-muted-foreground mt-0.5" />
-                           <div>
-                               <span className="text-muted-foreground text-base">服务项目:</span>
-                               <span className="ml-2 font-medium text-lg">
-                                   {selectedAppointment.service?.name}
-                               </span>
-                           </div>
-                       </div>
+                {/* Time Info */}
+                <div className="grid grid-cols-2 gap-6 mb-6">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Clock className="w-5 h-5 text-muted-foreground" />
+                    <span className="text-muted-foreground text-base">时间:</span>
+                    <span className="font-medium text-lg">
+                      {(() => {
+                        if (!selectedSchedule.scheduled_time_start) return '未设定';
+                        const start = selectedSchedule.scheduled_time_start.slice(0, 5);
+                        const duration = selectedSchedule.adjusted_duration || selectedAppointment.estimated_duration || 0;
+                        const [startH, startM] = start.split(':').map(Number);
+                        const endMinutes = startH * 60 + startM + duration;
+                        const endH = Math.floor(endMinutes / 60) % 24;
+                        const endM = endMinutes % 60;
+                        const end = `${endH.toString().padStart(2, '0')}:${endM.toString().padStart(2, '0')}`;
+                        return `${start} - ${end}`;
+                      })()}
+                    </span>
                   </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <Clock className="w-5 h-5 text-muted-foreground" />
+                    <span className="text-muted-foreground text-base">时长:</span>
+                    <span className="font-medium text-lg">
+                      {selectedSchedule.adjusted_duration || selectedAppointment.estimated_duration} 分钟
+                    </span>
+                  </div>
+                </div>
 
-                  {/* Resource Info */}
-                  <div className="grid grid-cols-2 gap-6 text-sm pt-4 border-t">
-                       <div className="space-y-2">
-                           <span className="text-muted-foreground text-base block">房间:</span>
-                           <span className="font-medium text-lg block">
-                               {getRoomDetails(selectedSchedule.room_id)}
-                           </span>
-                       </div>
-                       <div className="space-y-2">
-                           <span className="text-muted-foreground text-base block">护士:</span>
-                           <span className="font-medium text-lg block">
-                               {getNurseName(selectedSchedule.nurse_id)}
-                           </span>
-                       </div>
+                {/* Service Info */}
+                <div className="space-y-4 mb-6">
+                  <div className="flex items-start gap-2 text-sm">
+                    <Info className="w-5 h-5 text-muted-foreground mt-0.5" />
+                    <div>
+                      <span className="text-muted-foreground text-base">服务项目:</span>
+                      <span className="ml-2 font-medium text-lg">
+                        {selectedAppointment.service?.name}
+                      </span>
+                    </div>
                   </div>
-                  
-                  {/* Notes */}
-                  {selectedSchedule.notes && (
-                       <div className="mt-4 pt-4 border-t">
-                           <div className="text-sm">
-                               <span className="text-muted-foreground">备注:</span>
-                               <p className="mt-1 text-muted-foreground p-2 bg-muted rounded">{selectedSchedule.notes}</p>
-                           </div>
-                       </div>
-                  )}
+                </div>
+
+                {/* Resource Info */}
+                <div className="grid grid-cols-2 gap-6 text-sm pt-4 border-t">
+                  <div className="space-y-2">
+                    <span className="text-muted-foreground text-base block">房间:</span>
+                    <span className="font-medium text-lg block">
+                      {getRoomDetails(selectedSchedule.room_id)}
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    <span className="text-muted-foreground text-base block">护士:</span>
+                    <span className="font-medium text-lg block">
+                      {getNurseName(selectedSchedule.nurse_id)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Notes */}
+                {selectedSchedule.notes && (
+                  <div className="mt-4 pt-4 border-t">
+                    <div className="text-sm">
+                      <span className="text-muted-foreground">备注:</span>
+                      <p className="mt-1 text-muted-foreground p-2 bg-muted rounded">{selectedSchedule.notes}</p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <DialogFooter className="gap-2 sm:justify-between">
@@ -1076,9 +1129,9 @@ export default function HeadNurseSchedulePage() {
                         <FormLabel>开始时间 (Start)</FormLabel>
                         <FormControl>
                           <div className="relative">
-                            <Input 
-                              type="time" 
-                              {...field} 
+                            <Input
+                              type="time"
+                              {...field}
                               className="text-lg font-medium"
                             />
                             <Clock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
@@ -1097,8 +1150,8 @@ export default function HeadNurseSchedulePage() {
                         <FormLabel>修正时长 (Duration)</FormLabel>
                         <FormControl>
                           <div className="relative">
-                            <Input 
-                              type="number" 
+                            <Input
+                              type="number"
                               value={field.value || ''}
                               className="text-lg font-medium pr-12"
                               onChange={(e) => {
@@ -1149,7 +1202,7 @@ export default function HeadNurseSchedulePage() {
                     <FormItem>
                       <FormLabel>护士分配 (Nurse)</FormLabel>
                       <FormDescription className="text-xs text-muted-foreground">
-                        双人复核机制
+                        只显示当前时段未休假的护士
                       </FormDescription>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
@@ -1158,14 +1211,20 @@ export default function HeadNurseSchedulePage() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {nurses.map(nurse => (
-                            <SelectItem key={nurse.id} value={nurse.id}>
-                              <div className="flex items-center gap-2">
-                                <Users className="h-4 w-4" />
-                                {nurse.name || nurse.full_name}
-                              </div>
-                            </SelectItem>
-                          ))}
+                          {availableNursesForDialog.length === 0 ? (
+                            <div className="p-2 text-sm text-muted-foreground text-center">
+                              当前时段无可用护士
+                            </div>
+                          ) : (
+                            availableNursesForDialog.map(nurse => (
+                              <SelectItem key={nurse.id} value={nurse.id}>
+                                <div className="flex items-center gap-2">
+                                  <Users className="h-4 w-4" />
+                                  {nurse.name || nurse.full_name}
+                                </div>
+                              </SelectItem>
+                            ))
+                          )}
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -1180,9 +1239,9 @@ export default function HeadNurseSchedulePage() {
                     <FormItem>
                       <FormLabel>调整原因（可选）</FormLabel>
                       <FormControl>
-                        <Textarea 
-                          placeholder="如调整了时长，请说明原因" 
-                          {...field} 
+                        <Textarea
+                          placeholder="如调整了时长，请说明原因"
+                          {...field}
                           rows={3}
                         />
                       </FormControl>
@@ -1237,7 +1296,7 @@ export default function HeadNurseSchedulePage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={handleCancelAppointment}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >

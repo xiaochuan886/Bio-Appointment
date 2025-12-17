@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -9,7 +9,6 @@ import {
   User,
   Stethoscope,
   Home,
-  AlertCircle,
   Calendar
 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -22,10 +21,10 @@ interface MobileScheduleCardProps {
   onViewDetails?: (schedule: ScheduleWithDetails) => void;
 }
 
-export default function MobileScheduleCard({ 
-  schedule, 
+export default function MobileScheduleCard({
+  schedule,
   compact = false,
-  onViewDetails 
+  onViewDetails
 }: MobileScheduleCardProps) {
   // 获取状态颜色
   const getStatusColor = (status: string) => {
@@ -70,11 +69,11 @@ export default function MobileScheduleCard({
     const end = parseInt(endTime.split(':')[0]);
     const startMin = parseInt(startTime.split(':')[1]);
     const endMin = parseInt(endTime.split(':')[1]);
-    
+
     const totalMinutes = (end * 60 + endMin) - (start * 60 + startMin);
     const hours = Math.floor(totalMinutes / 60);
     const minutes = totalMinutes % 60;
-    
+
     return minutes > 0 ? `${hours}小时${minutes}分` : `${hours}小时`;
   };
 
@@ -87,59 +86,51 @@ export default function MobileScheduleCard({
   if (compact) {
     // 紧凑模式，用于时间轴视图
     return (
-      <Card 
-        className="cursor-pointer hover:shadow-md transition-shadow"
+      <div
+        className="bg-card text-card-foreground rounded-lg border shadow-sm cursor-pointer hover:shadow-md transition-shadow p-2"
         onClick={handleCardClick}
       >
-        <CardContent className="p-3">
-          <div className="flex items-center justify-between">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <Badge 
-                  variant="outline" 
-                  className={`text-xs ${getStatusColor(schedule.status)}`}
-                >
-                  {getStatusText(schedule.status)}
-                </Badge>
-                <span className="text-sm font-medium truncate">
-                  {schedule.appointment?.customer_name || '未知客户'}
-                </span>
-              </div>
-              
-              <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                <div className="flex items-center gap-1">
-                  <Clock className="h-3 w-3" />
-                  <span>
-                    {formatTime(schedule.scheduled_time_start)} - {formatTime(schedule.scheduled_time_end)}
-                  </span>
-                </div>
-                
-                {schedule.room && (
-                  <div className="flex items-center gap-1">
-                    <Home className="h-3 w-3" />
-                    <span>{schedule.room.name}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-1">
-              {schedule.nurse && (
-                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <User className="h-3 w-3" />
-                  <span>{schedule.nurse.name}</span>
-                </div>
-              )}
-            </div>
+        {/* 第一行：状态 + 客户名 */}
+        <div className="flex items-center gap-2 mb-0.5">
+          <Badge
+            variant="outline"
+            className={`text-[10px] px-1 py-0 h-4 shrink-0 ${getStatusColor(schedule.status)}`}
+          >
+            {getStatusText(schedule.status)}
+          </Badge>
+          <span className="text-xs font-medium truncate leading-none">
+            {schedule.appointment?.customer_name || '未知客户'}
+          </span>
+        </div>
+
+        {/* 第二行：时间 + 房间 + 护士 */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground leading-tight">
+          <div className="flex items-center gap-1">
+            <Clock className="h-2.5 w-2.5 shrink-0" />
+            <span>{formatTime(schedule.scheduled_time_start)}-{formatTime(schedule.scheduled_time_end)}</span>
           </div>
-        </CardContent>
-      </Card>
+
+          {schedule.room && (
+            <div className="flex items-center gap-1">
+              <Home className="h-2.5 w-2.5 shrink-0" />
+              <span className="truncate max-w-[80px]">{schedule.room.name}</span>
+            </div>
+          )}
+
+          {schedule.nurse && (
+            <div className="flex items-center gap-1">
+              <User className="h-2.5 w-2.5 shrink-0" />
+              <span className="truncate max-w-[80px]">{schedule.nurse.name}</span>
+            </div>
+          )}
+        </div>
+      </div>
     );
   }
 
   // 完整模式
   return (
-    <Card 
+    <Card
       className="cursor-pointer hover:shadow-md transition-shadow"
       onClick={handleCardClick}
     >
@@ -155,15 +146,15 @@ export default function MobileScheduleCard({
                 {schedule.appointment?.service?.name || '未知服务'}
               </p>
             </div>
-            
-            <Badge 
-              variant="outline" 
+
+            <Badge
+              variant="outline"
               className={`${getStatusColor(schedule.status)}`}
             >
               {getStatusText(schedule.status)}
             </Badge>
           </div>
-          
+
           {/* 时间信息 */}
           <div className="flex items-center gap-4 text-sm">
             <div className="flex items-center gap-2">
@@ -176,7 +167,7 @@ export default function MobileScheduleCard({
               </Badge>
             </div>
           </div>
-          
+
           {/* 日期信息 */}
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Calendar className="h-4 w-4" />
@@ -184,7 +175,7 @@ export default function MobileScheduleCard({
               {format(new Date(schedule.scheduled_date), 'yyyy年MM月dd日', { locale: zhCN })}
             </span>
           </div>
-          
+
           {/* 资源信息 */}
           <div className="grid grid-cols-1 gap-2 text-sm">
             {schedule.room && (
@@ -193,14 +184,14 @@ export default function MobileScheduleCard({
                 <span>房间：{schedule.room.name}</span>
               </div>
             )}
-            
+
             {schedule.nurse && (
               <div className="flex items-center gap-2">
                 <User className="h-4 w-4 text-muted-foreground" />
                 <span>护士：{schedule.nurse.name}</span>
               </div>
             )}
-            
+
             {schedule.doctor_name && (
               <div className="flex items-center gap-2">
                 <Stethoscope className="h-4 w-4 text-muted-foreground" />
@@ -208,7 +199,7 @@ export default function MobileScheduleCard({
               </div>
             )}
           </div>
-          
+
           {/* 客户信息 */}
           {schedule.appointment && (
             <div className="border-t pt-3">
@@ -216,13 +207,13 @@ export default function MobileScheduleCard({
                 <Users className="h-4 w-4 text-muted-foreground" />
                 <span className="text-sm font-medium">客户信息</span>
               </div>
-              
+
               <div className="space-y-1 text-sm">
                 <div>
                   <span className="text-muted-foreground">主客户：</span>
                   <span className="font-medium">{schedule.appointment.customer_name}</span>
                 </div>
-                
+
                 {schedule.appointment.companion_names && schedule.appointment.companion_names.length > 0 && (
                   <div>
                     <span className="text-muted-foreground">同行：</span>
@@ -231,7 +222,7 @@ export default function MobileScheduleCard({
                     </span>
                   </div>
                 )}
-                
+
                 {schedule.appointment.store?.name && (
                   <div className="flex items-center gap-1">
                     <MapPin className="h-3 w-3 text-muted-foreground" />
@@ -242,11 +233,11 @@ export default function MobileScheduleCard({
               </div>
             </div>
           )}
-          
+
           {/* 操作按钮 */}
           <div className="pt-2">
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               className="w-full"
               onClick={(e) => {
                 e.stopPropagation();

@@ -83,6 +83,13 @@ async function initializeDatabase() {
 
 // Routes
 
+// Helper function to validate UUID format
+function isValidUUID(str) {
+  if (!str) return false;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
+}
+
 // Health check
 app.get('/api/health', async (req, res) => {
   try {
@@ -213,29 +220,29 @@ app.get('/api/profiles', async (req, res) => {
     let query = 'SELECT * FROM profiles';
     let params = [];
     const conditions = [];
-    
+
     // Build WHERE conditions
     if (role) {
       conditions.push(`role = $${params.length + 1}`);
       params.push(role);
     }
-    
+
     if (status) {
       conditions.push(`status = $${params.length + 1}`);
       params.push(status);
     }
-    
+
     if (store_id) {
       conditions.push(`store_id = $${params.length + 1}`);
       params.push(store_id);
     }
-    
+
     if (conditions.length > 0) {
       query += ' WHERE ' + conditions.join(' AND ');
     }
-    
+
     query += ' ORDER BY created_at DESC';
-    
+
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (error) {
@@ -268,7 +275,7 @@ app.get('/api/profiles/:id', async (req, res) => {
               s.name as store_name
        FROM profiles p
        LEFT JOIN stores s ON p.store_id = s.id
-       WHERE p.id = $1`, 
+       WHERE p.id = $1`,
       [id]
     );
 
@@ -411,7 +418,7 @@ app.put('/api/services/:id', async (req, res) => {
         paramIndex++;
       }
     }
-    
+
     console.log('[DEBUG] Loop end:', { updateFields, paramIndex, valuesLength: values.length });
 
     if (updateFields.length === 0) {
@@ -461,11 +468,11 @@ app.delete('/api/services/:id', async (req, res) => {
         'SELECT id, customer_name, requested_date FROM appointments WHERE service_id = $1 LIMIT 3',
         [id]
       );
-      
+
       const appointmentList = appointmentDetails.rows.map(apt =>
         `- ${apt.customer_name} (${apt.requested_date})`
       ).join('\n');
-      
+
       return res.status(400).json({
         error: 'Cannot delete service',
         message: '无法删除服务',
@@ -507,12 +514,12 @@ app.get('/api/resources', async (req, res) => {
       conditions.push(`type = $${params.length + 1}`);
       params.push(type);
     }
-    
+
     if (status) {
       conditions.push(`status = $${params.length + 1}`);
       params.push(status);
     }
-    
+
     if (store_id) {
       conditions.push(`store_id = $${params.length + 1}`);
       params.push(store_id);
@@ -521,7 +528,7 @@ app.get('/api/resources', async (req, res) => {
     if (conditions.length > 0) {
       query += ' WHERE ' + conditions.join(' AND ');
     }
-    
+
     query += ' ORDER BY name';
 
     const result = await pool.query(query, params);
@@ -575,10 +582,10 @@ app.get('/api/schedules', async (req, res) => {
 
     const userProfile = userResult.rows[0];
     const { date, start_date, end_date, nurse_id, store_id } = req.query;
-    
+
     console.log('🔍 [DEBUG] 排班查询参数:', { date, start_date, end_date, nurse_id, store_id });
     console.log('🔍 [DEBUG] 用户信息:', { userId: userProfile.id, role: userProfile.role, store_id: userProfile.store_id });
-    
+
     // 参数验证
     if (nurse_id && nurse_id !== 'null' && nurse_id !== 'undefined') {
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -622,7 +629,7 @@ app.get('/api/schedules', async (req, res) => {
         message: '结束日期格式无效，请使用YYYY-MM-DD格式'
       });
     }
-    
+
     let query = `
       SELECT
         s.*,
@@ -668,7 +675,7 @@ app.get('/api/schedules', async (req, res) => {
         params.push(userProfile.id);
       }
     }
-    
+
     // 护士长只能查看自己门店的排班，但如果查询指定了护士ID，则先不添加门店限制
     // 门店限制将在后面的护士ID查询处理中添加
     if (userProfile.role === 'head_nurse' && userProfile.store_id && !nurse_id) {
@@ -713,7 +720,7 @@ app.get('/api/schedules', async (req, res) => {
         conditions.push(`s.nurse_id::text = $${params.length + 1}`);
         params.push(nurse_id);
       }
-      
+
       // 如果是护士长查询护士ID，还需要添加门店限制（除非查询的是自己的排班）
       if (userProfile.role === 'head_nurse' && userProfile.store_id && nurse_id !== userProfile.id) {
         const storeUuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -728,7 +735,7 @@ app.get('/api/schedules', async (req, res) => {
         }
       }
     }
-    
+
     // 护士长查看自己排班的特殊情况：如果护士长查询自己的排班，不应该受门店限制
     if (userProfile.role === 'head_nurse' && nurse_id && nurse_id === userProfile.id) {
       // 移除之前可能添加的门店限制条件
@@ -751,7 +758,7 @@ app.get('/api/schedules', async (req, res) => {
         }
       }
     }
-    
+
     // 只有管理员可以按门店ID筛选
     if (store_id && (userProfile.role === 'super_admin' || userProfile.role === 'head_nurse')) {
       // 护士长只能筛选自己的门店
@@ -785,7 +792,7 @@ app.get('/api/schedules', async (req, res) => {
 
     const result = await pool.query(query, params);
     console.log('🔍 [DEBUG] 返回排班数量:', result.rows.length);
-    
+
     // Transform the data to match frontend expected format
     const schedules = result.rows.map(row => {
       // 添加房间类型推断逻辑（与房间API保持一致）
@@ -824,12 +831,12 @@ app.get('/api/schedules', async (req, res) => {
           type: room_type, // 使用推断出的room_type
           status: row.room_status
         } : null,
-      nurse: row.nurse_id ? {
-        id: row.nurse_id,
-        name: row.nurse_name,
-        role: row.nurse_role,
-        department: row.nurse_department
-      } : null
+        nurse: row.nurse_id ? {
+          id: row.nurse_id,
+          name: row.nurse_name,
+          role: row.nurse_role,
+          department: row.nurse_department
+        } : null
       };
     });
 
@@ -895,9 +902,9 @@ app.get('/api/schedules/doctor', async (req, res) => {
     }
 
     const { date, start_date, end_date } = req.query;
-    
+
     console.log('🔍 [DEBUG] 医生排班查询参数:', { date, start_date, end_date, doctorId: userProfile.id });
-    
+
     // 日期格式验证
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
     if (date && !dateRegex.test(date)) {
@@ -918,7 +925,7 @@ app.get('/api/schedules/doctor', async (req, res) => {
         message: '结束日期格式无效，请使用YYYY-MM-DD格式'
       });
     }
-    
+
     // 构建查询 - 专门查询医生相关的排班
     let query = `
       SELECT
@@ -948,7 +955,7 @@ app.get('/api/schedules/doctor', async (req, res) => {
       WHERE srv.category IN ('consultation', 'report')
         AND s.status != 'cancelled'
     `;
-    
+
     let params = [];
     const conditions = [];
 
@@ -956,7 +963,7 @@ app.get('/api/schedules/doctor', async (req, res) => {
     if (userProfile.role === 'doctor') {
       conditions.push(`(s.doctor_id = $${params.length + 1} OR a.doctor_id = $${params.length + 1})`);
       params.push(userProfile.id);
-      
+
       // 同时按门店过滤
       conditions.push(`a.store_id = $${params.length + 1}`);
       params.push(userProfile.store_id);
@@ -991,7 +998,7 @@ app.get('/api/schedules/doctor', async (req, res) => {
 
     const result = await pool.query(query, params);
     console.log('🔍 [DEBUG] 返回医生排班数量:', result.rows.length);
-    
+
     // 转换数据格式
     const schedules = result.rows.map(row => {
       // 推断房间类型
@@ -1103,7 +1110,7 @@ app.post('/api/appointments', async (req, res) => {
     // Get user info for created_by field
     const user = await getUserFromToken(req);
     let createdBy = null;
-    
+
     // Only use createdBy if it's a valid UUID format
     if (user?.userId) {
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -1171,7 +1178,7 @@ app.post('/api/appointments', async (req, res) => {
     );
 
     const appointment = result.rows[0];
-    
+
     console.log(`[DEBUG] 预约创建成功:`, {
       appointment_id: appointment.id,
       workflow_status: appointment.workflow_status,
@@ -1185,7 +1192,7 @@ app.post('/api/appointments', async (req, res) => {
         // Get Head Nurses for the specific store
         const headNurses = await pool.query("SELECT username FROM profiles WHERE role = 'head_nurse' AND status = 'active' AND store_id = $1", [store_id]);
         const headNurseIds = headNurses.rows.map(n => n.username); // Assuming username is DingTalk ID for now
-        
+
         if (headNurseIds.length > 0) {
           await sendDingTalkNotification(headNurseIds, {
             msgtype: "markdown",
@@ -1282,7 +1289,7 @@ app.get('/api/appointments', async (req, res) => {
 
     const result = await pool.query(query, params);
     console.log(`🔍 [DEBUG] 返回预约数量: ${result.rows.length}`);
-    
+
     // Map flat result to include service and store objects
     const mappedRows = result.rows.map(row => ({
       ...row,
@@ -1300,7 +1307,7 @@ app.get('/api/appointments', async (req, res) => {
         name: row.store_name
       } : null
     }));
-    
+
     console.log(`🔍 [DEBUG] 映射后第一条数据服务: ${mappedRows[0]?.service?.name}`);
     res.json(mappedRows);
   } catch (error) {
@@ -1316,14 +1323,14 @@ app.get('/api/appointments', async (req, res) => {
 app.get('/api/appointments/cancelled', async (req, res) => {
   try {
     const { requested_date_from, requested_date_to, store_id } = req.query;
-    
+
     console.log('🔍 [DEBUG] 获取已取消预约API被调用:', {
       requested_date_from,
       requested_date_to,
       store_id,
       query: req.query
     });
-    
+
     // Get user info to check permissions
     const user = await getUserFromToken(req);
     if (!user) {
@@ -1369,7 +1376,7 @@ app.get('/api/appointments/cancelled', async (req, res) => {
         error: 'Access denied. Only head nurses can access this endpoint.'
       });
     }
-    
+
     console.log('🔍 [DEBUG] 权限验证通过:', {
       userProfile,
       dateRange: { requested_date_from, requested_date_to }
@@ -1395,7 +1402,7 @@ app.get('/api/appointments/cancelled', async (req, res) => {
       LEFT JOIN profiles creator_p ON a.created_by = creator_p.id
       WHERE a.status = 'cancelled'
     `;
-    
+
     let params = [];
     const conditions = [];
 
@@ -1404,7 +1411,7 @@ app.get('/api/appointments/cancelled', async (req, res) => {
       conditions.push(`a.requested_date >= $${params.length + 1}`);
       params.push(requested_date_from);
     }
-    
+
     if (requested_date_to) {
       conditions.push(`a.requested_date <= $${params.length + 1}`);
       params.push(requested_date_to);
@@ -1431,12 +1438,12 @@ app.get('/api/appointments/cancelled', async (req, res) => {
     });
 
     const result = await pool.query(query, params);
-    
+
     console.log('🔍 [DEBUG] 已取消预约查询结果:', {
       返回数量: result.rows.length,
       数据样本: result.rows[0] || '无数据'
     });
-    
+
     // Transform data to include service and store objects
     const appointments = result.rows.map(row => ({
       ...row,
@@ -1469,14 +1476,14 @@ app.get('/api/appointments/cancelled', async (req, res) => {
 app.get('/api/appointments/nurse-pending', async (req, res) => {
   try {
     const { requested_date_from, requested_date_to, store_id } = req.query;
-    
+
     console.log('🔍 [DEBUG] 护士长待排班API被调用:', {
       requested_date_from,
       requested_date_to,
       store_id,
       query: req.query
     });
-    
+
     // Get user info to check permissions
     const user = await getUserFromToken(req);
     if (!user) {
@@ -1518,7 +1525,7 @@ app.get('/api/appointments/nurse-pending', async (req, res) => {
         error: 'Access denied. Only head nurses can access this endpoint.'
       });
     }
-    
+
     console.log('🔍 [DEBUG] 权限验证通过:', {
       userProfile,
       dateRange: { requested_date_from, requested_date_to }
@@ -1547,7 +1554,7 @@ app.get('/api/appointments/nurse-pending', async (req, res) => {
         AND s.category = 'nursing' -- 只显示护理服务
         AND a.requires_nurse_scheduling = true -- 确保只显示需要护士长排班的预约
     `;
-    
+
     let params = [];
     const conditions = [];
 
@@ -1584,12 +1591,12 @@ app.get('/api/appointments/nurse-pending', async (req, res) => {
     });
 
     const result = await pool.query(query, params);
-    
+
     console.log('🔍 [DEBUG] 护士待排班查询结果:', {
       返回数量: result.rows.length,
       数据样本: result.rows[0] || '无数据'
     });
-    
+
     // Transform the data to include service and store objects
     const appointments = result.rows.map(row => ({
       ...row,
@@ -1625,7 +1632,7 @@ app.get('/api/appointments/nurse-pending', async (req, res) => {
 app.get('/api/appointments/doctor-pending', async (req, res) => {
   try {
     const { store_id } = req.query;
-    
+
     // Get user info to check permissions
     const user = await getUserFromToken(req);
     if (!user) {
@@ -1678,7 +1685,7 @@ app.get('/api/appointments/doctor-pending', async (req, res) => {
         AND a.status != 'cancelled'
         AND s.category IN ('consultation', 'report') -- 只显示医生服务
     `;
-    
+
     let params = [];
     const conditions = [];
 
@@ -1693,7 +1700,7 @@ app.get('/api/appointments/doctor-pending', async (req, res) => {
       }
       conditions.push(`(a.doctor_id = $${params.length + 1} OR a.doctor_id IS NULL)`);
       params.push(userProfile.id);
-      
+
       // Also filter by doctor's store
       conditions.push(`a.store_id = $${params.length + 1}`);
       params.push(userProfile.store_id);
@@ -1709,7 +1716,7 @@ app.get('/api/appointments/doctor-pending', async (req, res) => {
     query += ' ORDER BY a.requested_date ASC, a.requested_time_start ASC';
 
     const result = await pool.query(query, params);
-    
+
     // Transform the data to include service and store objects
     const appointments = result.rows.map(row => ({
       ...row,
@@ -1740,7 +1747,7 @@ app.put('/api/appointments/:id/doctor-confirm', async (req, res) => {
   try {
     const { id } = req.params;
     const { doctor_id, doctor_note } = req.body;
-    
+
     // Get user info to check permissions
     const user = await getUserFromToken(req);
     if (!user) {
@@ -1800,16 +1807,16 @@ app.put('/api/appointments/:id/doctor-confirm', async (req, res) => {
       'SELECT a.*, s.category as service_category FROM appointments a LEFT JOIN services s ON a.service_id = s.id WHERE a.id = $1',
       [id]
     );
-    
+
     if (appointmentInfo.rows.length === 0) {
       return res.status(404).json({
         error: 'Appointment not found'
       });
     }
-    
+
     const appointmentWithService = appointmentInfo.rows[0];
     let newStatus;
-    
+
     // 根据服务类型决定确认后的状态
     if (appointmentWithService.service_category === 'consultation' || appointmentWithService.service_category === 'report') {
       // 医生服务确认后需要创建排班
@@ -1818,7 +1825,7 @@ app.put('/api/appointments/:id/doctor-confirm', async (req, res) => {
       // 护理服务需要护士长排班
       newStatus = 'doctor_confirmed';
     }
-    
+
     // Update appointment workflow status
     const result = await pool.query(
       `UPDATE appointments
@@ -1849,21 +1856,21 @@ app.put('/api/appointments/:id/doctor-confirm', async (req, res) => {
           current_user_id: userProfile.id,
           current_user_role: userProfile.role
         });
-        
+
         // 检查是否已存在排班
         const existingScheduleResult = await pool.query(
           'SELECT id, doctor_id FROM schedules WHERE appointment_id = $1 AND status != \'cancelled\'',
           [updatedAppointment.id]
         );
-        
+
         console.log(`[DEBUG] 检查现有排班: appointment_id=${updatedAppointment.id}, 找到${existingScheduleResult.rows.length}个排班`);
-        
+
         if (existingScheduleResult.rows.length > 0) {
           console.log(`[DEBUG] 排班已存在，跳过创建: ${existingScheduleResult.rows[0].id}, doctor_id: ${existingScheduleResult.rows[0].doctor_id}`);
         } else {
           const finalDoctorId = doctor_id || userProfile.id;
           console.log(`[DEBUG] 使用doctor_id: ${finalDoctorId}`);
-          
+
           const scheduleResult = await pool.query(
             `INSERT INTO schedules (appointment_id, scheduled_date, scheduled_time_start, scheduled_time_end, doctor_id, status, created_at, updated_at)
              VALUES ($1, CURRENT_DATE, $3, $4, $5, 'scheduled', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
@@ -1875,7 +1882,7 @@ app.put('/api/appointments/:id/doctor-confirm', async (req, res) => {
               finalDoctorId
             ]
           );
-          
+
           console.log(`[DEBUG] 排班创建成功: ${scheduleResult.rows[0].id}, doctor_id: ${scheduleResult.rows[0].doctor_id}`);
         }
       } catch (scheduleError) {
@@ -1893,11 +1900,11 @@ app.put('/api/appointments/:id/doctor-confirm', async (req, res) => {
           "SELECT username FROM profiles WHERE role = 'head_nurse' AND status = 'active' AND store_id = $1",
           [updatedAppointment.store_id]
         );
-        
+
         if (headNurses.rows.length > 0) {
           const serviceResult = await pool.query('SELECT name FROM services WHERE id = $1', [updatedAppointment.service_id]);
           const serviceName = serviceResult.rows[0]?.name || '未知服务';
-          
+
           await sendDingTalkNotification(headNurses.rows.map(n => n.username), {
             msgtype: "markdown",
             markdown: {
@@ -1926,7 +1933,7 @@ app.put('/api/appointments/:id/doctor-reject', async (req, res) => {
   try {
     const { id } = req.params;
     const { doctor_id, doctor_note } = req.body;
-    
+
     // Get user info to check permissions
     const user = await getUserFromToken(req);
     if (!user) {
@@ -2000,11 +2007,11 @@ app.put('/api/appointments/:id/doctor-reject', async (req, res) => {
       const salesUsers = await pool.query(
         "SELECT username FROM profiles WHERE role = 'sales' AND status = 'active'"
       );
-      
+
       if (salesUsers.rows.length > 0) {
         const serviceResult = await pool.query('SELECT name FROM services WHERE id = $1', [updatedAppointment.service_id]);
         const serviceName = serviceResult.rows[0]?.name || '未知服务';
-        
+
         await sendDingTalkNotification(salesUsers.rows.map(u => u.username), {
           msgtype: "markdown",
           markdown: {
@@ -2032,7 +2039,7 @@ app.put('/api/appointments/:id/workflow', async (req, res) => {
   try {
     const { id } = req.params;
     const { workflow_status, note } = req.body;
-    
+
     // Get user info to check permissions
     const user = await getUserFromToken(req);
     if (!user) {
@@ -2076,17 +2083,17 @@ app.put('/api/appointments/:id/workflow', async (req, res) => {
 
     // Validate workflow status transition based on user role
     let validTransition = false;
-    
+
     if (userProfile.role === 'head_nurse') {
       // Head nurses can schedule appointments that are pending nurse assignment or doctor confirmed
       if ((currentStatus === 'pending_nurse_assignment' || currentStatus === 'doctor_confirmed') &&
-          workflow_status === 'nurse_scheduled') {
+        workflow_status === 'nurse_scheduled') {
         validTransition = true;
       }
     } else if (userProfile.role === 'doctor') {
       // Doctors can confirm or reject appointments pending doctor confirmation
       if (currentStatus === 'pending_doctor_confirmation' &&
-          (workflow_status === 'doctor_confirmed' || workflow_status === 'doctor_rejected' || workflow_status === 'doctor_completed')) {
+        (workflow_status === 'doctor_confirmed' || workflow_status === 'doctor_rejected' || workflow_status === 'doctor_completed')) {
         validTransition = true;
       }
     } else if (userProfile.role === 'super_admin') {
@@ -2163,7 +2170,7 @@ app.put('/api/appointments/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
-    
+
     console.log(`[DEBUG] Updating appointment ${id} with:`, JSON.stringify(updates));
 
     // Handle sales_name update by finding the corresponding sales_id
@@ -2234,7 +2241,7 @@ app.put('/api/appointments/:id', async (req, res) => {
         // For now, just log it
         const decision = updates.doctor_status === 'accepted' ? '已接受' : '已拒绝';
         console.log(`[DingTalk] Doctor decision notification: Appointment ${updatedAppointment.customer_name} ${decision}`);
-        
+
         // Send notification to a placeholder user (representing Sales)
         await sendDingTalkNotification(['sales1'], {
           msgtype: "markdown",
@@ -2356,7 +2363,7 @@ app.get('/api/resources/availability', async (req, res) => {
       ORDER BY p.full_name
     `;
 
-    const queryParams = store_id 
+    const queryParams = store_id
       ? [date, time_start, time_end, store_id]
       : [date, time_start, time_end];
 
@@ -2398,24 +2405,24 @@ app.get('/api/resources/rooms/available', async (req, res) => {
   try {
     const { store_id } = req.query;
     console.log('🔍 [DEBUG] getAvailableRooms API被调用:', { store_id });
-    
+
     // 修复：查询所有房间类型的资源，不仅仅是 type='room'
     let query = `SELECT * FROM resources
      WHERE type IN ($1, $2, $3, $4) AND status = 'available'`;
     let params = ['room', 'vip', 'treatment', 'consultation'];
-    
+
     if (store_id) {
       query += ` AND store_id = $${params.length + 1}`;
       params.push(store_id);
     }
-    
+
     query += ` ORDER BY name`;
 
     console.log('🔍 [DEBUG] 房间查询SQL:', query);
     console.log('🔍 [DEBUG] 房间查询参数:', params);
 
     const result = await pool.query(query, params);
-    
+
     console.log('🔍 [DEBUG] 房间查询结果:', {
       返回数量: result.rows.length,
       数据样本: result.rows[0] || '无数据'
@@ -2424,7 +2431,7 @@ app.get('/api/resources/rooms/available', async (req, res) => {
     // 转换数据格式以匹配前端期望
     const rooms = result.rows.map(resource => {
       let room_type = 'treatment'; // default
-      
+
       // 优先使用数据库中的 type 字段
       if (['vip', 'treatment', 'consultation'].includes(resource.type)) {
         room_type = resource.type;
@@ -2436,7 +2443,7 @@ app.get('/api/resources/rooms/available', async (req, res) => {
           room_type = 'consultation';
         }
       }
-      
+
       return {
         id: resource.id,
         name: resource.name,
@@ -2446,7 +2453,7 @@ app.get('/api/resources/rooms/available', async (req, res) => {
         created_at: resource.created_at || new Date().toISOString()
       };
     });
-    
+
     console.log('🔍 [DEBUG] 转换后的房间数据:', {
       转换后数量: rooms.length,
       转换后样本: rooms[0] || '无数据'
@@ -2466,18 +2473,49 @@ app.get('/api/resources/rooms/available', async (req, res) => {
 app.get('/api/profiles/nurses/available', async (req, res) => {
   try {
     console.log('🔍 [DEBUG] getAvailableNurses API被调用:', { query: req.query, store_id: req.query.store_id });
-    
-    const { store_id } = req.query;
-    let query = `SELECT * FROM profiles
-     WHERE (role = 'nurse' OR role = 'head_nurse') AND status = 'active'`;
+
+    const { store_id, date, time } = req.query;
+
+    let query = `
+      SELECT p.* 
+      FROM profiles p
+      WHERE (p.role = 'nurse' OR p.role = 'head_nurse') 
+      AND p.status = 'active'
+    `;
     let params = [];
-    
+    let paramIndex = 1;
+
     if (store_id) {
-      query += ` AND store_id = $${params.length + 1}`;
+      query += ` AND p.store_id = $${paramIndex}`;
       params.push(store_id);
+      paramIndex++;
     }
-    
-    query += ` ORDER BY role, full_name`;
+
+    // If date is provided, exclude nurses on leave
+    if (date) {
+      query += ` AND NOT EXISTS (
+        SELECT 1 FROM nurse_leaves nl
+        WHERE nl.nurse_id = p.id
+        AND nl.leave_date = $${paramIndex}
+      `;
+      params.push(date);
+      paramIndex++;
+
+      // Further filter by time period if time is provided
+      if (time) {
+        query += ` AND (
+          nl.leave_period = 'full_day'
+          OR (nl.leave_period = 'morning' AND $${paramIndex}::time < '12:00:00')
+          OR (nl.leave_period = 'afternoon' AND $${paramIndex}::time >= '12:00:00')
+        )`;
+        params.push(time);
+        paramIndex++;
+      }
+
+      query += `)`;
+    }
+
+    query += ` ORDER BY p.role, p.full_name`;
 
     console.log('🔍 [DEBUG] 护士查询SQL:', query);
     console.log('🔍 [DEBUG] 护士查询参数:', params);
@@ -2505,16 +2543,16 @@ app.get('/api/doctors', async (req, res) => {
     const { store_id } = req.query;
     let query = 'SELECT id, username, full_name, department, status FROM profiles WHERE role = $1';
     let params = ['doctor'];
-    
+
     if (store_id) {
       query += ' AND store_id = $2';
       params.push(store_id);
     }
-    
+
     query += ' ORDER BY full_name';
-    
+
     const result = await pool.query(query, params);
-    
+
     // Transform to match frontend expected format
     const doctors = result.rows.map(profile => ({
       id: profile.id,
@@ -2523,7 +2561,7 @@ app.get('/api/doctors', async (req, res) => {
       is_available: profile.status === 'active',
       created_at: profile.created_at || new Date().toISOString()
     }));
-    
+
     res.json(doctors);
   } catch (error) {
     res.status(500).json({
@@ -2538,14 +2576,14 @@ app.get('/api/doctors/available', async (req, res) => {
     const { store_id } = req.query;
     let query = 'SELECT id, username, full_name, department FROM profiles WHERE role = $1 AND status = $2';
     let params = ['doctor', 'active'];
-    
+
     if (store_id) {
       query += ' AND store_id = $3';
       params.push(store_id);
     }
-    
+
     query += ' ORDER BY full_name';
-    
+
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (error) {
@@ -2561,27 +2599,27 @@ app.get('/api/nurses', async (req, res) => {
   try {
     const { store_id } = req.query;
     console.log('🔍 [DEBUG] 开始获取护士数据...', { store_id });
-    
+
     let query = 'SELECT id, username, full_name, role, department, status FROM profiles WHERE role IN ($1, $2)';
     let params = ['nurse', 'head_nurse'];
-    
+
     if (store_id) {
       query += ' AND store_id = $3';
       params.push(store_id);
     }
-    
+
     query += ' ORDER BY role, full_name';
-    
+
     const result = await pool.query(query, params);
-    
+
     console.log('🔍 [DEBUG] 护士数据查询结果:');
     console.log('  - 查询到的护士数量:', result.rows.length);
     console.log('  - 原始数据样本:', result.rows[0] || '无数据');
-    
+
     // 检查profiles表中的角色分布
     const allRolesResult = await pool.query('SELECT role, COUNT(*) as count FROM profiles GROUP BY role');
     console.log('🔍 [DEBUG] profiles表中的角色分布:', allRolesResult.rows);
-    
+
     // Transform to match frontend expected format
     const nurses = result.rows.map(profile => ({
       id: profile.id,
@@ -2590,11 +2628,11 @@ app.get('/api/nurses', async (req, res) => {
       is_available: profile.status === 'active',
       created_at: profile.created_at || new Date().toISOString()
     }));
-    
+
     console.log('🔍 [DEBUG] 转换后的护士数据:');
     console.log('  - 转换后数量:', nurses.length);
     console.log('  - 转换后样本:', nurses[0] || '无数据');
-    
+
     res.json(nurses);
   } catch (error) {
     console.error('❌ [ERROR] 获取护士数据失败:', error);
@@ -2610,28 +2648,28 @@ app.get('/api/rooms', async (req, res) => {
   try {
     const { store_id } = req.query;
     console.log('🔍 [DEBUG] 开始获取房间数据...', { store_id });
-    
+
     // 修复：查询所有房间类型的资源，不仅仅是 type='room'
     let query = 'SELECT id, name, type, status, store_id FROM resources WHERE type IN ($1, $2, $3, $4)';
     let params = ['room', 'vip', 'treatment', 'consultation'];
-    
+
     if (store_id) {
       query += ' AND store_id = $5';
       params.push(store_id);
     }
-    
+
     query += ' ORDER BY name';
-    
+
     const result = await pool.query(query, params);
-    
+
     console.log('🔍 [DEBUG] 数据库查询结果:');
     console.log('  - 查询到的房间数量:', result.rows.length);
     console.log('  - 原始数据样本:', result.rows[0] || '无数据');
-    
+
     // 检查resources表中是否有房间数据
     const allResourcesResult = await pool.query('SELECT type, COUNT(*) as count FROM resources GROUP BY type');
     console.log('🔍 [DEBUG] resources表中的资源类型分布:', allResourcesResult.rows);
-    
+
     // 如果没有房间数据，检查是否有其他类型的资源
     if (result.rows.length === 0) {
       console.warn('⚠️ [WARNING] 没有找到房间类型的资源！');
@@ -2639,11 +2677,11 @@ app.get('/api/rooms', async (req, res) => {
       const allResources = await pool.query('SELECT * FROM resources LIMIT 10');
       console.log('  - 所有资源样本:', allResources.rows);
     }
-    
+
     // 修复：直接使用数据库中的 type 字段作为 room_type
     const rooms = result.rows.map(resource => {
       let room_type = 'treatment'; // default
-      
+
       // 优先使用数据库中的 type 字段
       if (['vip', 'treatment', 'consultation'].includes(resource.type)) {
         room_type = resource.type;
@@ -2655,7 +2693,7 @@ app.get('/api/rooms', async (req, res) => {
           room_type = 'consultation';
         }
       }
-      
+
       return {
         id: resource.id,
         name: resource.name,
@@ -2665,11 +2703,11 @@ app.get('/api/rooms', async (req, res) => {
         created_at: resource.created_at || new Date().toISOString()
       };
     });
-    
+
     console.log('🔍 [DEBUG] 转换后的房间数据:');
     console.log('  - 转换后数量:', rooms.length);
     console.log('  - 转换后样本:', rooms[0] || '无数据');
-    
+
     res.json(rooms);
   } catch (error) {
     console.error('❌ [ERROR] 获取房间数据失败:', error);
@@ -2685,12 +2723,12 @@ app.put('/api/rooms/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
-    
+
     console.log(`[DEBUG] Updating room ${id} with:`, JSON.stringify(updates));
 
     // 修复：查询所有房间类型的资源，不仅仅是 type='room'
     const existingRoom = await pool.query('SELECT * FROM resources WHERE id = $1 AND type IN ($2, $3, $4, $5)', [id, 'room', 'vip', 'treatment', 'consultation']);
-    
+
     if (existingRoom.rows.length === 0) {
       return res.status(404).json({
         error: 'Room not found'
@@ -2705,7 +2743,7 @@ app.put('/api/rooms/:id', async (req, res) => {
     // Note: room_type is frontend concept, database type should always be 'room'
     // We don't update the type field as it should remain 'room'
     // The room_type information is derived from the name in GET operations
-    
+
     // Handle is_available to status conversion
     if (updates.is_available !== undefined) {
       updateFields.push(`status = $${paramIndex}`);
@@ -2721,12 +2759,12 @@ app.put('/api/rooms/:id', async (req, res) => {
         paramIndex++;
       }
     }
-    
+
     // Debug log to verify store_id is being processed
     if (updates.store_id !== undefined) {
       console.log(`[DEBUG] Updating room store_id to: ${updates.store_id}`);
     }
-    
+
     if (updateFields.length === 0) {
       return res.status(400).json({
         error: 'No valid fields to update'
@@ -2751,7 +2789,7 @@ app.put('/api/rooms/:id', async (req, res) => {
 
     // Transform response to match frontend expected format
     const updatedRoom = result.rows[0];
-    
+
     // Use the room_type from the request if provided, otherwise infer from name
     let room_type = 'treatment'; // default
     if (updates.room_type !== undefined) {
@@ -2793,7 +2831,7 @@ app.delete('/api/rooms/:id', async (req, res) => {
 
     // 修复：查询所有房间类型的资源，不仅仅是 type='room'
     const existingRoom = await pool.query('SELECT * FROM resources WHERE id = $1 AND type IN ($2, $3, $4, $5)', [id, 'room', 'vip', 'treatment', 'consultation']);
-    
+
     if (existingRoom.rows.length === 0) {
       return res.status(404).json({
         error: 'Room not found'
@@ -2851,7 +2889,7 @@ app.post('/api/rooms', async (req, res) => {
 
     // 使用 room_type 如果提供了，否则使用 type
     const finalRoomType = room_type || type;
-    
+
     // 验证房间类型（如果提供了）
     if (finalRoomType) {
       const validRoomTypes = ['vip', 'treatment', 'consultation'];
@@ -2874,7 +2912,7 @@ app.post('/api/rooms', async (req, res) => {
 
     // Transform response to match frontend expected format
     const newRoom = result.rows[0];
-    
+
     const response = {
       id: newRoom.id,
       name: newRoom.name,
@@ -3015,9 +3053,9 @@ app.post('/api/schedules', async (req, res) => {
         message: '预约不存在'
       });
     }
-    
+
     const appointmentStoreId = appointmentResult.rows[0].store_id;
-    
+
     // 门店权限检查：护士长和医生只能操作自己门店的预约
     if (userProfile.role !== 'super_admin' && userProfile.store_id !== appointmentStoreId) {
       return res.status(403).json({
@@ -3025,7 +3063,7 @@ app.post('/api/schedules', async (req, res) => {
         message: '您只能操作自己门店的预约'
       });
     }
-    
+
     // 检查房间是否属于同一门店
     if (room_id) {
       const roomResult = await pool.query('SELECT store_id FROM resources WHERE id = $1', [room_id]);
@@ -3036,7 +3074,7 @@ app.post('/api/schedules', async (req, res) => {
         });
       }
     }
-    
+
     // 检查护士是否属于同一门店
     if (nurse_id) {
       const nurseResult = await pool.query('SELECT store_id FROM profiles WHERE id = $1', [nurse_id]);
@@ -3052,16 +3090,16 @@ app.post('/api/schedules', async (req, res) => {
     const startTime = new Date(`1970-01-01T${scheduled_time_start}`);
     const endTime = new Date(`1970-01-01T${scheduled_time_end}`);
     const durationMinutes = Math.round((endTime - startTime) / (1000 * 60));
-    
+
     console.log(`🕐 [DEBUG] 计算排班时长: ${scheduled_time_start} - ${scheduled_time_end} = ${durationMinutes}分钟`);
-    
+
     const result = await pool.query(
       `INSERT INTO schedules (appointment_id, scheduled_date, scheduled_time_start, scheduled_time_end, room_id, nurse_id, notes, status, adjusted_duration, adjustment_reason)
        VALUES ($1, $2, $3, $4, $5, $6, $7, 'scheduled', $8, $9)
        RETURNING *`,
       [appointment_id, scheduled_date, scheduled_time_start, scheduled_time_end, room_id, nurse_id, notes, adjusted_duration, adjustment_reason]
     );
-    
+
     // 更新预约的estimated_duration以反映实际排班时长
     if (durationMinutes > 0) {
       await pool.query(
@@ -3156,7 +3194,7 @@ app.put('/api/schedules/:id', async (req, res) => {
 
     // 护士长和医生只能操作自己门店的排班
     if ((userProfile.role === 'head_nurse' || userProfile.role === 'doctor') &&
-        userProfile.store_id !== appointmentStoreId) {
+      userProfile.store_id !== appointmentStoreId) {
       return res.status(403).json({
         error: 'Access denied',
         message: '您只能操作自己门店的排班'
@@ -3264,7 +3302,7 @@ app.put('/api/schedules/:id', async (req, res) => {
     }
 
     const updatedSchedule = result.rows[0];
-    
+
     // 如果更新了时间相关字段，需要重新计算时长并更新预约
     if (updates.scheduled_time_start || updates.scheduled_time_end) {
       // 获取更新后的排班时间
@@ -3272,17 +3310,17 @@ app.put('/api/schedules/:id', async (req, res) => {
         'SELECT scheduled_time_start, scheduled_time_end, appointment_id FROM schedules WHERE id = $1',
         [updatedSchedule.id]
       );
-      
+
       if (finalScheduleResult.rows.length > 0) {
         const finalSchedule = finalScheduleResult.rows[0];
-        
+
         // 计算新的排班时长（分钟）
         const startTime = new Date(`1970-01-01T${finalSchedule.scheduled_time_start}`);
         const endTime = new Date(`1970-01-01T${finalSchedule.scheduled_time_end}`);
         const durationMinutes = Math.round((endTime - startTime) / (1000 * 60));
-        
+
         console.log(`🕐 [DEBUG] 更新排班时长计算: ${finalSchedule.scheduled_time_start} - ${finalSchedule.scheduled_time_end} = ${durationMinutes}分钟`);
-        
+
         // 更新关联预约的estimated_duration
         if (durationMinutes > 0 && finalSchedule.appointment_id) {
           await pool.query(
@@ -3379,7 +3417,7 @@ app.delete('/api/schedules/:id', async (req, res) => {
 
     // 护士长和医生只能操作自己门店的排班
     if ((userProfile.role === 'head_nurse' || userProfile.role === 'doctor') &&
-        userProfile.store_id !== appointmentStoreId) {
+      userProfile.store_id !== appointmentStoreId) {
       return res.status(403).json({
         error: 'Access denied',
         message: '您只能操作自己门店的排班'
@@ -3508,7 +3546,7 @@ app.get('/api/users', async (req, res) => {
        LEFT JOIN stores s ON p.store_id = s.id
        ORDER BY p.created_at DESC`
     );
-    
+
     console.log(`获取所有用户: ${result.rows.length} 条记录`);
     res.json(result.rows);
   } catch (error) {
@@ -3525,7 +3563,7 @@ app.put('/api/users/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { full_name, role, department, status, store_id } = req.body;
-    
+
     console.log('🔍 [DEBUG] 更新用户请求:', {
       targetUserId: id,
       updates: { full_name, role, department, status },
@@ -3593,7 +3631,7 @@ app.put('/api/users/:id', async (req, res) => {
     console.log('🔍 [DEBUG] 查询参数:', updateValues);
 
     const result = await pool.query(updateQuery, updateValues);
-    
+
     if (result.rows.length === 0) {
       console.log('🔍 [DEBUG] 更新失败，未找到用户');
       return res.status(404).json({
@@ -3603,7 +3641,7 @@ app.put('/api/users/:id', async (req, res) => {
 
     console.log('🔍 [DEBUG] 更新成功，新数据:', result.rows[0]);
     console.log('🔍 [DEBUG] 特别是用户角色:', result.rows[0].role);
-    
+
     res.json(result.rows[0]);
   } catch (error) {
     console.error('🔍 [DEBUG] 更新用户失败:', error);
@@ -3619,13 +3657,13 @@ app.put('/api/users/:id/reset-password', async (req, res) => {
   try {
     const { id } = req.params;
     const { new_password } = req.body;
-    
+
     if (!new_password || new_password.length < 6) {
       return res.status(400).json({
         error: 'Password must be at least 6 characters long'
       });
     }
-    
+
     // Check if user exists
     const existingUser = await pool.query(
       'SELECT * FROM profiles WHERE id = $1',
@@ -3643,9 +3681,9 @@ app.put('/api/users/:id/reset-password', async (req, res) => {
       'UPDATE profiles SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
       [new_password, id]
     );
-    
+
     console.log(`Password reset for user: ${existingUser.rows[0].username}`);
-    
+
     res.json({
       message: 'Password reset successfully',
       user: {
@@ -3668,13 +3706,13 @@ app.put('/api/users/:id/email', async (req, res) => {
   try {
     const { id } = req.params;
     const { email } = req.body;
-    
+
     if (!email) {
       return res.status(400).json({
         error: 'Email is required'
       });
     }
-    
+
     // Basic email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
@@ -3682,7 +3720,7 @@ app.put('/api/users/:id/email', async (req, res) => {
         error: 'Invalid email format'
       });
     }
-    
+
     // Check if user exists
     const existingUser = await pool.query(
       'SELECT * FROM profiles WHERE id = $1',
@@ -3694,27 +3732,27 @@ app.put('/api/users/:id/email', async (req, res) => {
         error: 'User not found'
       });
     }
-    
+
     // Check if email is already used by another user
     const emailCheck = await pool.query(
       'SELECT id FROM profiles WHERE email = $1 AND id != $2',
       [email, id]
     );
-    
+
     if (emailCheck.rows.length > 0) {
       return res.status(400).json({
         error: 'Email is already in use by another user'
       });
     }
-    
+
     // Update email
     const result = await pool.query(
       'UPDATE profiles SET email = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
       [email, id]
     );
-    
+
     console.log(`Email updated for user: ${existingUser.rows[0].username} to ${email}`);
-    
+
     res.json({
       message: 'Email updated successfully',
       user: {
@@ -3818,7 +3856,7 @@ app.post('/api/dingtalk/config', async (req, res) => {
     if (savedConfig.app_secret) {
       savedConfig.app_secret = '***'; // Hide secret
     }
-    
+
     console.log('钉钉配置已保存，sync_enabled:', savedConfig.sync_enabled);
     res.status(200).json(savedConfig);
   } catch (error) {
@@ -3885,7 +3923,7 @@ app.post('/api/dingtalk/sync', async (req, res) => {
 
       // 2. Get department list recursively (all departments, not just first level)
       console.log('Fetching DingTalk departments...');
-      
+
       // Helper function to recursively get all departments
       const getAllDepartments = async (parentDeptId = 1) => {
         const response = await fetch(
@@ -3897,26 +3935,26 @@ app.post('/api/dingtalk/sync', async (req, res) => {
           }
         );
         const data = await response.json();
-        
+
         if (data.errcode !== 0 || !data.result) {
           console.error(`Failed to fetch departments for parent ${parentDeptId}:`, data.errmsg);
           return [];
         }
-        
+
         let allDepts = data.result || [];
-        
+
         // Recursively get sub-departments
         for (const dept of data.result) {
           const subDepts = await getAllDepartments(dept.dept_id);
           allDepts = allDepts.concat(subDepts);
         }
-        
+
         return allDepts;
       };
-      
+
       const allDepartments = await getAllDepartments(1);
       console.log(`Found ${allDepartments.length} departments (including all levels)`);
-      
+
       // Also get root department info
       const rootDeptResponse = await fetch(
         `https://oapi.dingtalk.com/topapi/v2/department/get?access_token=${accessToken}`,
@@ -3930,7 +3968,7 @@ app.post('/api/dingtalk/sync', async (req, res) => {
       if (rootDeptData.errcode === 0 && rootDeptData.result) {
         allDepartments.unshift(rootDeptData.result);
       }
-      
+
       const deptData = { errcode: 0, result: allDepartments };
 
       // 3. Sync departments to department_mapping table
@@ -3938,7 +3976,7 @@ app.post('/api/dingtalk/sync', async (req, res) => {
         // Handle cases where parent_id or order might be undefined
         const parentId = dept.parent_id ? dept.parent_id.toString() : null;
         const orderNum = dept.order !== undefined ? dept.order : 0;
-        
+
         await pool.query(
           `INSERT INTO dingtalk_department_mapping 
            (dingtalk_dept_id, dingtalk_dept_name, parent_id, order_num, enabled)
@@ -4069,7 +4107,7 @@ app.post('/api/dingtalk/sync', async (req, res) => {
           hasMore = userData.result.has_more;
           cursor = userData.result.next_cursor || 0;
         }
-        
+
         console.log(`[Dept ${deptId}] Completed: ${deptUserCount} users from ${deptName}`);
       }
 
@@ -4191,7 +4229,7 @@ async function getUserFromToken(req) {
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return null;
     }
-    
+
     const token = authHeader.substring(7);
     // For mock tokens, decode the payload
     if (token.startsWith('mock.')) {
@@ -4200,7 +4238,7 @@ async function getUserFromToken(req) {
         console.error('Invalid mock token format');
         return null;
       }
-      
+
       const base64Payload = parts[1];
       try {
         const decodedString = Buffer.from(base64Payload, 'base64').toString();
@@ -4217,7 +4255,7 @@ async function getUserFromToken(req) {
         };
       }
     }
-    
+
     // In production, verify JWT token here
     return null;
   } catch (error) {
@@ -4235,7 +4273,7 @@ async function checkStoreAccess(req, res, next) {
         error: 'Authentication required'
       });
     }
-    
+
     // Get user details from database
     let userResult;
     if (user && user.userId) {
@@ -4248,41 +4286,43 @@ async function checkStoreAccess(req, res, next) {
         );
       } else {
         // For mock users with non-UUID IDs, create a mock user result
-        userResult = { rows: [{
-          id: user.userId,
-          role: user.role,
-          store_id: null
-        }] };
+        userResult = {
+          rows: [{
+            id: user.userId,
+            role: user.role,
+            store_id: null
+          }]
+        };
       }
     } else {
       return res.status(401).json({
         error: 'Authentication required'
       });
     }
-    
+
     if (userResult.rows.length === 0) {
       return res.status(401).json({
         error: 'User not found'
       });
     }
-    
+
     const userProfile = userResult.rows[0];
     req.user = userProfile;
-    
+
     // Super admin and sales can access all stores
     if (userProfile.role === 'super_admin' || userProfile.role === 'sales') {
       return next();
     }
-    
+
     // For other roles, check if they have access to the requested store
     const storeId = req.params.id || req.query.store_id || req.body.store_id;
-    
+
     if (storeId && userProfile.store_id !== storeId) {
       return res.status(403).json({
         error: 'Access denied. You can only access your own store data.'
       });
     }
-    
+
     next();
   } catch (error) {
     console.error('Store access check error:', error);
@@ -4298,42 +4338,42 @@ app.get('/api/stores', async (req, res) => {
   try {
     const { status, search, page = 1, limit = 20 } = req.query;
     const offset = (page - 1) * limit;
-    
+
     let query = 'SELECT * FROM stores';
     let countQuery = 'SELECT COUNT(*) as total FROM stores';
     const params = [];
     const conditions = [];
-    
+
     // Build WHERE conditions
     if (status) {
       conditions.push(`status = $${params.length + 1}`);
       params.push(status);
     }
-    
+
     if (search) {
       conditions.push(`name ILIKE $${params.length + 1}`);
       params.push(`%${search}%`);
     }
-    
+
     if (conditions.length > 0) {
       const whereClause = ' WHERE ' + conditions.join(' AND ');
       query += whereClause;
       countQuery += whereClause;
     }
-    
+
     // Add pagination
     query += ` ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     params.push(limit, offset);
-    
+
     // Execute queries
     const [result, countResult] = await Promise.all([
       pool.query(query, params),
       pool.query(countQuery, params.slice(0, -2))
     ]);
-    
+
     const total = parseInt(countResult.rows[0].total);
     const totalPages = Math.ceil(total / limit);
-    
+
     res.json({
       stores: result.rows,
       pagination: {
@@ -4356,15 +4396,15 @@ app.get('/api/stores', async (req, res) => {
 app.get('/api/stores/:id', checkStoreAccess, async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     const result = await pool.query('SELECT * FROM stores WHERE id = $1', [id]);
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({
         error: 'Store not found'
       });
     }
-    
+
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Failed to fetch store:', error);
@@ -4387,31 +4427,31 @@ app.post('/api/stores', async (req, res) => {
       description,
       business_hours
     } = req.body;
-    
+
     // Validate required fields
     if (!name) {
       return res.status(400).json({
         error: 'Store name is required'
       });
     }
-    
+
     // Get user info for created_by field
     const user = await getUserFromToken(req);
     let createdBy = null;
-    
+
     if (user && user.userId) {
       // Check if userId is a valid UUID format, if not, set to null
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       createdBy = uuidRegex.test(user.userId) ? user.userId : null;
     }
-    
+
     const result = await pool.query(
       `INSERT INTO stores (name, address, phone, contact_person, status, description, business_hours, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
       [name, address, phone, contact_person, status, description, JSON.stringify(business_hours), createdBy]
     );
-    
+
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Failed to create store:', error);
@@ -4427,21 +4467,21 @@ app.put('/api/stores/:id', checkStoreAccess, async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
-    
+
     // Check if store exists
     const existingStore = await pool.query('SELECT * FROM stores WHERE id = $1', [id]);
-    
+
     if (existingStore.rows.length === 0) {
       return res.status(404).json({
         error: 'Store not found'
       });
     }
-    
+
     // Build dynamic update query
     const updateFields = [];
     const values = [];
     let paramIndex = 1;
-    
+
     for (const [key, value] of Object.entries(updates)) {
       if (value !== undefined) {
         if (key === 'business_hours') {
@@ -4454,13 +4494,13 @@ app.put('/api/stores/:id', checkStoreAccess, async (req, res) => {
         paramIndex++;
       }
     }
-    
+
     if (updateFields.length === 0) {
       return res.status(400).json({
         error: 'No valid fields to update'
       });
     }
-    
+
     // Get user info for updated_by field
     const user = await getUserFromToken(req);
     if (user && user.userId) {
@@ -4471,17 +4511,17 @@ app.put('/api/stores/:id', checkStoreAccess, async (req, res) => {
       values.push(updatedBy);
       paramIndex++;
     }
-    
+
     updateFields.push(`updated_at = CURRENT_TIMESTAMP`);
     values.push(id);
-    
+
     const result = await pool.query(
       `UPDATE stores SET ${updateFields.join(', ')}
        WHERE id = $${paramIndex}
        RETURNING *`,
       values
     );
-    
+
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Failed to update store:', error);
@@ -4496,28 +4536,28 @@ app.put('/api/stores/:id', checkStoreAccess, async (req, res) => {
 app.delete('/api/stores/:id', checkStoreAccess, async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     // Check if store exists
     const existingStore = await pool.query('SELECT * FROM stores WHERE id = $1', [id]);
-    
+
     if (existingStore.rows.length === 0) {
       return res.status(404).json({
         error: 'Store not found'
       });
     }
-    
+
     // Check for dependencies
     const [profilesCheck, resourcesCheck, appointmentsCheck] = await Promise.all([
       pool.query('SELECT COUNT(*) as count FROM profiles WHERE store_id = $1', [id]),
       pool.query('SELECT COUNT(*) as count FROM resources WHERE store_id = $1', [id]),
       pool.query('SELECT COUNT(*) as count FROM appointments WHERE store_id = $1', [id])
     ]);
-    
+
     const hasDependencies =
       parseInt(profilesCheck.rows[0].count) > 0 ||
       parseInt(resourcesCheck.rows[0].count) > 0 ||
       parseInt(appointmentsCheck.rows[0].count) > 0;
-    
+
     if (hasDependencies) {
       return res.status(400).json({
         error: 'Cannot delete store',
@@ -4529,10 +4569,10 @@ app.delete('/api/stores/:id', checkStoreAccess, async (req, res) => {
         }
       });
     }
-    
+
     // Delete store
     await pool.query('DELETE FROM stores WHERE id = $1', [id]);
-    
+
     res.json({ message: 'Store deleted successfully' });
   } catch (error) {
     console.error('Failed to delete store:', error);
@@ -4548,22 +4588,22 @@ app.get('/api/stores/:id/resources', checkStoreAccess, async (req, res) => {
   try {
     const { id } = req.params;
     const { type } = req.query;
-    
+
     // Check if store exists
     const storeCheck = await pool.query('SELECT * FROM stores WHERE id = $1', [id]);
-    
+
     if (storeCheck.rows.length === 0) {
       return res.status(404).json({
         error: 'Store not found'
       });
     }
-    
+
     // Get resources using the database function
     const result = await pool.query(
       'SELECT * FROM get_store_resources($1, $2)',
       [id, type || null]
     );
-    
+
     // Group resources by type
     const resources = {
       nurses: [],
@@ -4571,7 +4611,7 @@ app.get('/api/stores/:id/resources', checkStoreAccess, async (req, res) => {
       rooms: [],
       equipment: []
     };
-    
+
     result.rows.forEach(resource => {
       switch (resource.type) {
         case 'nurse':
@@ -4594,7 +4634,7 @@ app.get('/api/stores/:id/resources', checkStoreAccess, async (req, res) => {
           resources[resource.type].push(resource);
       }
     });
-    
+
     res.json({
       store_id: id,
       resources
@@ -4613,22 +4653,22 @@ app.get('/api/stores/:id/staff', checkStoreAccess, async (req, res) => {
   try {
     const { id } = req.params;
     const { role } = req.query;
-    
+
     // Check if store exists
     const storeCheck = await pool.query('SELECT * FROM stores WHERE id = $1', [id]);
-    
+
     if (storeCheck.rows.length === 0) {
       return res.status(404).json({
         error: 'Store not found'
       });
     }
-    
+
     // Get staff using the database function
     const result = await pool.query(
       'SELECT * FROM get_store_staff($1, $2)',
       [id, role || null]
     );
-    
+
     res.json({
       store_id: id,
       staff: result.rows
@@ -4652,19 +4692,19 @@ async function initializeRealtimeServices() {
     const realtimeServiceModule = await import('./realtime-service.js');
     const { WebSocketServer } = websocketServerModule;
     const { RealtimeService } = realtimeServiceModule;
-    
+
     // Create WebSocket server
     const wss = new WebSocketServer({ server });
-    
+
     // Initialize real-time service
     realtimeService = new RealtimeService(pool);
-    
+
     // Initialize notification tables
     await realtimeService.initializeDatabase();
-    
+
     // Set up real-time service with WebSocket server
     realtimeService.setWebSocketServer(wss);
-    
+
     console.log('✅ WebSocket server and real-time service initialized');
     return true;
   } catch (error) {
@@ -4677,6 +4717,530 @@ async function initializeRealtimeServices() {
 app.use((req, res, next) => {
   req.realtimeService = realtimeService;
   next();
+});
+
+// ============================================================================
+// Nurse Leave Management APIs
+// ============================================================================
+
+// Get nurse leaves
+app.get('/api/nurse-leaves', async (req, res) => {
+  try {
+    const user = await getUserFromToken(req);
+    if (!user) {
+      return res.status(401).json({
+        error: 'Authentication required',
+        message: '请先登录'
+      });
+    }
+
+    // Get user details
+    const userResult = await pool.query(
+      'SELECT id, role, store_id FROM profiles WHERE id = $1',
+      [user.userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(401).json({
+        error: 'User not found',
+        message: '用户不存在'
+      });
+    }
+
+    const userProfile = userResult.rows[0];
+
+    // Only head_nurse and super_admin can access
+    if (userProfile.role !== 'head_nurse' && userProfile.role !== 'super_admin') {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: '只有护士长和管理员可以管理休假'
+      });
+    }
+
+    const { nurse_id, date_from, date_to, store_id } = req.query;
+
+    let query = `
+      SELECT * FROM nurse_leaves_with_details
+      WHERE 1=1
+    `;
+    const params = [];
+    let paramIndex = 1;
+
+    // Head nurse can only see leaves from their store
+    if (userProfile.role === 'head_nurse' && userProfile.store_id) {
+      query += ` AND store_id = $${paramIndex}`;
+      params.push(userProfile.store_id);
+      paramIndex++;
+    } else if (store_id) {
+      query += ` AND store_id = $${paramIndex}`;
+      params.push(store_id);
+      paramIndex++;
+    }
+
+    if (nurse_id) {
+      query += ` AND nurse_id = $${paramIndex}`;
+      params.push(nurse_id);
+      paramIndex++;
+    }
+
+    if (date_from) {
+      query += ` AND leave_date >= $${paramIndex}`;
+      params.push(date_from);
+      paramIndex++;
+    }
+
+    if (date_to) {
+      query += ` AND leave_date <= $${paramIndex}`;
+      params.push(date_to);
+      paramIndex++;
+    }
+
+    query += ` ORDER BY leave_date DESC, nurse_name`;
+
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Failed to fetch nurse leaves:', error);
+    res.status(500).json({
+      error: 'Failed to fetch nurse leaves',
+      message: error.message
+    });
+  }
+});
+
+// Create nurse leave
+app.post('/api/nurse-leaves', async (req, res) => {
+  try {
+    const user = await getUserFromToken(req);
+    if (!user) {
+      return res.status(401).json({
+        error: 'Authentication required',
+        message: '请先登录'
+      });
+    }
+
+    // Get user details
+    const userResult = await pool.query(
+      'SELECT id, role, store_id FROM profiles WHERE id = $1',
+      [user.userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(401).json({
+        error: 'User not found',
+        message: '用户不存在'
+      });
+    }
+
+    const userProfile = userResult.rows[0];
+
+    // Only head_nurse and super_admin can create leaves
+    if (userProfile.role !== 'head_nurse' && userProfile.role !== 'super_admin') {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: '只有护士长和管理员可以创建休假'
+      });
+    }
+
+    const { nurse_id, leave_date, leave_period, reason } = req.body;
+
+    // Validate required fields
+    if (!nurse_id || !leave_date || !leave_period) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: '缺少必填字段: nurse_id, leave_date, leave_period'
+      });
+    }
+
+    // Validate leave_period
+    if (!['morning', 'afternoon', 'full_day'].includes(leave_period)) {
+      return res.status(400).json({
+        error: 'Invalid leave_period',
+        message: '无效的休假时段，必须是: morning, afternoon, full_day'
+      });
+    }
+
+    // Check if nurse belongs to head nurse's store
+    if (userProfile.role === 'head_nurse' && userProfile.store_id) {
+      const nurseResult = await pool.query(
+        'SELECT store_id FROM profiles WHERE id = $1',
+        [nurse_id]
+      );
+
+      if (nurseResult.rows.length === 0) {
+        return res.status(404).json({
+          error: 'Nurse not found',
+          message: '护士不存在'
+        });
+      }
+
+      if (nurseResult.rows[0].store_id !== userProfile.store_id) {
+        return res.status(403).json({
+          error: 'Access denied',
+          message: '护士长只能管理本门店护士的休假'
+        });
+      }
+    }
+
+    // Check for conflicting schedules
+    const conflictsResult = await pool.query(
+      'SELECT * FROM get_conflicting_schedules_for_leave($1, $2, $3)',
+      [nurse_id, leave_date, leave_period]
+    );
+
+    // Insert nurse leave
+    const leaveResult = await pool.query(
+      `INSERT INTO nurse_leaves (nurse_id, leave_date, leave_period, reason, created_by)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [nurse_id, leave_date, leave_period, reason, isValidUUID(user.userId) ? user.userId : null]
+    );
+
+    const leave = leaveResult.rows[0];
+
+    // Return leave with conflicting schedules info
+    res.status(201).json({
+      leave,
+      conflicting_schedules: conflictsResult.rows,
+      has_conflicts: conflictsResult.rows.length > 0
+    });
+  } catch (error) {
+    console.error('Failed to create nurse leave:', error);
+
+    // Handle unique constraint violation
+    if (error.code === '23505') {
+      return res.status(409).json({
+        error: 'Duplicate leave',
+        message: '该护士在此日期和时段已有休假记录'
+      });
+    }
+
+    res.status(500).json({
+      error: 'Failed to create nurse leave',
+      message: error.message
+    });
+  }
+});
+
+// Update nurse leave
+app.put('/api/nurse-leaves/:id', async (req, res) => {
+  try {
+    const user = await getUserFromToken(req);
+    if (!user) {
+      return res.status(401).json({
+        error: 'Authentication required',
+        message: '请先登录'
+      });
+    }
+
+    // Get user details
+    const userResult = await pool.query(
+      'SELECT id, role, store_id FROM profiles WHERE id = $1',
+      [user.userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(401).json({
+        error: 'User not found',
+        message: '用户不存在'
+      });
+    }
+
+    const userProfile = userResult.rows[0];
+
+    // Only head_nurse and super_admin can update leaves
+    if (userProfile.role !== 'head_nurse' && userProfile.role !== 'super_admin') {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: '只有护士长和管理员可以修改休假'
+      });
+    }
+
+    const { id } = req.params;
+    const { leave_date, leave_period, reason } = req.body;
+
+    // Check if leave exists and verify store access for head nurses
+    const existingLeave = await pool.query(
+      `SELECT nl.*, p.store_id 
+       FROM nurse_leaves nl
+       INNER JOIN profiles p ON nl.nurse_id = p.id
+       WHERE nl.id = $1`,
+      [id]
+    );
+
+    if (existingLeave.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Leave not found',
+        message: '休假记录不存在'
+      });
+    }
+
+    // Check store access for head nurses
+    if (userProfile.role === 'head_nurse' && userProfile.store_id) {
+      if (existingLeave.rows[0].store_id !== userProfile.store_id) {
+        return res.status(403).json({
+          error: 'Access denied',
+          message: '护士长只能修改本门店护士的休假'
+        });
+      }
+    }
+
+    // Validate leave_period if provided
+    if (leave_period && !['morning', 'afternoon', 'full_day'].includes(leave_period)) {
+      return res.status(400).json({
+        error: 'Invalid leave_period',
+        message: '无效的休假时段，必须是: morning, afternoon, full_day'
+      });
+    }
+
+    // Build update query
+    const updateFields = [];
+    const values = [];
+    let paramIndex = 1;
+
+    if (leave_date !== undefined) {
+      updateFields.push(`leave_date = $${paramIndex}`);
+      values.push(leave_date);
+      paramIndex++;
+    }
+
+    if (leave_period !== undefined) {
+      updateFields.push(`leave_period = $${paramIndex}`);
+      values.push(leave_period);
+      paramIndex++;
+    }
+
+    if (reason !== undefined) {
+      updateFields.push(`reason = $${paramIndex}`);
+      values.push(reason);
+      paramIndex++;
+    }
+
+    if (updateFields.length === 0) {
+      return res.status(400).json({
+        error: 'No fields to update',
+        message: '没有需要更新的字段'
+      });
+    }
+
+    values.push(id);
+
+    const result = await pool.query(
+      `UPDATE nurse_leaves SET ${updateFields.join(', ')}
+       WHERE id = $${paramIndex}
+       RETURNING *`,
+      values
+    );
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Failed to update nurse leave:', error);
+
+    // Handle unique constraint violation
+    if (error.code === '23505') {
+      return res.status(409).json({
+        error: 'Duplicate leave',
+        message: '该护士在此日期和时段已有休假记录'
+      });
+    }
+
+    res.status(500).json({
+      error: 'Failed to update nurse leave',
+      message: error.message
+    });
+  }
+});
+
+// Delete nurse leave
+app.delete('/api/nurse-leaves/:id', async (req, res) => {
+  try {
+    const user = await getUserFromToken(req);
+    if (!user) {
+      return res.status(401).json({
+        error: 'Authentication required',
+        message: '请先登录'
+      });
+    }
+
+    // Get user details
+    const userResult = await pool.query(
+      'SELECT id, role, store_id FROM profiles WHERE id = $1',
+      [user.userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(401).json({
+        error: 'User not found',
+        message: '用户不存在'
+      });
+    }
+
+    const userProfile = userResult.rows[0];
+
+    // Only head_nurse and super_admin can delete leaves
+    if (userProfile.role !== 'head_nurse' && userProfile.role !== 'super_admin') {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: '只有护士长和管理员可以删除休假'
+      });
+    }
+
+    const { id } = req.params;
+
+    // Check if leave exists and verify store access for head nurses
+    const existingLeave = await pool.query(
+      `SELECT nl.*, p.store_id 
+       FROM nurse_leaves nl
+       INNER JOIN profiles p ON nl.nurse_id = p.id
+       WHERE nl.id = $1`,
+      [id]
+    );
+
+    if (existingLeave.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Leave not found',
+        message: '休假记录不存在'
+      });
+    }
+
+    // Check store access for head nurses
+    if (userProfile.role === 'head_nurse' && userProfile.store_id) {
+      if (existingLeave.rows[0].store_id !== userProfile.store_id) {
+        return res.status(403).json({
+          error: 'Access denied',
+          message: '护士长只能删除本门店护士的休假'
+        });
+      }
+    }
+
+    await pool.query('DELETE FROM nurse_leaves WHERE id = $1', [id]);
+
+    res.json({
+      success: true,
+      message: '休假记录已删除'
+    });
+  } catch (error) {
+    console.error('Failed to delete nurse leave:', error);
+    res.status(500).json({
+      error: 'Failed to delete nurse leave',
+      message: error.message
+    });
+  }
+});
+
+// Transfer schedules from one nurse to another (for leave handover)
+app.post('/api/nurse-leaves/transfer-schedules', async (req, res) => {
+  try {
+    const user = await getUserFromToken(req);
+    if (!user) {
+      return res.status(401).json({
+        error: 'Authentication required',
+        message: '请先登录'
+      });
+    }
+
+    // Get user details
+    const userResult = await pool.query(
+      'SELECT id, role, store_id FROM profiles WHERE id = $1',
+      [user.userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(401).json({
+        error: 'User not found',
+        message: '用户不存在'
+      });
+    }
+
+    const userProfile = userResult.rows[0];
+
+    // Only head_nurse and super_admin can transfer schedules
+    if (userProfile.role !== 'head_nurse' && userProfile.role !== 'super_admin') {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: '只有护士长和管理员可以交接排班'
+      });
+    }
+
+    const { from_nurse_id, to_nurse_id, schedule_ids } = req.body;
+
+    // Validate required fields
+    if (!from_nurse_id || !to_nurse_id || !schedule_ids || !Array.isArray(schedule_ids)) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: '缺少必填字段: from_nurse_id, to_nurse_id, schedule_ids (array)'
+      });
+    }
+
+    if (schedule_ids.length === 0) {
+      return res.status(400).json({
+        error: 'Empty schedule list',
+        message: '排班列表不能为空'
+      });
+    }
+
+    // Check if both nurses exist and belong to the store (for head nurses)
+    if (userProfile.role === 'head_nurse' && userProfile.store_id) {
+      const nursesResult = await pool.query(
+        'SELECT id, store_id FROM profiles WHERE id = ANY($1)',
+        [[from_nurse_id, to_nurse_id]]
+      );
+
+      if (nursesResult.rows.length !== 2) {
+        return res.status(404).json({
+          error: 'Nurse not found',
+          message: '一个或多个护士不存在'
+        });
+      }
+
+      const invalidNurse = nursesResult.rows.find(n => n.store_id !== userProfile.store_id);
+      if (invalidNurse) {
+        return res.status(403).json({
+          error: 'Access denied',
+          message: '护士长只能交接本门店护士的排班'
+        });
+      }
+    }
+
+    // Begin transaction
+    await pool.query('BEGIN');
+
+    try {
+      // Update schedules
+      const updateResult = await pool.query(
+        `UPDATE schedules 
+         SET nurse_id = $1, updated_by = $2, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ANY($3) AND nurse_id = $4
+         RETURNING *`,
+        [to_nurse_id, user.userId, schedule_ids, from_nurse_id]
+      );
+
+      if (updateResult.rows.length === 0) {
+        throw new Error('没有找到匹配的排班记录或排班不属于指定护士');
+      }
+
+      // Log the transfer in task_executions notes if needed
+      // This could be extended to create audit trail entries
+
+      await pool.query('COMMIT');
+
+      res.json({
+        success: true,
+        transferred_count: updateResult.rows.length,
+        schedules: updateResult.rows,
+        message: `成功交接 ${updateResult.rows.length} 个排班`
+      });
+    } catch (error) {
+      await pool.query('ROLLBACK');
+      throw error;
+    }
+  } catch (error) {
+    console.error('Failed to transfer schedules:', error);
+    res.status(500).json({
+      error: 'Failed to transfer schedules',
+      message: error.message
+    });
+  }
 });
 
 // Start server

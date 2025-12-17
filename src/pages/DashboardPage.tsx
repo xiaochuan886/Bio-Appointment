@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AlertCircle, Store as StoreIcon, Menu } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import clientApi from '@/services/api-client';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
@@ -13,6 +13,7 @@ import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 
 export default function DashboardPage() {
   const { isMobile, isTablet } = useIsMobile();
+  // 使用当前日期作为默认值，确保所有子组件共享此状态
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [stats, setStats] = useState({
     todayAppointments: 0,
@@ -112,6 +113,8 @@ export default function DashboardPage() {
     return (
       <MobileLayout
         title="工作台"
+        className="h-screen flex flex-col"
+        bottomPadding={false}
         rightAction={
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
             <SheetTrigger asChild>
@@ -125,94 +128,68 @@ export default function DashboardPage() {
           </Sheet>
         }
       >
-        <div className="p-4 space-y-6">
-          {/* 移动端日期选择 */}
-          <div className="flex justify-between items-center bg-muted/30 p-2 rounded-lg">
-            <span className="text-sm font-medium pl-2">统计日期</span>
-            <DateRangePicker
-              selectedDate={selectedDate}
-              onDateChange={setSelectedDate}
-              viewMode="day"
-            />
-          </div>
+        {/* 固定头部日期选择器 */}
+        <div className="sticky top-0 z-30 bg-background/95 backdrop-blur border-b px-4 py-3 flex items-center justify-between shadow-sm">
+          <span className="text-sm font-medium">统计日期</span>
+          <DateRangePicker
+            selectedDate={selectedDate}
+            onDateChange={setSelectedDate}
+            viewMode="day"
+          />
+        </div>
 
-          {/* 移动端统计卡片 */}
-          <div className="grid grid-cols-2 gap-3">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-xs font-medium">今日预约</CardTitle>
-                <AlertCircle className="h-3 w-3 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-xl font-bold text-primary">{stats.todayAppointments}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {format(selectedDate, 'MM月dd日')}
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-xs font-medium">待排班</CardTitle>
-                <AlertCircle className="h-3 w-3 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-xl font-bold text-pending">{stats.pendingSchedules}</div>
-                <p className="text-xs text-muted-foreground mt-1">等待排班</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-xs font-medium">急单</CardTitle>
-                <AlertCircle className="h-3 w-3 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-xl font-bold text-urgent">{stats.urgentAppointments}</div>
-                <p className="text-xs text-muted-foreground mt-1">优先处理</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-xs font-medium">进行中</CardTitle>
-                <AlertCircle className="h-3 w-3 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-xl font-bold text-confirmed">{stats.activeTasks}</div>
-                <p className="text-xs text-muted-foreground mt-1">服务中</p>
-              </CardContent>
-            </Card>
-          </div>
+        {/* 可滚动内容区域 */}
+        <div className="flex-1 overflow-auto p-4 space-y-6 pb-20">
+          {/* 移动端统计卡片 - 合并为单行展示 */}
+          <Card className="shadow-sm">
+            <CardContent className="p-4">
+              <div className="flex flex-row items-center divide-x divide-gray-100">
+                <div className="flex-1 flex flex-col items-center justify-center text-center px-1">
+                  <span className="text-xl font-bold text-primary leading-none mb-1">{stats.todayAppointments}</span>
+                  <span className="text-[10px] text-muted-foreground">今日预约</span>
+                </div>
+                <div className="flex-1 flex flex-col items-center justify-center text-center px-1">
+                  <span className="text-xl font-bold text-pending leading-none mb-1">{stats.pendingSchedules}</span>
+                  <span className="text-[10px] text-muted-foreground">待排班</span>
+                </div>
+                <div className="flex-1 flex flex-col items-center justify-center text-center px-1">
+                  <span className="text-xl font-bold text-urgent leading-none mb-1">{stats.urgentAppointments}</span>
+                  <span className="text-[10px] text-muted-foreground">急单</span>
+                </div>
+                <div className="flex-1 flex flex-col items-center justify-center text-center px-1">
+                  <span className="text-xl font-bold text-confirmed leading-none mb-1">{stats.activeTasks}</span>
+                  <span className="text-[10px] text-muted-foreground">进行中</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
           {/* 管理员专属统计 */}
           {(userRole === 'super_admin' || userRole === 'admin') && (
-            <div className="grid grid-cols-2 gap-3">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-xs font-medium">总门店</CardTitle>
-                  <StoreIcon className="h-3 w-3 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-xl font-bold text-orange-600">{stats.totalStores}</div>
-                  <p className="text-xs text-muted-foreground mt-1">所有门店</p>
+            <div className="grid grid-cols-2 gap-2">
+              <Card className="shadow-sm">
+                <CardContent className="p-2 flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-muted-foreground">总门店</span>
+                    <span className="text-lg font-bold text-orange-600">{stats.totalStores}</span>
+                  </div>
+                  <StoreIcon className="h-4 w-4 text-muted-foreground opacity-50" />
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-xs font-medium">营业中</CardTitle>
-                  <StoreIcon className="h-3 w-3 text-green-600" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-xl font-bold text-green-600">{stats.activeStores}</div>
-                  <p className="text-xs text-muted-foreground mt-1">正常营业</p>
+              <Card className="shadow-sm">
+                <CardContent className="p-2 flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-muted-foreground">营业中</span>
+                    <span className="text-lg font-bold text-green-600">{stats.activeStores}</span>
+                  </div>
+                  <StoreIcon className="h-4 w-4 text-green-600 opacity-50" />
                 </CardContent>
               </Card>
             </div>
           )}
 
-          {/* 移动端资源看板 */}
+          {/* 移动端资源看板 - 直接传入 selectedDate 并不再展示日期选择 */}
           <ResourceBoard date={selectedDate} onDateChange={setSelectedDate} />
         </div>
       </MobileLayout>

@@ -12,6 +12,7 @@ import SalesAppointmentPage from '@/pages/sales/AppointmentPage';
 
 // 护士长端页面
 import HeadNurseSchedulePage from '@/pages/head-nurse/SchedulePage';
+import NurseLeaveManagementPage from '@/pages/head-nurse/NurseLeaveManagementPage';
 
 // 护士端页面
 import NurseTaskPage from '@/pages/nurse/TaskPage';
@@ -62,7 +63,7 @@ const routes: RouteConfig[] = [
     visible: false,
     requireAuth: false,
   },
-  
+
   // 需要登录的路由
   {
     name: '工作台',
@@ -83,6 +84,14 @@ const routes: RouteConfig[] = [
     name: '智能排班',
     path: '/head-nurse/schedule',
     element: <HeadNurseSchedulePage />,
+    visible: true,
+    requireAuth: true,
+    requiredRole: ['head_nurse', 'super_admin'],
+  },
+  {
+    name: '休假管理',
+    path: '/head-nurse/leaves',
+    element: <NurseLeaveManagementPage />,
     visible: true,
     requireAuth: true,
     requiredRole: ['head_nurse', 'super_admin'],
