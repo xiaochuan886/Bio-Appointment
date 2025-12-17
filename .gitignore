@@ -27,3 +27,25 @@ package-lock.json
 .sync
 history/*.json
 .vite_cache
+
+# Test and debug files
+*.cjs
+test-*.sh
+test-*.js
+debug-*.cjs
+check-*.cjs
+fix-*.cjs
+verify-*.cjs
+clean-*.cjs
+create-*.cjs
+simulate*.cjs
+diagnose*.cjs
+
+# Test directories
+test-reports/
+test-screenshots/
+screenshots/
+
+# Temporary files
+*.tmp
+*.temp
