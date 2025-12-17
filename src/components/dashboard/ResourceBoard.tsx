@@ -14,17 +14,31 @@ import clientApi from '@/services/api-client';
 import type { ScheduleWithDetails, Nurse, Room, Profile as TypeProfile } from '@/types/types';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Profile as ApiProfile } from '@/services/api-client';
+import { useIsMobile } from '@/hooks/use-mobile';
+import MobileResourceBoard from '@/components/mobile/MobileResourceBoard';
 
 // 扩展ResourceFilterType以包含doctor
 type ExtendedResourceFilterType = ResourceFilterType | 'doctor';
 
 interface ResourceBoardProps {
   className?: string;
+  date?: Date;
+  onDateChange?: (date: Date) => void;
 }
 
-export default function ResourceBoard({ className }: ResourceBoardProps) {
+export default function ResourceBoard({ className, date, onDateChange }: ResourceBoardProps) {
   const { user } = useAuth();
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const { isMobile, isTablet } = useIsMobile();
+  const [internalDate, setInternalDate] = useState<Date>(new Date());
+  const selectedDate = date || internalDate;
+
+  const handleDateChange = (newDate: Date) => {
+    if (onDateChange) {
+      onDateChange(newDate);
+    } else {
+      setInternalDate(newDate);
+    }
+  };
   // 固定为日视图，不再需要viewMode状态
   const viewMode = 'day' as const;
   const [resourceFilters, setResourceFilters] = useState<ExtendedResourceFilterType[]>(['room', 'nurse']);
@@ -82,7 +96,7 @@ export default function ResourceBoard({ className }: ResourceBoardProps) {
   // 获取资源统计信息
   const getResourceStats = () => {
     const today = format(selectedDate, 'yyyy-MM-dd');
-    const todaySchedules = schedules.filter(s => 
+    const todaySchedules = schedules.filter(s =>
       format(new Date(s.scheduled_date), 'yyyy-MM-dd') === today
     );
 
@@ -93,7 +107,7 @@ export default function ResourceBoard({ className }: ResourceBoardProps) {
         const end = parseInt(schedule.scheduled_time_end.split(':')[0]);
         return total + (end - start);
       }, 0);
-      
+
       return {
         ...room,
         occupiedCount: roomSchedules.length,
@@ -109,7 +123,7 @@ export default function ResourceBoard({ className }: ResourceBoardProps) {
         const end = parseInt(schedule.scheduled_time_end.split(':')[0]);
         return total + (end - start);
       }, 0);
-      
+
       return {
         ...nurse,
         occupiedCount: nurseSchedules.length,
@@ -127,7 +141,7 @@ export default function ResourceBoard({ className }: ResourceBoardProps) {
         const end = parseInt(schedule.scheduled_time_end.split(':')[0]);
         return total + (end - start);
       }, 0);
-      
+
       return {
         ...doctor,
         occupiedCount: doctorSchedules.length,
@@ -141,6 +155,11 @@ export default function ResourceBoard({ className }: ResourceBoardProps) {
 
   const { roomStats, nurseStats, doctorStats } = getResourceStats();
 
+
+  // 如果是移动端或平板，使用移动端组件
+  if (isMobile || isTablet) {
+    return <MobileResourceBoard className={className} date={selectedDate} onDateChange={onDateChange || setInternalDate} />;
+  }
 
   return (
     <div className={`space-y-6 ${className}`}>
@@ -175,7 +194,7 @@ export default function ResourceBoard({ className }: ResourceBoardProps) {
                   </SelectContent>
                 </Select>
               </div>
-              
+
               {/* 资源类型筛选 - 自定义实现以支持医生 */}
               <Card className="p-4">
                 <div className="space-y-4">
@@ -241,11 +260,11 @@ export default function ResourceBoard({ className }: ResourceBoardProps) {
                   </div>
                 </div>
               </Card>
-              
+
               {/* 日期选择 */}
               <DateRangePicker
                 selectedDate={selectedDate}
-                onDateChange={setSelectedDate}
+                onDateChange={handleDateChange}
                 viewMode={viewMode}
               />
             </div>
@@ -278,7 +297,7 @@ export default function ResourceBoard({ className }: ResourceBoardProps) {
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground">平均利用率</span>
                 <Badge variant="outline">
-                  {rooms.length > 0 
+                  {rooms.length > 0
                     ? Math.round(roomStats.reduce((sum, r) => sum + r.utilizationRate, 0) / rooms.length)
                     : 0}%
                 </Badge>
@@ -310,7 +329,7 @@ export default function ResourceBoard({ className }: ResourceBoardProps) {
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground">平均利用率</span>
                 <Badge variant="outline">
-                  {nurses.length > 0 
+                  {nurses.length > 0
                     ? Math.round(nurseStats.reduce((sum, n) => sum + n.utilizationRate, 0) / nurses.length)
                     : 0}%
                 </Badge>
@@ -342,7 +361,7 @@ export default function ResourceBoard({ className }: ResourceBoardProps) {
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground">平均利用率</span>
                 <Badge variant="outline">
-                  {doctors.length > 0 
+                  {doctors.length > 0
                     ? Math.round(doctorStats.reduce((sum, d) => sum + d.utilizationRate, 0) / doctors.length)
                     : 0}%
                 </Badge>
@@ -357,7 +376,7 @@ export default function ResourceBoard({ className }: ResourceBoardProps) {
         <CardHeader>
           <CardTitle>资源占用甘特图</CardTitle>
           <CardDescription>
-            {selectedStoreId === 'all' ? '所有门店' : stores.find(s => s.id === selectedStoreId)?.name} - 
+            {selectedStoreId === 'all' ? '所有门店' : stores.find(s => s.id === selectedStoreId)?.name} -
             视图：日视图
           </CardDescription>
         </CardHeader>
