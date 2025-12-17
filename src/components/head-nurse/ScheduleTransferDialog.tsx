@@ -63,8 +63,19 @@ export function ScheduleTransferDialog({
             setLoading(true);
 
             // 1. Load available target nurses (excluding source nurse)
-            const nurses = await clientApi.getStoreStaff(storeId || '', 'nurse');
-            setAvailableNurses(nurses.filter((n: any) => n.id !== sourceNurseId && n.status === 'active'));
+            if (storeId) {
+                console.log('🔍 [DEBUG] ScheduleTransferDialog - 使用getStoreStaff，storeId:', storeId);
+                const nurses = await clientApi.getStoreStaff(storeId, 'nurse');
+                setAvailableNurses(nurses.filter((n: any) => n.id !== sourceNurseId && n.status === 'active'));
+            } else {
+                console.log('⚠️ [WARN] ScheduleTransferDialog - storeId为空，使用profiles API');
+                const allProfiles = await clientApi.getProfiles();
+                const nurses = allProfiles.filter((p: any) =>
+                    (p.role === 'nurse' || p.role === 'head_nurse') &&
+                    p.status === 'active'
+                );
+                setAvailableNurses(nurses.filter((n: any) => n.id !== sourceNurseId));
+            }
 
             // 2. Load schedules if not provided
             if (schedulesToTransfer && schedulesToTransfer.length > 0) {
@@ -87,7 +98,7 @@ export function ScheduleTransferDialog({
                 setSelectedScheduleIds(fetchedSchedules.map(s => s.id));
             }
         } catch (error) {
-            console.error('Failed to load transfer data:', error);
+            console.error('❌ Failed to load transfer data:', error);
             toast.error('加载排班数据失败');
         } finally {
             setLoading(false);

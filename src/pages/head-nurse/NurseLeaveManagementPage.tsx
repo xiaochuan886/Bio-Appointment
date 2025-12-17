@@ -53,13 +53,15 @@ export default function NurseLeaveManagementPage() {
     const loadLeaves = async () => {
         try {
             setLoading(true);
-            const storeId = user?.store_id;
+            const storeId = user?.profile?.store_id;
+            console.log('🔍 [DEBUG] NurseLeaveManagementPage - storeId:', storeId, 'user:', user?.profile);
             // API supports filters, here we fetch recent/upcoming ones primarily
             // Or all for simplicity as pagination is inside result if backend supported it, but our backend sends all
             const result: any = await clientApi.getNurseLeaves({
                 store_id: storeId,
                 // Optional: date_from: format(new Date(), 'yyyy-MM-01') 
             });
+            console.log('🔍 [DEBUG] 休假列表数据:', result);
             setLeaves(result);
         } catch (error) {
             console.error('Failed to load leaves:', error);
@@ -156,6 +158,7 @@ export default function NurseLeaveManagementPage() {
                                 <TableHead>护士姓名</TableHead>
                                 <TableHead>日期</TableHead>
                                 <TableHead>时段</TableHead>
+                                <TableHead>交接状态</TableHead>
                                 <TableHead>原因</TableHead>
                                 <TableHead>创建人</TableHead>
                                 <TableHead className="text-right">操作</TableHead>
@@ -164,13 +167,13 @@ export default function NurseLeaveManagementPage() {
                         <TableBody>
                             {loading ? (
                                 <TableRow>
-                                    <TableCell colSpan={6} className="text-center py-8">
+                                    <TableCell colSpan={7} className="text-center py-8">
                                         加载中...
                                     </TableCell>
                                 </TableRow>
                             ) : filteredLeaves.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                                         暂无休假记录
                                     </TableCell>
                                 </TableRow>
@@ -185,6 +188,28 @@ export default function NurseLeaveManagementPage() {
                                             </div>
                                         </TableCell>
                                         <TableCell>{getLeavePeriodLabel(leave.leave_period)}</TableCell>
+                                        <TableCell>
+                                            {leave.needs_transfer ? (
+                                                leave.transfer_completed ? (
+                                                    <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                                                        ✓ 已交接
+                                                    </Badge>
+                                                ) : (
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-7 px-3 bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100"
+                                                        onClick={() => handleInitiateTransfer(leave)}
+                                                    >
+                                                        ⚠ 需交接 ({leave.conflict_count})
+                                                    </Button>
+                                                )
+                                            ) : (
+                                                <Badge variant="outline" className="bg-gray-50 text-gray-600 border-gray-200">
+                                                    无需交接
+                                                </Badge>
+                                            )}
+                                        </TableCell>
                                         <TableCell className="max-w-[200px] truncate" title={leave.reason}>
                                             {leave.reason}
                                         </TableCell>
@@ -203,9 +228,6 @@ export default function NurseLeaveManagementPage() {
                                                     <DropdownMenuLabel>操作</DropdownMenuLabel>
                                                     <DropdownMenuItem onClick={() => handleEditLeave(leave)}>
                                                         编辑记录
-                                                    </DropdownMenuItem>
-                                                    <DropdownMenuItem onClick={() => handleInitiateTransfer(leave)}>
-                                                        交接排班
                                                     </DropdownMenuItem>
                                                     <DropdownMenuSeparator />
                                                     <DropdownMenuItem
@@ -231,7 +253,7 @@ export default function NurseLeaveManagementPage() {
                 onClose={() => setIsLeaveDialogOpen(false)}
                 onSuccess={loadLeaves}
                 leaveToEdit={selectedLeave}
-                storeId={user?.store_id}
+                storeId={user?.profile?.store_id}
             />
 
             <ScheduleTransferDialog
@@ -240,7 +262,7 @@ export default function NurseLeaveManagementPage() {
                 onSuccess={() => toast.success('交接完成')}
                 sourceNurseId={transferSourceId}
                 sourceNurseName={transferSourceName}
-                storeId={user?.store_id}
+                storeId={user?.profile?.store_id}
                 dateRange={transferDateRange}
             />
         </div>

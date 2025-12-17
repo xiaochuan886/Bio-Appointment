@@ -258,6 +258,7 @@ export interface Profile {
   phone?: string;
   department?: string;
   store_id?: string;
+  status?: string;
   created_at: string;
   updated_at: string;
 }
@@ -697,7 +698,9 @@ export const clientApi = {
 
   async getStoreStaff(id: string, role?: string): Promise<StoreStaff[]> {
     const query = role ? `?role=${role}` : '';
-    return authenticatedApiCall(`/stores/${id}/staff${query}`);
+    const response = await authenticatedApiCall(`/stores/${id}/staff${query}`);
+    // API返回格式: { store_id, staff: [] }
+    return response.staff || response;
   },
 
   // Nurse Leave Management

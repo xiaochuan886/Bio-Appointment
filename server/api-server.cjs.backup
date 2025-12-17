@@ -2474,150 +2474,89 @@ app.get('/api/dashboard/stats', async (req, res) => {
   }
 });
 
-// Resource availability - 使用与创建预约相同的资源统计逻辑
-// 此API确保检查整个时间段(time_start到time_end)内的资源连续可用性
+// Resource availability
 app.get('/api/resources/availability', async (req, res) => {
-    try {
-        const { date, time_start, time_end, store_id } = req.query;
+  try {
+    const { date, time_start, time_end, store_id } = req.query;
 
-        if (!date || !time_start || !time_end) {
-            return res.status(400).json({
-                error: 'Missing required parameters: date, time_start, time_end'
-            });
-        }
-
-        if (!store_id) {
-            return res.status(400).json({
-                error: 'store_id is required'
-            });
-        }
-
-        console.log('🔍 [资源可用性检查] 参数:', { date, time_start, time_end, store_id });
-
-        // 1. 统计门店活跃护士总数
-        const totalNursesResult = await pool.query(
-            `SELECT COUNT(*) as total FROM profiles 
-       WHERE store_id = $1 
-       AND (role = 'nurse' OR role = 'head_nurse') 
-       AND status = 'active'`,
-            [store_id]
-        );
-        const totalNurses = parseInt(totalNursesResult.rows[0].total);
-
-        // 2. 统计门店活跃房间总数
-        const totalRoomsResult = await pool.query(
-            `SELECT COUNT(*) as total FROM resources 
-       WHERE store_id = $1 
-       AND type = 'room' 
-       AND status = 'available'`,
-            [store_id]
-        );
-        const totalRooms = parseInt(totalRoomsResult.rows[0].total);
-
-        // 3. 统计在整个时间段[time_start, time_end]内有任何时间被占用的护士数
-        // 使用重叠判断：任何在这段时间内有部分时间被占用的护士都不能用于新预约
-        const scheduledNursesResult = await pool.query(
-            `SELECT COUNT(DISTINCT nurse_id) as count FROM schedules 
-       WHERE nurse_id IS NOT NULL
-       AND DATE(scheduled_date) = $1
-       AND status = 'scheduled'
-       AND (
-         (scheduled_time_start < $3 AND scheduled_time_end > $2)
-         OR (scheduled_time_start >= $2 AND scheduled_time_start < $3)
-       )
-       AND EXISTS (
-         SELECT 1 FROM profiles WHERE id = schedules.nurse_id AND store_id = $4
-       )`,
-            [date, time_start, time_end, store_id]
-        );
-        const scheduledNurses = parseInt(scheduledNursesResult.rows[0].count);
-
-        // 4. 统计在整个时间段内有任何时间被占用的房间数
-        const scheduledRoomsResult = await pool.query(
-            `SELECT COUNT(DISTINCT room_id) as count FROM schedules 
-       WHERE room_id IS NOT NULL
-       AND DATE(scheduled_date) = $1
-       AND status = 'scheduled'
-       AND (
-         (scheduled_time_start < $3 AND scheduled_time_end > $2)
-         OR (scheduled_time_start >= $2 AND scheduled_time_start < $3)
-       )
-       AND EXISTS (
-         SELECT 1 FROM resources WHERE id = schedules.room_id AND store_id = $4
-       )`,
-            [date, time_start, time_end, store_id]
-        );
-        const scheduledRooms = parseInt(scheduledRoomsResult.rows[0].count);
-
-        // 5. 统计该时段休假的护士数（根据时间段判断上午/下午/全天）
-        const leavingNursesResult = await pool.query(
-            `SELECT COUNT(DISTINCT nurse_id) as count FROM nurse_leaves 
-       WHERE leave_date = $1
-       AND (
-         leave_period = 'full_day'
-         OR (leave_period = 'morning' AND $2 < '12:00:00')
-         OR (leave_period = 'afternoon' AND $2 >= '12:00:00')
-       )
-       AND EXISTS (
-         SELECT 1 FROM profiles WHERE id = nurse_leaves.nurse_id AND store_id = $3
-       )`,
-            [date, time_start, store_id]
-        );
-        const leavingNurses = parseInt(leavingNursesResult.rows[0].count);
-
-        // 6. 统计该时段未排班预约的数量（这些预约已预占资源）
-        const pendingAppointmentsResult = await pool.query(
-            `SELECT COUNT(*) as count FROM appointments 
-       WHERE store_id = $1
-       AND DATE(requested_date) = $2
-       AND workflow_status = 'pending_nurse_assignment'
-       AND requires_nurse_scheduling = true
-       AND (
-         (requested_time_start < $4 AND requested_time_end > $3)
-         OR (requested_time_start >= $3 AND requested_time_start < $4)
-       )
-       AND NOT EXISTS (
-         SELECT 1 FROM schedules WHERE schedules.appointment_id = appointments.id
-       )`,
-            [store_id, date, time_start, time_end]
-        );
-        const pendingAppointments = parseInt(pendingAppointmentsResult.rows[0].count);
-
-        // 7. 计算可用资源
-        // 可用护士 = 总护士数 - 已排班占用 - 休假 - 未排班预约预占
-        // 可用房间 = 总房间数 - 已排班占用 - 未排班预约预占
-        const availableNurses = totalNurses - scheduledNurses - leavingNurses - pendingAppointments;
-        const availableRooms = totalRooms - scheduledRooms - pendingAppointments;
-
-        console.log('🔍 [资源可用性检查] 结果:', {
-            护士: { 总数: totalNurses, 已排班: scheduledNurses, 休假: leavingNurses, 预占: pendingAppointments, 可用: availableNurses },
-            房间: { 总数: totalRooms, 已使用: scheduledRooms, 预占: pendingAppointments, 可用: availableRooms }
-        });
-
-        res.json({
-            date,
-            time_start,
-            time_end,
-            store_id,
-            total_nurses: totalNurses,
-            scheduled_nurses: scheduledNurses,
-            leaving_nurses: leavingNurses,
-            pending_appointments: pendingAppointments,
-            available_nurses: availableNurses,
-            total_rooms: totalRooms,
-            scheduled_rooms: scheduledRooms,
-            available_rooms: availableRooms,
-            has_available_room: availableRooms > 0,
-            has_available_nurse: availableNurses > 0,
-            can_book: availableNurses > 0 && availableRooms > 0
-        });
-    } catch (error) {
-        console.error('❌ [资源可用性检查] 错误:', error);
-        res.status(500).json({
-            error: 'Failed to check resource availability',
-            message: error.message
-        });
+    if (!date || !time_start || !time_end) {
+      return res.status(400).json({
+        error: 'Missing required parameters: date, time_start, time_end'
+      });
     }
+
+    console.log('🔍 [资源可用性检查] 参数:', { date, time_start, time_end, store_id });
+
+    // 查询在指定时间段内可用的房间（没有被排班占用的）
+    let roomQuery = `
+      SELECT r.* 
+      FROM resources r
+      WHERE r.type IN ('room', 'vip', 'treatment', 'consultation')
+        AND r.status = 'available'
+        ${store_id ? 'AND r.store_id = $4' : ''}
+        AND NOT EXISTS (
+          SELECT 1 FROM schedules s
+          WHERE s.room_id = r.id
+            AND s.scheduled_date = $1
+            AND s.status != 'cancelled'
+            AND (s.scheduled_time_start, s.scheduled_time_end) OVERLAPS ($2::time, $3::time)
+        )
+      ORDER BY r.name
+    `;
+
+    // 查询在指定时间段内可用的护士（没有被排班占用的）
+    // 注意：schedules.nurse_id 关联的是 profiles 表，不是 resources 表
+    let nurseQuery = `
+      SELECT p.id, p.full_name as name, p.role as type, p.store_id
+      FROM profiles p
+      WHERE p.role IN ('nurse', 'head_nurse')
+        AND p.status = 'active'
+        ${store_id ? 'AND p.store_id = $4' : ''}
+        AND NOT EXISTS (
+          SELECT 1 FROM schedules s
+          WHERE s.nurse_id = p.id
+            AND s.scheduled_date = $1
+            AND s.status != 'cancelled'
+            AND (s.scheduled_time_start, s.scheduled_time_end) OVERLAPS ($2::time, $3::time)
+        )
+      ORDER BY p.full_name
+    `;
+
+    const queryParams = store_id
+      ? [date, time_start, time_end, store_id]
+      : [date, time_start, time_end];
+
+    const [roomResult, nurseResult] = await Promise.all([
+      pool.query(roomQuery, queryParams),
+      pool.query(nurseQuery, queryParams)
+    ]);
+
+    console.log('🔍 [资源可用性检查] 结果:', {
+      可用房间数: roomResult.rows.length,
+      可用护士数: nurseResult.rows.length
+    });
+
+    // 合并所有可用资源
+    const availableResources = [...roomResult.rows, ...nurseResult.rows];
+
+    res.json({
+      date,
+      time_start,
+      time_end,
+      available_resources: availableResources,
+      available_rooms: roomResult.rows,
+      available_nurses: nurseResult.rows,
+      total_available: availableResources.length,
+      has_available_room: roomResult.rows.length > 0,
+      has_available_nurse: nurseResult.rows.length > 0
+    });
+  } catch (error) {
+    console.error('❌ [资源可用性检查] 错误:', error);
+    res.status(500).json({
+      error: 'Failed to fetch resource availability',
+      message: error.message
+    });
+  }
 });
 
 // Get available rooms
