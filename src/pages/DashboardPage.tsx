@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { AlertCircle, Store as StoreIcon } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { AlertCircle, Store as StoreIcon, Menu } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import clientApi from '@/services/api-client';
 import { format } from 'date-fns';
@@ -9,11 +10,17 @@ import DateRangePicker from '@/components/appointment/DateRangePicker';
 import { useIsMobile } from '@/hooks/use-mobile';
 import MobileLayout from '@/components/mobile/MobileLayout';
 import { Button } from '@/components/ui/button';
+import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 
 export default function DashboardPage() {
+  const navigate = useNavigate();
   const { isMobile, isTablet } = useIsMobile();
   // 使用当前日期作为默认值，确保所有子组件共享此状态
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [userRole, setUserRole] = useState<string>('');
+
   const [stats, setStats] = useState({
     todayAppointments: 0,
     pendingSchedules: 0,
@@ -22,7 +29,7 @@ export default function DashboardPage() {
     totalStores: 0,
     activeStores: 0,
   });
-  const [userRole, setUserRole] = useState<string>('');
+
 
   useEffect(() => {
     loadStats();
@@ -78,19 +85,36 @@ export default function DashboardPage() {
     }
   };
 
+  const handleNavigation = (path: string) => {
+    navigate(path);
+    setSidebarOpen(false);
+  };
+
   // 移动端侧边栏内容
   const MobileSidebar = () => (
     <div className="p-4 space-y-4">
       <div className="space-y-2">
         <h3 className="font-semibold">快速操作</h3>
         <div className="space-y-2">
-          <Button variant="outline" className="w-full justify-start">
+          <Button
+            variant="outline"
+            className="w-full justify-start"
+            onClick={() => handleNavigation('/sales/appointment')}
+          >
             新建预约
           </Button>
-          <Button variant="outline" className="w-full justify-start">
-            查看排班
+          <Button
+            variant="outline"
+            className="w-full justify-start"
+            onClick={() => handleNavigation('/head-nurse/schedule')}
+          >
+            智能排班
           </Button>
-          <Button variant="outline" className="w-full justify-start">
+          <Button
+            variant="outline"
+            className="w-full justify-start"
+            onClick={() => handleNavigation('/nurse/tasks')}
+          >
             任务管理
           </Button>
         </div>
@@ -116,7 +140,19 @@ export default function DashboardPage() {
       >
         {/* 合并后的固定头部：标题 + 日期选择器 */}
         <div className="sticky top-0 z-30 bg-background/95 backdrop-blur border-b px-4 py-3 flex items-center justify-between shadow-sm">
-          <h1 className="text-lg font-bold">工作台</h1>
+          <div className="flex items-center gap-2">
+            <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
+              <SheetTrigger asChild>
+                <Button variant="ghost" size="icon" className="-ml-2 h-8 w-8">
+                  <Menu className="h-5 w-5" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className="w-80">
+                <MobileSidebar />
+              </SheetContent>
+            </Sheet>
+            <h1 className="text-lg font-bold">工作台</h1>
+          </div>
           <DateRangePicker
             selectedDate={selectedDate}
             onDateChange={setSelectedDate}
