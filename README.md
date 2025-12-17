@@ -131,9 +131,28 @@ npm run dev -- --host 127.0.0.1
 
 ## 📖 详细文档
 
-- [📋 部署指南](DEPLOYMENT_GUIDE.md) - 完整的部署和管理文档
+### 📚 文档中心
+- [📚 文档中心首页](docs/README.md) - 完整的文档导航和索引
+
+### 🚀 快速开始
+- [🚀 快速参考](docs/guides/QUICK_START.md) - 开发者快速上手
+- [📋 部署指南](docs/guides/DEPLOYMENT_GUIDE.md) - 完整的部署和管理文档
+- [🎨 设计指南](docs/guides/DESIGN_GUIDE.md) - UI/UX 设计规范
+
+### 🔧 功能文档
+- [🔐 认证系统](docs/features/AUTH_IMPLEMENTATION_SUMMARY.md) - 用户认证实现
+- [📅 日期过滤](docs/features/DATE_FILTER_IMPLEMENTATION_SUMMARY.md) - 日期筛选功能
+- [📊 资源过滤](docs/features/RESOURCE_FILTER_FEATURE.md) - 资源筛选系统
+- [🔔 钉钉集成](docs/dingtalk/DINGTALK_QUICK_START.md) - 钉钉快速配置
+
+### 🐛 问题排查
+- [🐛 Bug 修复总结](docs/bugfixes/BUGFIX_SUMMARY.md) - 所有 Bug 修复汇总
+- [🔍 登录问题排查](docs/guides/登录问题排查指南.md) - 登录相关问题
+
+### 📊 系统文档
+- [📈 项目状态](docs/system/PROJECT_STATUS.md) - 当前项目状态
+- [📝 变更日志](docs/system/CHANGELOG.md) - 版本更新记录
 - [🔧 OpenSpec规范](openspec/) - 系统规范和变更管理
-- [🚀 快速参考](QUICK_START.md) - 开发者快速上手
 
 ## 🔧 开发指南
 
