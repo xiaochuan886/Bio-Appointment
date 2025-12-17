@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertCircle, Store as StoreIcon, Menu } from 'lucide-react';
+import { AlertCircle, Store as StoreIcon } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import clientApi from '@/services/api-client';
 import { format } from 'date-fns';
@@ -9,7 +9,6 @@ import DateRangePicker from '@/components/appointment/DateRangePicker';
 import { useIsMobile } from '@/hooks/use-mobile';
 import MobileLayout from '@/components/mobile/MobileLayout';
 import { Button } from '@/components/ui/button';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 
 export default function DashboardPage() {
   const { isMobile, isTablet } = useIsMobile();
@@ -24,7 +23,6 @@ export default function DashboardPage() {
     activeStores: 0,
   });
   const [userRole, setUserRole] = useState<string>('');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     loadStats();
@@ -112,25 +110,13 @@ export default function DashboardPage() {
   if (isMobile || isTablet) {
     return (
       <MobileLayout
-        title="工作台"
         className="h-screen flex flex-col"
         bottomPadding={false}
-        rightAction={
-          <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
-            <SheetTrigger asChild>
-              <Button variant="ghost" size="icon">
-                <Menu className="h-4 w-4" />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="right" className="w-80">
-              <MobileSidebar />
-            </SheetContent>
-          </Sheet>
-        }
+        hideHeader={true}
       >
-        {/* 固定头部日期选择器 */}
+        {/* 合并后的固定头部：标题 + 日期选择器 */}
         <div className="sticky top-0 z-30 bg-background/95 backdrop-blur border-b px-4 py-3 flex items-center justify-between shadow-sm">
-          <span className="text-sm font-medium">统计日期</span>
+          <h1 className="text-lg font-bold">工作台</h1>
           <DateRangePicker
             selectedDate={selectedDate}
             onDateChange={setSelectedDate}
@@ -142,7 +128,7 @@ export default function DashboardPage() {
         <div className="flex-1 overflow-auto p-4 space-y-6 pb-20">
           {/* 移动端统计卡片 - 合并为单行展示 */}
           <Card className="shadow-sm">
-            <CardContent className="p-4">
+            <CardContent className="py-2.5 px-2">
               <div className="flex flex-row items-center divide-x divide-gray-100">
                 <div className="flex-1 flex flex-col items-center justify-center text-center px-1">
                   <span className="text-xl font-bold text-primary leading-none mb-1">{stats.todayAppointments}</span>

@@ -139,29 +139,7 @@ export default function MobileResourceBoard({ className, date, onDateChange }: M
         </div>
       </div>
 
-      {/* 统计卡片 - 合并为单行展示 */}
-      <Card className="shadow-sm border-none bg-accent/10">
-        <CardContent className="p-4">
-          <div className="flex flex-row items-center divide-x divide-primary/10">
-            <div className="flex-1 flex flex-col items-center justify-center text-center px-1">
-              <span className="text-xl font-bold text-primary leading-none mb-1">{stats.totalSchedules}</span>
-              <span className="text-[10px] text-muted-foreground">总排班</span>
-            </div>
-            <div className="flex-1 flex flex-col items-center justify-center text-center px-1">
-              <span className="text-xl font-bold text-blue-600 leading-none mb-1">{stats.occupiedRooms}</span>
-              <span className="text-[10px] text-muted-foreground">房间占用</span>
-            </div>
-            <div className="flex-1 flex flex-col items-center justify-center text-center px-1">
-              <span className="text-xl font-bold text-green-600 leading-none mb-1">{stats.occupiedNurses}</span>
-              <span className="text-[10px] text-muted-foreground">护士排班</span>
-            </div>
-            <div className="flex-1 flex flex-col items-center justify-center text-center px-1">
-              <span className="text-xl font-bold text-purple-600 leading-none mb-1">{stats.occupiedDoctors}</span>
-              <span className="text-[10px] text-muted-foreground">医生排班</span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+
 
       {/* 时间轴视图 */}
       <TimelineView
