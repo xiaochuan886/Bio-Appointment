@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Plus, Pencil, Trash2, AlertCircle, Store as StoreIcon } from 'lucide-react';
+import { Plus, Pencil, Trash2, AlertCircle, Store as StoreIcon, Eye, Search, Filter, MapPin, Phone, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -14,12 +14,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { getNurses, createNurse, updateNurse, deleteNurse, getDoctors, createDoctor, updateDoctor, deleteDoctor, getRooms, createRoom, updateRoom, deleteRoom } from '@/db/api';
 import clientApi from '@/services/api-client';
 import type { Nurse, Doctor, Room } from '@/types/types';
 import type { Service, Store } from '@/services/api-client';
-import StoreQuickActions from '@/components/admin/StoreQuickActions';
+import StoreFormDialog from '@/components/admin/StoreFormDialog';
+import StoreDetailDialog from '@/components/admin/StoreDetailDialog';
 import { useAuth } from '@/contexts/AuthContext';
 
 // 服务项目表单Schema
@@ -77,12 +79,23 @@ export default function SystemConfigPage() {
   const [nurseDialogOpen, setNurseDialogOpen] = useState(false);
   const [doctorDialogOpen, setDoctorDialogOpen] = useState(false);
   const [roomDialogOpen, setRoomDialogOpen] = useState(false);
+  const [storeFormDialogOpen, setStoreFormDialogOpen] = useState(false);
+  const [storeDetailDialogOpen, setStoreDetailDialogOpen] = useState(false);
 
   // 编辑状态
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [editingNurse, setEditingNurse] = useState<Nurse | null>(null);
   const [editingDoctor, setEditingDoctor] = useState<Doctor | null>(null);
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
+  const [editingStore, setEditingStore] = useState<Store | null>(null);
+  const [viewingStore, setViewingStore] = useState<Store | null>(null);
+
+  // 门店搜索和过滤状态
+  const [storeSearchTerm, setStoreSearchTerm] = useState('');
+  const [storeStatusFilter, setStoreStatusFilter] = useState<string>('all');
+  const [filteredStores, setFilteredStores] = useState<Store[]>([]);
+  const [deleteStoreDialogOpen, setDeleteStoreDialogOpen] = useState(false);
+  const [deletingStore, setDeletingStore] = useState<Store | null>(null);
 
   // 表单
   const serviceForm = useForm<ServiceFormValues>({
@@ -145,7 +158,7 @@ export default function SystemConfigPage() {
         selectedStoreId,
         timestamp: new Date().toISOString()
       });
-      
+
       // 加载门店数据（如果是管理员）
       if (profile?.role === 'super_admin' || profile?.role === 'admin') {
         try {
@@ -156,40 +169,40 @@ export default function SystemConfigPage() {
           console.error('加载门店数据失败:', error);
         }
       }
-      
+
       // 获取用户门店ID
       const userStoreId = profile?.store_id || '';
-      
+
       // 确定要查询的门店ID
       const storeIdToQuery = selectedStoreId === 'all' ? undefined : (selectedStoreId || userStoreId);
-      
+
       console.log('🔍 [DEBUG] 房间查询参数:', {
         selectedStoreId,
         userStoreId,
         storeIdToQuery
       });
-      
+
       // 修复：对于管理员角色，如果没有选择特定门店，默认显示所有房间
       const finalStoreIdQuery = (profile?.role === 'super_admin' || profile?.role === 'head_nurse') && !selectedStoreId
         ? undefined
         : storeIdToQuery;
-      
+
       console.log('🔍 [DEBUG] 最终房间查询参数:', {
         userRole: profile?.role,
         selectedStoreId,
         finalStoreIdQuery
       });
-      
+
       const [servicesData, nursesData, doctorsData, roomsData] = await Promise.all([
         clientApi.getServices(),
         getNurses(),
         getDoctors(),
         getRooms(finalStoreIdQuery),
       ]);
-      
+
       console.log('🔍 [DEBUG] 房间数据加载成功:', roomsData.length, '个房间');
       console.log('🔍 [DEBUG] 房间数据样本:', roomsData[0]);
-      
+
       setServices(servicesData);
       setNurses(nursesData);
       setDoctors(doctorsData);
@@ -241,11 +254,11 @@ export default function SystemConfigPage() {
       loadData();
     } catch (error: any) {
       console.error('删除服务失败:', error);
-      
+
       // 尝试从错误对象中获取详细信息
       let errorMessage = error.message || '删除失败';
       let detailedMessage = '';
-      
+
       // 检查是否有增强的错误信息
       if (error.detailedMessage) {
         // 使用增强的错误信息
@@ -256,7 +269,7 @@ export default function SystemConfigPage() {
         detailedMessage = error.message;
         errorMessage = '无法删除服务，该服务正在被预约使用';
       }
-      
+
       // 显示错误提示
       if (detailedMessage) {
         toast.error(errorMessage, {
@@ -297,9 +310,9 @@ export default function SystemConfigPage() {
   const handleToggleServiceStatus = async (service: Service) => {
     const newStatus = !service.is_active;
     const action = newStatus ? '启用' : '禁用';
-    
+
     if (!confirm(`确定要${action}服务"${service.name}"吗？`)) return;
-    
+
     try {
       await clientApi.updateService(service.id, { is_active: newStatus });
       toast.success(`服务${action}成功`);
@@ -419,10 +432,10 @@ export default function SystemConfigPage() {
 
   const handleAddRoom = () => {
     setEditingRoom(null);
-    
+
     // 获取用户默认门店
     const defaultStoreId = profile?.store_id || '';
-    
+
     roomForm.reset({
       name: '',
       room_type: 'treatment',
@@ -462,14 +475,14 @@ export default function SystemConfigPage() {
       // 验证门店权限
       const userStoreId = profile?.store_id || '';
       const userRole = profile?.role || '';
-      
+
       // 验证门店选择
       if (userRole === 'super_admin' || userRole === 'admin') {
         if (!values.store_id) {
           toast.error('请选择所属门店');
           return;
         }
-        
+
         // 验证门店是否存在
         const storeExists = stores.some(store => store.id === values.store_id);
         if (!storeExists) {
@@ -483,19 +496,19 @@ export default function SystemConfigPage() {
           return;
         }
       }
-      
+
       // 验证房间名称是否重复（在同一门店内）
       const existingRoom = rooms.find(room =>
         room.name === values.name &&
         room.store_id === (values.store_id || userStoreId) &&
         room.id !== editingRoom?.id
       );
-      
+
       if (existingRoom) {
         toast.error('同一门店内已存在相同名称的房间');
         return;
       }
-      
+
       if (editingRoom) {
         await updateRoom(editingRoom.id, {
           name: values.name,
@@ -571,20 +584,91 @@ export default function SystemConfigPage() {
   // 检查用户是否有权限访问门店管理
   const canManageStores = profile?.role === 'super_admin' || profile?.role === 'admin';
 
-  // 门店管理相关处理函数
-  const handleNavigateToStores = () => {
-    // 导航到门店管理页面
-    window.location.href = '/admin/stores';
+  // 门店过滤函数
+  const filterStores = () => {
+    let filtered = stores;
+
+    // 按名称搜索
+    if (storeSearchTerm) {
+      filtered = filtered.filter(store =>
+        store.name.toLowerCase().includes(storeSearchTerm.toLowerCase()) ||
+        store.address?.toLowerCase().includes(storeSearchTerm.toLowerCase())
+      );
+    }
+
+    // 按状态过滤
+    if (storeStatusFilter !== 'all') {
+      filtered = filtered.filter(store => store.status === storeStatusFilter);
+    }
+
+    setFilteredStores(filtered);
   };
 
+  // 门店过滤 effect
+  useEffect(() => {
+    filterStores();
+  }, [stores, storeSearchTerm, storeStatusFilter]);
+
+  // 门店管理相关处理函数
   const handleAddStore = () => {
-    // 导航到门店管理页面并触发添加门店
-    window.location.href = '/admin/stores?action=add';
+    setEditingStore(null);
+    setStoreFormDialogOpen(true);
+  };
+
+  const handleEditStore = (store: Store) => {
+    setEditingStore(store);
+    setStoreFormDialogOpen(true);
   };
 
   const handleViewStore = (store: Store) => {
-    // 导航到门店管理页面并查看特定门店
-    window.location.href = `/admin/stores?action=view&id=${store.id}`;
+    setViewingStore(store);
+    setStoreDetailDialogOpen(true);
+  };
+
+  // 打开删除确认对话框
+  const handleDeleteStore = (store: Store) => {
+    setDeletingStore(store);
+    setDeleteStoreDialogOpen(true);
+  };
+
+  // 确认删除门店
+  const confirmDeleteStore = async () => {
+    if (!deletingStore) return;
+
+    try {
+      await clientApi.deleteStore(deletingStore.id);
+      toast.success('删除成功');
+      loadData();
+    } catch (error: any) {
+      toast.error(error.message || '删除失败');
+    } finally {
+      setDeleteStoreDialogOpen(false);
+      setDeletingStore(null);
+    }
+  };
+
+  const handleStoreSubmit = async (values: any) => {
+    try {
+      if (editingStore) {
+        await clientApi.updateStore(editingStore.id, values);
+        toast.success('更新成功');
+      } else {
+        await clientApi.createStore(values);
+        toast.success('添加成功');
+      }
+      setStoreFormDialogOpen(false);
+      loadData();
+    } catch (error: any) {
+      toast.error(error.message || '操作失败');
+    }
+  };
+
+  const getStoreStatusBadge = (status: string) => {
+    return status === 'active' ? (
+      <Badge className="bg-green-500">营业中</Badge>
+    ) : (
+      <Badge variant="secondary">已停业</Badge>
+    );
   };
 
   return (
@@ -729,9 +813,9 @@ export default function SystemConfigPage() {
                               <FormItem>
                                 <FormLabel>基础时长 (分钟) *</FormLabel>
                                 <FormControl>
-                                  <Input 
-                                    type="number" 
-                                    placeholder="60" 
+                                  <Input
+                                    type="number"
+                                    placeholder="60"
                                     {...field}
                                     onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
                                   />
@@ -751,9 +835,9 @@ export default function SystemConfigPage() {
                               <FormItem>
                                 <FormLabel>最大同行人数</FormLabel>
                                 <FormControl>
-                                  <Input 
-                                    type="number" 
-                                    placeholder="5" 
+                                  <Input
+                                    type="number"
+                                    placeholder="5"
                                     {...field}
                                     onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
                                   />
@@ -774,7 +858,7 @@ export default function SystemConfigPage() {
                             render={({ field }) => {
                               const category = serviceForm.watch('category');
                               const isAutoSet = category === 'consultation' || category === 'report';
-                              
+
                               return (
                                 <FormItem className="flex items-center justify-between rounded-lg border p-4">
                                   <div className="space-y-0.5">
@@ -1471,22 +1555,176 @@ export default function SystemConfigPage() {
           <TabsContent value="stores">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <StoreIcon className="h-5 w-5" />
-                  门店管理
-                </CardTitle>
-                <CardDescription>
-                  管理系统门店信息、营业状态和资源分配
-                </CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <StoreIcon className="h-5 w-5" />
+                      门店列表
+                    </CardTitle>
+                    <CardDescription>共 {filteredStores.length} 家门店</CardDescription>
+                  </div>
+                  <Button onClick={handleAddStore}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    添加门店
+                  </Button>
+                </div>
+
+                {/* 搜索和过滤 */}
+                <div className="flex gap-4 mt-4">
+                  <div className="flex-1 relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                    <Input
+                      placeholder="搜索门店名称或地址..."
+                      value={storeSearchTerm}
+                      onChange={(e) => setStoreSearchTerm(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                  <Select value={storeStatusFilter} onValueChange={setStoreStatusFilter}>
+                    <SelectTrigger className="w-40">
+                      <Filter className="mr-2 h-4 w-4" />
+                      <SelectValue placeholder="状态筛选" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">全部状态</SelectItem>
+                      <SelectItem value="active">营业中</SelectItem>
+                      <SelectItem value="inactive">已停业</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <Alert className="mt-4">
+                  <StoreIcon className="h-4 w-4" />
+                  <AlertDescription>
+                    提示：门店停业后，该门店将不会出现在预约创建的门店选择列表中，但已关联的资源和预约不受影响。
+                  </AlertDescription>
+                </Alert>
               </CardHeader>
               <CardContent>
-                <StoreQuickActions
-                  onNavigateToStores={handleNavigateToStores}
-                  onAddStore={handleAddStore}
-                  onViewStore={handleViewStore}
-                />
+                {isLoading ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    加载中...
+                  </div>
+                ) : filteredStores.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    {stores.length === 0 ? '暂无门店数据，请点击"添加门店"按钮添加' : '没有符合筛选条件的门店'}
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>门店名称</TableHead>
+                        <TableHead>地址</TableHead>
+                        <TableHead>联系电话</TableHead>
+                        <TableHead>联系人</TableHead>
+                        <TableHead>状态</TableHead>
+                        <TableHead>创建时间</TableHead>
+                        <TableHead className="text-right">操作</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredStores.map((store) => (
+                        <TableRow key={store.id}>
+                          <TableCell className="font-medium">{store.name}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <MapPin className="h-4 w-4 text-muted-foreground" />
+                              {store.address}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <Phone className="h-4 w-4 text-muted-foreground" />
+                              {store.phone}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <User className="h-4 w-4 text-muted-foreground" />
+                              {store.contact_person}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {getStoreStatusBadge(store.status)}
+                          </TableCell>
+                          <TableCell>
+                            {new Date(store.created_at).toLocaleDateString('zh-CN')}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleViewStore(store)}
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleEditStore(store)}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDeleteStore(store)}
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
+
+            {/* 门店表单对话框 */}
+            <StoreFormDialog
+              open={storeFormDialogOpen}
+              onOpenChange={setStoreFormDialogOpen}
+              store={editingStore}
+              onSubmit={handleStoreSubmit}
+            />
+
+            {/* 门店详情对话框 */}
+            <StoreDetailDialog
+              open={storeDetailDialogOpen}
+              onOpenChange={setStoreDetailDialogOpen}
+              store={viewingStore}
+              onEdit={(store: Store) => {
+                setStoreDetailDialogOpen(false);
+                handleEditStore(store);
+              }}
+              onDelete={handleDeleteStore}
+            />
+
+            {/* 删除确认对话框 */}
+            <AlertDialog open={deleteStoreDialogOpen} onOpenChange={setDeleteStoreDialogOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>确认删除门店</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    确定要删除门店"{deletingStore?.name}"吗？删除后无法恢复。
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel onClick={() => {
+                    setDeleteStoreDialogOpen(false);
+                    setDeletingStore(null);
+                  }}>
+                    取消
+                  </AlertDialogCancel>
+                  <AlertDialogAction onClick={confirmDeleteStore} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                    删除
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </TabsContent>
         )}
       </Tabs>

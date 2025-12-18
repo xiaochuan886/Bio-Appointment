@@ -25,7 +25,6 @@ import DoctorAppointmentPage from '@/pages/doctor/AppointmentPage';
 // 管理端页面
 import SystemConfigPage from '@/pages/admin/SystemConfigPage';
 import UserManagementPage from '@/pages/admin/UserManagementPage';
-import StoreManagementPage from '@/pages/admin/StoreManagementPage';
 
 // 公共页面
 import DashboardPage from '@/pages/DashboardPage';
@@ -136,14 +135,7 @@ const routes: RouteConfig[] = [
     requireAuth: true,
     requiredRole: 'super_admin',
   },
-  {
-    name: '门店管理',
-    path: '/admin/stores',
-    element: <StoreManagementPage />,
-    visible: true,
-    requireAuth: true,
-    requiredRole: 'super_admin',
-  },
+
   {
     name: '系统配置',
     path: '/admin/config',
